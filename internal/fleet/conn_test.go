@@ -85,8 +85,8 @@ func TestOnWatchErrorFromSyncedGoesStale(t *testing.T) {
 	if s.State != Stale {
 		t.Fatalf("want Stale, got %v", s.State)
 	}
-	if s.Reason == "" {
-		t.Fatal("watch error must set a reason")
+	if !strings.Contains(s.Reason, "watch error") {
+		t.Fatalf("want reason to mention the watch error, got %q", s.Reason)
 	}
 }
 
