@@ -9,6 +9,23 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// Official install-default namespaces and controller names.
+// Non-default install paths (e.g. renamed namespaces) are not yet supported.
+const (
+	fluxNamespace          = "flux-system"
+	fluxKustomizeController = "kustomize-controller"
+	argoNamespace          = "argocd"
+	argoAppController      = "argocd-application-controller"
+)
+
+// workloadKind distinguishes the two workload types the health probe supports.
+type workloadKind int
+
+const (
+	deploymentWorkload  workloadKind = iota
+	statefulSetWorkload workloadKind = iota
+)
+
 // Detector classifies capabilities for one cluster.
 type Detector struct {
 	cs kubernetes.Interface
@@ -16,13 +33,13 @@ type Detector struct {
 
 func NewDetector(cs kubernetes.Interface) *Detector { return &Detector{cs: cs} }
 
-func metaGetOptions() metav1.GetOptions { return metav1.GetOptions{} }
-
 // servedGroups returns the set of served "group/version" strings plus bare
 // group names. Callers pin explicit versions where they matter.
 func (d *Detector) servedGroups(ctx context.Context) (map[string]bool, error) {
-	lists, err := d.cs.Discovery().ServerGroups()
+	// client-go's ServerGroups() is not context-aware; _ = ctx is intentional
+	// and should be revisited when upstream adds context support.
 	_ = ctx
+	lists, err := d.cs.Discovery().ServerGroups()
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +56,13 @@ func (d *Detector) servedGroups(ctx context.Context) (map[string]bool, error) {
 func (d *Detector) Detect(ctx context.Context) Set {
 	served, err := d.servedGroups(ctx)
 	if err != nil {
-		served = map[string]bool{}
+		// NOTE: not unit-tested because the fake discovery client does not
+		// surface ServerGroups errors via PrependReactor.
+		msg := fmt.Sprintf("capability detection failed: %v", err)
+		return Set{
+			GitOps:  GitOpsCapability{Base: Base{Tier: Absent, Reason: msg}},
+			Network: NetworkCapability{Base: Base{Tier: Absent, Reason: msg}},
+		}
 	}
 	return Set{
 		GitOps:  d.detectGitOps(ctx, served),
@@ -51,43 +74,45 @@ func (d *Detector) detectGitOps(ctx context.Context, served map[string]bool) Git
 	fluxPresent := served["kustomize.toolkit.fluxcd.io"]
 	argoPresent := served["argoproj.io"]
 
-	cap := GitOpsCapability{}
-	cap.Flux.Present = fluxPresent
-	cap.Argo.Present = argoPresent
-	cap.Coexistence = fluxPresent && argoPresent
+	out := GitOpsCapability{}
+	out.Flux.Present = fluxPresent
+	out.Argo.Present = argoPresent
+	out.Coexistence = fluxPresent && argoPresent
 
 	if !fluxPresent && !argoPresent {
-		cap.Base = Base{Tier: Absent, Reason: "no Flux or Argo CRDs installed"}
-		return cap
+		out.Base = Base{Tier: Absent, Reason: "no Flux or Argo CRDs installed"}
+		return out
 	}
 
 	var reasons []string
 	if fluxPresent {
-		healthy, reason := d.controllerHealthy(ctx, "flux-system", "kustomize-controller")
-		cap.Flux.Healthy = healthy
-		cap.Flux.Controllers = []string{"kustomize-controller"}
+		healthy, reason := d.controllerHealthy(ctx, deploymentWorkload, fluxNamespace, fluxKustomizeController)
+		out.Flux.Healthy = healthy
+		if healthy {
+			out.Flux.Controllers = []string{fluxKustomizeController}
+		}
 		if !healthy {
 			reasons = append(reasons, "Flux installed but "+reason)
 		}
 	}
 	if argoPresent {
-		healthy, reason := d.controllerHealthy(ctx, "argocd", "argocd-application-controller")
-		cap.Argo.Healthy = healthy
+		healthy, reason := d.controllerHealthy(ctx, statefulSetWorkload, argoNamespace, argoAppController)
+		out.Argo.Healthy = healthy
 		if !healthy {
 			reasons = append(reasons, "Argo installed but "+reason)
 		}
 	}
 
-	fluxOK := !fluxPresent || cap.Flux.Healthy
-	argoOK := !argoPresent || cap.Argo.Healthy
-	cap.Base.Tier = Classify(true, fluxOK && argoOK)
-	cap.Base.Reason = strings.Join(reasons, "; ")
-	return cap
+	fluxOK := !fluxPresent || out.Flux.Healthy
+	argoOK := !argoPresent || out.Argo.Healthy
+	out.Base.Tier = Classify(true, fluxOK && argoOK)
+	out.Base.Reason = strings.Join(reasons, "; ")
+	return out
 }
 
 func (d *Detector) detectNetwork(ctx context.Context, served map[string]bool) NetworkCapability {
-	cap := NetworkCapability{}
-	cap.CiliumPresent = served["cilium.io"]
+	out := NetworkCapability{}
+	out.CiliumPresent = served["cilium.io"]
 
 	gwVersion := ""
 	switch {
@@ -96,41 +121,58 @@ func (d *Detector) detectNetwork(ctx context.Context, served map[string]bool) Ne
 	case served["gateway.networking.k8s.io/v1beta1"]:
 		gwVersion = "v1beta1"
 	}
-	cap.GatewayAPIVersion = gwVersion
-	cap.HasEnvoyProxy = served["gateway.envoyproxy.io"]
+	out.GatewayAPIVersion = gwVersion
+	out.HasEnvoyProxy = served["gateway.envoyproxy.io"]
 
 	gwPresent := gwVersion != ""
-	if !gwPresent && !cap.CiliumPresent {
-		cap.Base = Base{Tier: Absent, Reason: "no Gateway API or Cilium CRDs installed"}
-		return cap
+	if !gwPresent && !out.CiliumPresent {
+		out.Base = Base{Tier: Absent, Reason: "no Gateway API or Cilium CRDs installed"}
+		return out
 	}
 
 	// Healthy requires Gateway API AND its data-plane operator (EnvoyProxy).
-	healthy := gwPresent && cap.HasEnvoyProxy
-	cap.Base.Tier = Classify(true, healthy)
+	healthy := gwPresent && out.HasEnvoyProxy
+	out.Base.Tier = Classify(true, healthy)
 	if !healthy {
-		if gwPresent && !cap.HasEnvoyProxy {
-			cap.Base.Reason = "Gateway API present but no EnvoyProxy (data plane) installed"
+		if gwPresent && !out.HasEnvoyProxy {
+			out.Base.Reason = "Gateway API present but no EnvoyProxy (data plane) installed"
 		} else if !gwPresent {
-			cap.Base.Reason = "Cilium present but Gateway API not installed"
+			out.Base.Reason = "Cilium present but Gateway API not installed"
 		}
 	}
-	return cap
+	return out
 }
 
-// controllerHealthy reports whether a controller Deployment has its desired
-// replicas available.
-func (d *Detector) controllerHealthy(ctx context.Context, ns, name string) (bool, string) {
-	dep, err := d.cs.AppsV1().Deployments(ns).Get(ctx, name, metaGetOptions())
-	if err != nil {
-		return false, fmt.Sprintf("%s deployment not found", name)
+// controllerHealthy reports whether a controller workload has its desired
+// replicas ready. Deployments check AvailableReplicas; StatefulSets check
+// ReadyReplicas.
+func (d *Detector) controllerHealthy(ctx context.Context, kind workloadKind, ns, name string) (bool, string) {
+	switch kind {
+	case statefulSetWorkload:
+		sts, err := d.cs.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Sprintf("%s statefulset not found", name)
+		}
+		want := int32(1)
+		if sts.Spec.Replicas != nil {
+			want = *sts.Spec.Replicas
+		}
+		if sts.Status.ReadyReplicas < want {
+			return false, fmt.Sprintf("%s is not ready (%d/%d ready)", name, sts.Status.ReadyReplicas, want)
+		}
+		return true, ""
+	default: // deploymentWorkload
+		dep, err := d.cs.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Sprintf("%s deployment not found", name)
+		}
+		want := int32(1)
+		if dep.Spec.Replicas != nil {
+			want = *dep.Spec.Replicas
+		}
+		if dep.Status.AvailableReplicas < want {
+			return false, fmt.Sprintf("%s is not ready (%d/%d available)", name, dep.Status.AvailableReplicas, want)
+		}
+		return true, ""
 	}
-	want := int32(1)
-	if dep.Spec.Replicas != nil {
-		want = *dep.Spec.Replicas
-	}
-	if dep.Status.AvailableReplicas < want {
-		return false, fmt.Sprintf("%s is not ready (%d/%d available)", name, dep.Status.AvailableReplicas, want)
-	}
-	return true, ""
 }

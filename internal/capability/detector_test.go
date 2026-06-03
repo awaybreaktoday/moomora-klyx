@@ -25,6 +25,14 @@ func fluxControllerDeploy(name string, ready int32) *appsv1.Deployment {
 	}
 }
 
+func argoControllerStatefulSet(name string, ready int32) *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "argocd"},
+		Status:     appsv1.StatefulSetStatus{ReadyReplicas: ready},
+		Spec:       appsv1.StatefulSetSpec{Replicas: ptr(int32(1))},
+	}
+}
+
 func ptr[T any](v T) *T { return &v }
 
 func TestDetectFluxAbsent(t *testing.T) {
@@ -59,6 +67,32 @@ func TestDetectFluxHealthy(t *testing.T) {
 	}
 	if !set.GitOps.Flux.Present || !set.GitOps.Flux.Healthy {
 		t.Fatalf("want flux present+healthy, got %+v", set.GitOps.Flux)
+	}
+}
+
+func TestDetectArgoHealthy(t *testing.T) {
+	groups := []*metav1.APIResourceList{{GroupVersion: "argoproj.io/v1alpha1"}}
+	cs := newFake(groups, argoControllerStatefulSet("argocd-application-controller", 1))
+	d := NewDetector(cs)
+	set := d.Detect(context.Background())
+	if set.GitOps.Tier != Healthy {
+		t.Fatalf("want Healthy, got %v (%s)", set.GitOps.Tier, set.GitOps.Reason)
+	}
+	if !set.GitOps.Argo.Present || !set.GitOps.Argo.Healthy {
+		t.Fatalf("want argo present+healthy, got %+v", set.GitOps.Argo)
+	}
+}
+
+func TestDetectArgoPresentButUnhealthy(t *testing.T) {
+	groups := []*metav1.APIResourceList{{GroupVersion: "argoproj.io/v1alpha1"}}
+	cs := newFake(groups, argoControllerStatefulSet("argocd-application-controller", 0))
+	d := NewDetector(cs)
+	set := d.Detect(context.Background())
+	if set.GitOps.Tier != Degraded {
+		t.Fatalf("want Degraded, got %v (%s)", set.GitOps.Tier, set.GitOps.Reason)
+	}
+	if set.GitOps.Reason == "" {
+		t.Fatal("expected a non-empty reason for degraded argo")
 	}
 }
 
