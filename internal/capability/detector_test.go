@@ -108,3 +108,51 @@ func TestDetectGatewayPresentWithoutEnvoyProxyIsDegraded(t *testing.T) {
 		t.Fatalf("want pinned version v1, got %q", set.Network.GatewayAPIVersion)
 	}
 }
+
+func TestDeploymentReady(t *testing.T) {
+	cases := []struct {
+		avail    int32
+		replicas *int32
+		want     bool
+	}{
+		{avail: 1, replicas: ptr(int32(1)), want: true},
+		{avail: 0, replicas: ptr(int32(1)), want: false},
+		{avail: 2, replicas: ptr(int32(3)), want: false},
+		{avail: 1, replicas: nil, want: true}, // nil replicas defaults to 1
+		{avail: 0, replicas: nil, want: false},
+	}
+	for _, tc := range cases {
+		d := &appsv1.Deployment{
+			Spec:   appsv1.DeploymentSpec{Replicas: tc.replicas},
+			Status: appsv1.DeploymentStatus{AvailableReplicas: tc.avail},
+		}
+		if got := DeploymentReady(d); got != tc.want {
+			t.Errorf("DeploymentReady(avail=%d, repl=%v)=%v want %v", tc.avail, tc.replicas, got, tc.want)
+		}
+	}
+}
+
+func TestStatefulSetReady(t *testing.T) {
+	d := &appsv1.StatefulSet{
+		Spec:   appsv1.StatefulSetSpec{Replicas: ptr(int32(1))},
+		Status: appsv1.StatefulSetStatus{ReadyReplicas: 1},
+	}
+	if !StatefulSetReady(d) {
+		t.Fatal("want ready")
+	}
+	d.Status.ReadyReplicas = 0
+	if StatefulSetReady(d) {
+		t.Fatal("want not ready")
+	}
+}
+
+func TestGitOpsTier(t *testing.T) {
+	tier, reason := gitOpsTier(FluxInfo{Present: true, Healthy: true}, ArgoInfo{})
+	if tier != Healthy || reason != "" {
+		t.Fatalf("want Healthy/empty, got %v/%q", tier, reason)
+	}
+	tier, reason = gitOpsTier(FluxInfo{Present: true, Healthy: false}, ArgoInfo{})
+	if tier != Degraded || reason == "" {
+		t.Fatalf("want Degraded/reason, got %v/%q", tier, reason)
+	}
+}
