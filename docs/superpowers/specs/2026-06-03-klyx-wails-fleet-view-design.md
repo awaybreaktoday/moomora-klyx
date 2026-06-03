@@ -46,10 +46,16 @@ Go code that knows about Wails, so the data layer remains reusable (e.g. for
 - `appbridge.FleetService` is bound to JS and exposes `GetFleet() []ClusterDTO`
   for initial load (plus action methods such as theme/reload later).
 - `ClusterDTO` is a JSON-friendly projection of `fleet.Snapshot` + the cluster's
-  config tags: `{name, state, reason, nodesReady, nodesTotal, pods,
-  gitopsTier, gitopsReason, networkTier, networkReason, env, region, provider,
-  group, version, lastSync, ageSeconds}`. (`version` and richer fields populate
-  as the data layer exposes them; absent ones render as their empty state.)
+  config tags, joined by cluster name: `{name, state, reason, nodesReady,
+  nodesTotal, pods, gitopsTier, gitopsReason, networkTier, networkReason, env,
+  region, provider, group, version, lastSync, ageSeconds}`.
+- **Server version capture (small data-layer addition in this slice).**
+  `fleet.Snapshot` gains a `Version string` field, populated in `connectLoop`
+  via a one-shot `c.typed.Discovery().ServerVersion()` call at connect (the same
+  place presence detection runs) and stored under the conn mutex. The card's
+  version badge (`v1.30.4` in the mockup) renders it; empty until the first
+  successful connect. This is the only change to the otherwise-untouched data
+  layer this slice requires.
 - **Live updates by event push.** A background goroutine samples
   `registry.Snapshots()` (in-memory, cheap - no API calls; the data layer is
   watch-based) on a ~1s coalescing ticker and emits a Wails event
@@ -176,3 +182,4 @@ sub-second-start / ~10-20MB targets (measured later, not a v1 gate).
 | 7 | No router dep | Few views; activeSection state suffices |
 | 8 | Pin Wails v3 version (not @latest) | Reproducible build on an alpha framework |
 | 9 | Headless verify via Vite dev URL + Playwright | Native window not visible to the agent; frontend/bridge still verifiable |
+| 10 | Capture K8s version via discovery ServerVersion() at connect (Snapshot.Version) | Populates the card version badge; one-shot discovery call, no watch |
