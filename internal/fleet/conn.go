@@ -150,9 +150,9 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 			c.refreshCounts(nodeInformer, podInformer)
 			c.setState(EvSynced, "")
 
-			// Capability health is evaluated once at startup. Re-evaluation (and
-			// the EvCapHealthy transition back to Synced) is deferred to a later
-			// slice, including re-applying this overlay after a recovery.
+			// Apply the initial tier from the one-shot Detect. startCapHealth
+			// below then keeps GitOps health live (Healthy <-> Degraded) via the
+			// controller-workload watch.
 			if caps.GitOps.Tier == capability.Degraded || caps.Network.Tier == capability.Degraded {
 				c.setState(EvCapUnhealthy, capabilityReason(caps))
 			}
@@ -166,9 +166,9 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 // refreshLoop recomputes counts on coalesced informer events for the lifetime of
 // ctx. It does not drive the initial Connecting -> Synced (connectLoop owns that,
 // to avoid racing ahead of Detect). It does recover Stale -> Synced when a relist
-// resumes after a dropped watch. A cluster that was Degraded before the drop
-// recovers to plain Synced (the Degraded capability overlay is not restored),
-// because capability re-evaluation on recovery is deferred to a later slice.
+// resumes after a dropped watch. If the cluster was Degraded by a crashlooping
+// GitOps controller, the cap-health watch relists on the same recovery and
+// re-applies Degraded, so the overlay is restored without recovery-specific code.
 func (c *ClusterConn) refreshLoop(ctx context.Context, nodeInformer, podInformer cache.SharedIndexInformer) {
 	for {
 		select {
