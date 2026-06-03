@@ -1,8 +1,8 @@
 package fleet
 
 // FleetSummary is the aggregated fleet state. Answered counts clusters whose
-// data is usable (Synced or Degraded); Partial is true when any cluster did not
-// answer.
+// data is usable (Synced, Degraded, or Stale - Stale still has a usable last
+// cache); Partial is true when any cluster did not answer.
 type FleetSummary struct {
 	TotalClusters int
 	Answered      int
