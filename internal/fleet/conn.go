@@ -158,6 +158,7 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 			if caps.GitOps.Tier == capability.Degraded || caps.Network.Tier == capability.Degraded {
 				c.setState(EvCapUnhealthy, capabilityReason(caps))
 			}
+			c.startCapHealth(ctx, caps)
 			return
 		}
 		c.setState(EvConnError, "connect timed out after "+c.connectTimeout.String())
@@ -196,6 +197,32 @@ func capabilityReason(caps capability.Set) string {
 		return caps.GitOps.Reason
 	}
 	return caps.Network.Reason
+}
+
+// applyGitOpsHealth updates the GitOps capability and drives the cap-state edges
+// (EvCapUnhealthy / EvCapHealthy) atomically under one lock. Reason is set on
+// Degraded and cleared on Healthy. Outside Synced/Degraded the transition is a
+// no-op, but caps are still updated so recovery reflects the latest health.
+func (c *ClusterConn) applyGitOpsHealth(g capability.GitOpsCapability) {
+	var ev Event
+	switch g.Tier {
+	case capability.Degraded:
+		ev = EvCapUnhealthy
+	case capability.Healthy:
+		ev = EvCapHealthy
+	default: // Absent: should not occur for a present tool
+		c.mu.Lock()
+		c.caps.GitOps = g
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Lock()
+	c.caps.GitOps = g
+	if next, ok := Transition(c.state, ev); ok {
+		c.state = next
+		c.reason = g.Reason
+	}
+	c.mu.Unlock()
 }
 
 // refreshCounts recomputes node/pod counts and lastSync from the informer
