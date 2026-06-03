@@ -11,9 +11,11 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.44.0",
     "@wailsio/runtime": "latest",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
