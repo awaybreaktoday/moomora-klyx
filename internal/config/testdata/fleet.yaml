@@ -1,0 +1,15 @@
+clusters:
+  - name: plt-sea-prd-we-aks-01
+    context: prd-we
+    tags:
+      env: prd
+      region: we
+      provider: aks
+    group: prd-we
+    metrics:
+      endpoint: https://mimir.prd-we.example/prometheus
+      token: tok-123
+  - name: vimadaboda-k3s
+    tags:
+      env: homelab
+      provider: k3s

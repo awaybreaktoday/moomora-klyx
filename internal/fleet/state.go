@@ -1,0 +1,82 @@
+package fleet
+
+// ConnState is the lifecycle state of a single cluster connection.
+type ConnState int
+
+const (
+	Unconnected ConnState = iota
+	Connecting
+	Synced
+	Degraded // connected and syncing, but a capability/metrics subsystem is unhealthy
+	Stale    // watches dropped, last cache retained
+	Failed   // connection or auth failed
+)
+
+func (s ConnState) String() string {
+	switch s {
+	case Unconnected:
+		return "Unconnected"
+	case Connecting:
+		return "Connecting"
+	case Synced:
+		return "Synced"
+	case Degraded:
+		return "Degraded"
+	case Stale:
+		return "Stale"
+	case Failed:
+		return "Failed"
+	default:
+		return "Unknown"
+	}
+}
+
+// Event drives a state transition.
+type Event int
+
+const (
+	EvStart Event = iota
+	EvSynced
+	EvConnError
+	EvWatchDrop
+	EvCapUnhealthy
+	EvCapHealthy
+)
+
+// Transition returns the next state and whether the transition is legal.
+// Illegal transitions return the original state and false.
+func Transition(from ConnState, ev Event) (ConnState, bool) {
+	// A connection error is terminal-to-Failed from any connected state.
+	if ev == EvConnError {
+		return Failed, true
+	}
+	switch from {
+	case Unconnected, Failed:
+		if ev == EvStart {
+			return Connecting, true
+		}
+	case Connecting:
+		if ev == EvSynced {
+			return Synced, true
+		}
+	case Synced:
+		switch ev {
+		case EvCapUnhealthy:
+			return Degraded, true
+		case EvWatchDrop:
+			return Stale, true
+		}
+	case Degraded:
+		switch ev {
+		case EvCapHealthy:
+			return Synced, true
+		case EvWatchDrop:
+			return Stale, true
+		}
+	case Stale:
+		if ev == EvSynced {
+			return Synced, true
+		}
+	}
+	return from, false
+}
