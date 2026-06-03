@@ -1,0 +1,83 @@
+// Package capability models tiered capability detection. Presence-only is
+// insufficient: a tool can be installed but not working, so state is tiered.
+package capability
+
+// Tier is the three-state classification for any capability.
+type Tier int
+
+const (
+	Absent   Tier = iota // CRDs/APIs not served - view hidden
+	Degraded             // installed but not fully working/partial - view renders with banner
+	Healthy              // installed and operational
+)
+
+func (t Tier) String() string {
+	switch t {
+	case Absent:
+		return "Absent"
+	case Degraded:
+		return "Degraded"
+	case Healthy:
+		return "Healthy"
+	default:
+		return "Unknown"
+	}
+}
+
+// Classify maps (present, healthy) to a Tier.
+func Classify(present, healthy bool) Tier {
+	switch {
+	case !present:
+		return Absent
+	case !healthy:
+		return Degraded
+	default:
+		return Healthy
+	}
+}
+
+// Base is embedded by every capability; it carries the tier and a human reason.
+type Base struct {
+	Tier   Tier
+	Reason string
+}
+
+type FluxInfo struct {
+	Present     bool
+	Version     string
+	Controllers []string
+	Healthy     bool
+}
+
+type ArgoInfo struct {
+	Present bool
+	Version string
+	Healthy bool
+}
+
+// GitOpsCapability models both tools together because the GitOps view needs them
+// in one place, including their coexistence.
+type GitOpsCapability struct {
+	Base
+	Flux        FluxInfo
+	Argo        ArgoInfo
+	Coexistence bool
+}
+
+// NetworkCapability is finer-grained: Gateway API present without EnvoyProxy is
+// Degraded, not Absent.
+type NetworkCapability struct {
+	Base
+	GatewayAPIVersion  string
+	HasEnvoyProxy      bool
+	CiliumPresent      bool
+	HasHubble          bool
+	ClusterMesh        bool
+	IngressControllers []string
+}
+
+// Set is the full per-cluster capability snapshot handed to the view layer.
+type Set struct {
+	GitOps  GitOpsCapability
+	Network NetworkCapability
+}
