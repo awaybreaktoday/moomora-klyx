@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -25,6 +26,38 @@ const (
 	deploymentWorkload  workloadKind = iota
 	statefulSetWorkload workloadKind = iota
 )
+
+func desiredReplicas(r *int32) int32 {
+	if r != nil {
+		return *r
+	}
+	return 1
+}
+
+// DeploymentReady reports whether a Deployment has its desired replicas available.
+func DeploymentReady(d *appsv1.Deployment) bool {
+	return d.Status.AvailableReplicas >= desiredReplicas(d.Spec.Replicas)
+}
+
+// StatefulSetReady reports whether a StatefulSet has its desired replicas ready.
+func StatefulSetReady(s *appsv1.StatefulSet) bool {
+	return s.Status.ReadyReplicas >= desiredReplicas(s.Spec.Replicas)
+}
+
+// gitOpsTier computes the GitOps tier and reason from per-tool presence/health.
+// Callers handle the all-absent case before calling this.
+func gitOpsTier(flux FluxInfo, argo ArgoInfo) (Tier, string) {
+	var reasons []string
+	if flux.Present && !flux.Healthy {
+		reasons = append(reasons, "Flux installed but "+fluxKustomizeController+" is not ready")
+	}
+	if argo.Present && !argo.Healthy {
+		reasons = append(reasons, "Argo installed but "+argoAppController+" is not ready")
+	}
+	fluxOK := !flux.Present || flux.Healthy
+	argoOK := !argo.Present || argo.Healthy
+	return Classify(true, fluxOK && argoOK), strings.Join(reasons, "; ")
+}
 
 // Detector classifies capabilities for one cluster.
 type Detector struct {
@@ -84,29 +117,19 @@ func (d *Detector) detectGitOps(ctx context.Context, served map[string]bool) Git
 		return out
 	}
 
-	var reasons []string
 	if fluxPresent {
-		healthy, reason := d.controllerHealthy(ctx, deploymentWorkload, fluxNamespace, fluxKustomizeController)
-		out.Flux.Healthy = healthy
-		if healthy {
+		out.Flux.Healthy = d.controllerReady(ctx, deploymentWorkload, fluxNamespace, fluxKustomizeController)
+		if out.Flux.Healthy {
 			out.Flux.Controllers = []string{fluxKustomizeController}
-		}
-		if !healthy {
-			reasons = append(reasons, "Flux installed but "+reason)
 		}
 	}
 	if argoPresent {
-		healthy, reason := d.controllerHealthy(ctx, statefulSetWorkload, argoNamespace, argoAppController)
-		out.Argo.Healthy = healthy
-		if !healthy {
-			reasons = append(reasons, "Argo installed but "+reason)
-		}
+		out.Argo.Healthy = d.controllerReady(ctx, statefulSetWorkload, argoNamespace, argoAppController)
 	}
 
-	fluxOK := !fluxPresent || out.Flux.Healthy
-	argoOK := !argoPresent || out.Argo.Healthy
-	out.Base.Tier = Classify(true, fluxOK && argoOK)
-	out.Base.Reason = strings.Join(reasons, "; ")
+	tier, reason := gitOpsTier(out.Flux, out.Argo)
+	out.Base.Tier = tier
+	out.Base.Reason = reason
 	return out
 }
 
@@ -143,36 +166,21 @@ func (d *Detector) detectNetwork(ctx context.Context, served map[string]bool) Ne
 	return out
 }
 
-// controllerHealthy reports whether a controller workload has its desired
-// replicas ready. Deployments check AvailableReplicas; StatefulSets check
-// ReadyReplicas.
-func (d *Detector) controllerHealthy(ctx context.Context, kind workloadKind, ns, name string) (bool, string) {
+// controllerReady reports whether a controller workload has its desired replicas
+// ready. Deployments check AvailableReplicas; StatefulSets check ReadyReplicas.
+func (d *Detector) controllerReady(ctx context.Context, kind workloadKind, ns, name string) bool {
 	switch kind {
 	case statefulSetWorkload:
 		sts, err := d.cs.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return false, fmt.Sprintf("%s statefulset not found", name)
+			return false
 		}
-		want := int32(1)
-		if sts.Spec.Replicas != nil {
-			want = *sts.Spec.Replicas
-		}
-		if sts.Status.ReadyReplicas < want {
-			return false, fmt.Sprintf("%s is not ready (%d/%d ready)", name, sts.Status.ReadyReplicas, want)
-		}
-		return true, ""
+		return StatefulSetReady(sts)
 	default: // deploymentWorkload
 		dep, err := d.cs.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			return false, fmt.Sprintf("%s deployment not found", name)
+			return false
 		}
-		want := int32(1)
-		if dep.Spec.Replicas != nil {
-			want = *dep.Spec.Replicas
-		}
-		if dep.Status.AvailableReplicas < want {
-			return false, fmt.Sprintf("%s is not ready (%d/%d available)", name, dep.Status.AvailableReplicas, want)
-		}
-		return true, ""
+		return DeploymentReady(dep)
 	}
 }

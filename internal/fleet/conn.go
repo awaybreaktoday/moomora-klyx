@@ -65,8 +65,6 @@ func (c *ClusterConn) setState(ev Event, reason string) {
 	defer c.mu.Unlock()
 	if next, ok := Transition(c.state, ev); ok {
 		c.state = next
-	}
-	if reason != "" {
 		c.reason = reason
 	}
 }
@@ -152,12 +150,13 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 			c.refreshCounts(nodeInformer, podInformer)
 			c.setState(EvSynced, "")
 
-			// Capability health is evaluated once at startup. Re-evaluation (and
-			// the EvCapHealthy transition back to Synced) is deferred to a later
-			// slice, including re-applying this overlay after a recovery.
+			// Apply the initial tier from the one-shot Detect. startCapHealth
+			// below then keeps GitOps health live (Healthy <-> Degraded) via the
+			// controller-workload watch.
 			if caps.GitOps.Tier == capability.Degraded || caps.Network.Tier == capability.Degraded {
 				c.setState(EvCapUnhealthy, capabilityReason(caps))
 			}
+			c.startCapHealth(ctx, caps)
 			return
 		}
 		c.setState(EvConnError, "connect timed out after "+c.connectTimeout.String())
@@ -167,9 +166,9 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 // refreshLoop recomputes counts on coalesced informer events for the lifetime of
 // ctx. It does not drive the initial Connecting -> Synced (connectLoop owns that,
 // to avoid racing ahead of Detect). It does recover Stale -> Synced when a relist
-// resumes after a dropped watch. A cluster that was Degraded before the drop
-// recovers to plain Synced (the Degraded capability overlay is not restored),
-// because capability re-evaluation on recovery is deferred to a later slice.
+// resumes after a dropped watch. If the cluster was Degraded by a crashlooping
+// GitOps controller, the cap-health watch relists on the same recovery and
+// re-applies Degraded, so the overlay is restored without recovery-specific code.
 func (c *ClusterConn) refreshLoop(ctx context.Context, nodeInformer, podInformer cache.SharedIndexInformer) {
 	for {
 		select {
@@ -196,6 +195,32 @@ func capabilityReason(caps capability.Set) string {
 		return caps.GitOps.Reason
 	}
 	return caps.Network.Reason
+}
+
+// applyGitOpsHealth updates the GitOps capability and drives the cap-state edges
+// (EvCapUnhealthy / EvCapHealthy) atomically under one lock. Reason is set on
+// Degraded and cleared on Healthy. Outside Synced/Degraded the transition is a
+// no-op, but caps are still updated so recovery reflects the latest health.
+func (c *ClusterConn) applyGitOpsHealth(g capability.GitOpsCapability) {
+	var ev Event
+	switch g.Tier {
+	case capability.Degraded:
+		ev = EvCapUnhealthy
+	case capability.Healthy:
+		ev = EvCapHealthy
+	default: // Absent: should not occur for a present tool
+		c.mu.Lock()
+		c.caps.GitOps = g
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Lock()
+	c.caps.GitOps = g
+	if next, ok := Transition(c.state, ev); ok {
+		c.state = next
+		c.reason = g.Reason
+	}
+	c.mu.Unlock()
 }
 
 // refreshCounts recomputes node/pod counts and lastSync from the informer

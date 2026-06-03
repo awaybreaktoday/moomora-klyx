@@ -131,6 +131,20 @@ func TestConnectTimeoutGoesFailed(t *testing.T) {
 	}
 }
 
+func TestSetStateClearsReasonOnRecovery(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c.state = Stale
+	c.reason = "watch error: boom"
+	c.setState(EvSynced, "") // Stale -> Synced recovery
+	s := c.Snapshot()
+	if s.State != Synced {
+		t.Fatalf("want Synced, got %v", s.State)
+	}
+	if s.Reason != "" {
+		t.Fatalf("want reason cleared on recovery, got %q", s.Reason)
+	}
+}
+
 func TestWatchDrivenRefreshUpdatesPodCount(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
