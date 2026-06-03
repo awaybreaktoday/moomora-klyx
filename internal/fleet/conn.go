@@ -44,6 +44,7 @@ type ClusterConn struct {
 	snapNodesReady int
 	snapNodesTotal int
 	snapPods       int
+	snapVersion    string
 	connectTimeout time.Duration
 	refresh        chan struct{} // buffered(1); coalesces informer events
 }
@@ -143,8 +144,14 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 		if ok {
 			caps := c.detector.Detect(ctx)
 
+			ver := ""
+			if vi, verr := c.typed.Discovery().ServerVersion(); verr == nil && vi != nil {
+				ver = vi.GitVersion
+			}
+
 			c.mu.Lock()
 			c.caps = caps
+			c.snapVersion = ver
 			c.mu.Unlock()
 
 			c.refreshCounts(nodeInformer, podInformer)
@@ -253,6 +260,7 @@ func (c *ClusterConn) Snapshot() Snapshot {
 		NodesReady:   c.snapNodesReady,
 		NodesTotal:   c.snapNodesTotal,
 		Pods:         c.snapPods,
+		Version:      c.snapVersion,
 		Capabilities: c.caps,
 	}
 }

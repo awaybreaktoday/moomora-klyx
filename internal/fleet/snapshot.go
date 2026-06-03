@@ -16,5 +16,6 @@ type Snapshot struct {
 	NodesReady   int
 	NodesTotal   int
 	Pods         int
+	Version      string
 	Capabilities capability.Set
 }

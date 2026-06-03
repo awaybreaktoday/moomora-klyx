@@ -10,7 +10,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	version "k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes/fake"
+	discoveryfake "k8s.io/client-go/discovery/fake"
 	metadatafake "k8s.io/client-go/metadata/fake"
 	k8stesting "k8s.io/client-go/testing"
 
@@ -176,4 +178,29 @@ func TestWatchDrivenRefreshUpdatesPodCount(t *testing.T) {
 		t.Fatalf("tracker create: %v", err)
 	}
 	waitFor(t, 2*time.Second, func() bool { return c.Snapshot().Pods == 3 })
+}
+
+func TestClusterConnCapturesServerVersion(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	typed := fake.NewSimpleClientset(
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}},
+	)
+	typed.Discovery().(*discoveryfake.FakeDiscovery).FakedServerVersion = &version.Info{GitVersion: "v1.30.4"}
+
+	mscheme := metadatafake.NewTestScheme()
+	_ = metav1.AddMetaToScheme(mscheme)
+	mclient := metadatafake.NewSimpleMetadataClient(mscheme, podMeta("p1", "default"))
+
+	det := capability.NewDetector(typed)
+	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c.Start(ctx)
+
+	waitFor(t, 2*time.Second, func() bool {
+		s := c.Snapshot()
+		return (s.State == Synced || s.State == Degraded) && s.Version == "v1.30.4"
+	})
 }
