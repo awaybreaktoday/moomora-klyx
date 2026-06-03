@@ -51,9 +51,16 @@ func Transition(from ConnState, ev Event) (ConnState, bool) {
 		return Failed, true
 	}
 	switch from {
-	case Unconnected, Failed:
+	case Unconnected:
 		if ev == EvStart {
 			return Connecting, true
+		}
+	case Failed:
+		switch ev {
+		case EvStart:
+			return Connecting, true
+		case EvSynced:
+			return Synced, true // recovery after a successful relist
 		}
 	case Connecting:
 		if ev == EvSynced {

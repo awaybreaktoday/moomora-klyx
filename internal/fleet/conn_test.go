@@ -2,13 +2,17 @@ package fleet
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	metadatafake "k8s.io/client-go/metadata/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
@@ -71,4 +75,91 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("condition not met within %v", d)
+}
+
+func TestOnWatchErrorFromSyncedGoesStale(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c.state = Synced // in-package: drive directly without a live sync
+	c.onWatchError(errors.New("boom"))
+	s := c.Snapshot()
+	if s.State != Stale {
+		t.Fatalf("want Stale, got %v", s.State)
+	}
+	if !strings.Contains(s.Reason, "watch error") {
+		t.Fatalf("want reason to mention the watch error, got %q", s.Reason)
+	}
+}
+
+func TestOnWatchErrorIgnoredWhenNotSynced(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c.state = Connecting
+	c.onWatchError(errors.New("boom"))
+	if s := c.Snapshot(); s.State != Connecting {
+		t.Fatalf("want Connecting unchanged, got %v", s.State)
+	}
+}
+
+func TestNewClusterConnDefaultsConnectTimeout(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	if c.connectTimeout != defaultConnectTimeout {
+		t.Fatalf("want default connect timeout %v, got %v", defaultConnectTimeout, c.connectTimeout)
+	}
+}
+
+func TestConnectTimeoutGoesFailed(t *testing.T) {
+	typed := fake.NewSimpleClientset()
+	// Node list always errors, so the node informer never syncs.
+	typed.PrependReactor("list", "nodes", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("unreachable")
+	})
+
+	mscheme := metadatafake.NewTestScheme()
+	_ = metav1.AddMetaToScheme(mscheme)
+	mclient := metadatafake.NewSimpleMetadataClient(mscheme)
+
+	det := capability.NewDetector(typed)
+	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c.connectTimeout = 100 * time.Millisecond // in-package override for a fast test
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.Start(ctx)
+
+	waitFor(t, 3*time.Second, func() bool { return c.Snapshot().State == Failed })
+	if r := c.Snapshot().Reason; !strings.Contains(r, "connect timed out") {
+		t.Fatalf("want a connect-timeout reason, got %q", r)
+	}
+}
+
+func TestWatchDrivenRefreshUpdatesPodCount(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	typed := fake.NewSimpleClientset(
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}},
+	)
+	mscheme := metadatafake.NewTestScheme()
+	_ = metav1.AddMetaToScheme(mscheme)
+	mclient := metadatafake.NewSimpleMetadataClient(mscheme,
+		podMeta("p1", "default"), podMeta("p2", "default"))
+
+	det := capability.NewDetector(typed)
+	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c.Start(ctx)
+
+	// Initial sync: 2 pods.
+	waitFor(t, 2*time.Second, func() bool {
+		s := c.Snapshot()
+		return (s.State == Synced || s.State == Degraded) && s.Pods == 2
+	})
+
+	// A new pod appears -> Tracker().Create() fires a real watch ADD event ->
+	// the metadata informer's AddFunc runs -> signalRefresh() -> count updates.
+	p3 := podMeta("p3", "default")
+	if err := mclient.Tracker().Create(podGVR, p3, "default"); err != nil {
+		t.Fatalf("tracker create: %v", err)
+	}
+	waitFor(t, 2*time.Second, func() bool { return c.Snapshot().Pods == 3 })
 }
