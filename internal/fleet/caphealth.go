@@ -42,9 +42,15 @@ func (c *ClusterConn) startCapHealth(ctx context.Context, set capability.Set) {
 		switch ref.Kind {
 		case "Deployment":
 			inf = factory.Apps().V1().Deployments().Informer()
-			h.fluxInf = inf
 		case "StatefulSet":
 			inf = factory.Apps().V1().StatefulSets().Informer()
+		default:
+			continue // unknown workload kind; nothing to watch
+		}
+		switch ref.Tool {
+		case "flux":
+			h.fluxInf = inf
+		case "argo":
 			h.argoInf = inf
 		}
 		_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -54,6 +60,22 @@ func (c *ClusterConn) startCapHealth(ctx context.Context, set capability.Set) {
 		})
 		factory.Start(ctx.Done())
 	}
+
+	// After starting the controller informers, do one reconciliation once they
+	// have synced, so the monitor's own view (not just the initial Detect)
+	// establishes the tier and no boot-window health change is missed.
+	var syncs []cache.InformerSynced
+	if h.fluxInf != nil {
+		syncs = append(syncs, h.fluxInf.HasSynced)
+	}
+	if h.argoInf != nil {
+		syncs = append(syncs, h.argoInf.HasSynced)
+	}
+	go func() {
+		if cache.WaitForCacheSync(ctx.Done(), syncs...) {
+			h.recompute()
+		}
+	}()
 }
 
 // recompute reads controller readiness from the informer stores and applies the

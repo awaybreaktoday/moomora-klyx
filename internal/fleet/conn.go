@@ -65,8 +65,6 @@ func (c *ClusterConn) setState(ev Event, reason string) {
 	defer c.mu.Unlock()
 	if next, ok := Transition(c.state, ev); ok {
 		c.state = next
-	}
-	if reason != "" {
 		c.reason = reason
 	}
 }
