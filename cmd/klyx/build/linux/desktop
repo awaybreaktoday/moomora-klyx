@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=My Product
+Comment=A klyx-wails-ref application
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/klyx-wails-ref %u
+Terminal=false
+Type=Application
+Icon=klyx-wails-ref
+Categories=Utility;
+StartupWMClass=klyx-wails-ref
+
+ 

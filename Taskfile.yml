@@ -1,0 +1,42 @@
+version: '3'
+
+# Root Taskfile - delegates Wails tasks to cmd/klyx (the Wails project root).
+# Run `task dev` or `task build` from the repo root.
+
+vars:
+  WAILS_DIR: "./cmd/klyx"
+
+tasks:
+  build:
+    summary: Build the Klyx desktop app
+    dir: "{{.WAILS_DIR}}"
+    cmds:
+      - wails3 build
+
+  dev:
+    summary: Run the Klyx desktop app in development mode (hot-reload)
+    dir: "{{.WAILS_DIR}}"
+    cmds:
+      - wails3 dev -config ./build/config.yml -port 9245
+
+  package:
+    summary: Package the Klyx desktop app into a .app bundle (macOS)
+    dir: "{{.WAILS_DIR}}"
+    cmds:
+      - wails3 task darwin:package
+
+  test:
+    summary: Run all Go unit tests
+    cmds:
+      - go test ./...
+
+  vet:
+    summary: Run go vet across all packages
+    cmds:
+      - go vet ./...
+
+  install:frontend:
+    summary: Install frontend npm dependencies
+    dir: "{{.WAILS_DIR}}/frontend"
+    cmds:
+      - npm install
