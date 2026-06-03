@@ -59,3 +59,16 @@ func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 		t.Fatal("failed conn must carry a reason")
 	}
 }
+
+func TestRegistryStartIsIdempotent(t *testing.T) {
+	cfg := &config.Config{Clusters: []config.ClusterConfig{{Name: "a"}, {Name: "b"}}}
+	factory := func(cc config.ClusterConfig) (Conn, error) {
+		return &fakeConn{name: cc.Name, snap: Snapshot{Name: cc.Name, State: Synced}}, nil
+	}
+	reg := NewRegistry(cfg, factory)
+	reg.Start(context.Background())
+	reg.Start(context.Background()) // second call must be a no-op
+	if got := len(reg.Snapshots()); got != 2 {
+		t.Fatalf("want 2 snapshots after double Start, got %d", got)
+	}
+}

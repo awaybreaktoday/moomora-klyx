@@ -36,6 +36,9 @@ func NewRegistry(cfg *config.Config, factory ConnFactory) *Registry {
 func (r *Registry) Start(ctx context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if len(r.entries) > 0 {
+		return // already started
+	}
 	for _, cc := range r.cfg.Clusters {
 		conn, err := r.factory(cc)
 		if err != nil {
