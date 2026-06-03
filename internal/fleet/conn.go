@@ -128,9 +128,11 @@ func (c *ClusterConn) Start(ctx context.Context) {
 
 // connectLoop owns the initial connect. It bounds each sync attempt by
 // connectTimeout; on success it runs detection and announces Synced (this is the
-// only place the first EvSynced is emitted, so Detect always precedes it). On
-// timeout it marks Failed and retries, so a never-synced cluster self-heals to
-// Synced (Failed -> Synced) once connectivity returns.
+// only place the first EvSynced is emitted, so Detect always precedes it), then
+// returns. On timeout it marks Failed and retries within the same loop, so a
+// cluster that has NOT YET synced self-heals (Failed -> Synced) once
+// connectivity returns. Note: this loop exits after the first successful sync,
+// so post-sync recovery is handled by refreshLoop (Stale -> Synced), not here.
 func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer cache.SharedIndexInformer) {
 	for {
 		tctx, cancel := context.WithTimeout(ctx, c.connectTimeout)
@@ -165,7 +167,9 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 // refreshLoop recomputes counts on coalesced informer events for the lifetime of
 // ctx. It does not drive the initial Connecting -> Synced (connectLoop owns that,
 // to avoid racing ahead of Detect). It does recover Stale -> Synced when a relist
-// resumes after a dropped watch.
+// resumes after a dropped watch. A cluster that was Degraded before the drop
+// recovers to plain Synced (the Degraded capability overlay is not restored),
+// because capability re-evaluation on recovery is deferred to a later slice.
 func (c *ClusterConn) refreshLoop(ctx context.Context, nodeInformer, podInformer cache.SharedIndexInformer) {
 	for {
 		select {
