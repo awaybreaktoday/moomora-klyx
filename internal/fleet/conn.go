@@ -26,7 +26,7 @@ type Conn interface {
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 
-const eagerResync = 5 * time.Minute
+const defaultResync = 5 * time.Minute
 
 type ClusterConn struct {
 	name     string
@@ -70,14 +70,14 @@ func (c *ClusterConn) setState(ev Event, reason string) {
 func (c *ClusterConn) Start(ctx context.Context) {
 	c.setState(EvStart, "")
 
-	nodeFactory := informers.NewSharedInformerFactory(c.typed, eagerResync)
+	nodeFactory := informers.NewSharedInformerFactory(c.typed, defaultResync)
 	nodeInformer := nodeFactory.Core().V1().Nodes().Informer()
 
-	metaFactory := metadatainformer.NewSharedInformerFactory(c.meta, eagerResync)
+	metaFactory := metadatainformer.NewSharedInformerFactory(c.meta, defaultResync)
 	podInformer := metaFactory.ForResource(podGVR).Informer()
 
-	go nodeFactory.Start(ctx.Done())
-	go metaFactory.Start(ctx.Done())
+	nodeFactory.Start(ctx.Done())
+	metaFactory.Start(ctx.Done())
 
 	go func() {
 		okNodes := cache.WaitForCacheSync(ctx.Done(), nodeInformer.HasSynced)
@@ -88,17 +88,22 @@ func (c *ClusterConn) Start(ctx context.Context) {
 		}
 
 		caps := c.detector.Detect(ctx)
+
 		c.mu.Lock()
 		c.caps = caps
-		c.lastSync = c.clk.Now()
 		c.mu.Unlock()
+
+		// Populate counts and lastSync before announcing Synced, so a Snapshot taken
+		// the moment state becomes Synced already has consistent counts.
+		c.refreshCounts(nodeInformer, podInformer)
+
 		c.setState(EvSynced, "")
 
+		// Capability health is evaluated once at startup. Re-evaluation (and the
+		// EvCapHealthy transition back to Synced) is deferred to a later slice.
 		if caps.GitOps.Tier == capability.Degraded || caps.Network.Tier == capability.Degraded {
 			c.setState(EvCapUnhealthy, capabilityReason(caps))
 		}
-
-		c.refreshCounts(nodeInformer, podInformer)
 	}()
 }
 
@@ -109,6 +114,9 @@ func capabilityReason(caps capability.Set) string {
 	return caps.Network.Reason
 }
 
+// refreshCounts is called once after the initial cache sync. Watch-driven
+// refresh (informer event handlers) is deferred to a later slice, so counts
+// can drift until the next connect.
 func (c *ClusterConn) refreshCounts(nodeInformer, podInformer cache.SharedIndexInformer) {
 	nodes := make([]*corev1.Node, 0)
 	for _, obj := range nodeInformer.GetStore().List() {
