@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -71,4 +72,33 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("condition not met within %v", d)
+}
+
+func TestOnWatchErrorFromSyncedGoesStale(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c.state = Synced // in-package: drive directly without a live sync
+	c.onWatchError(errors.New("boom"))
+	s := c.Snapshot()
+	if s.State != Stale {
+		t.Fatalf("want Stale, got %v", s.State)
+	}
+	if s.Reason == "" {
+		t.Fatal("watch error must set a reason")
+	}
+}
+
+func TestOnWatchErrorIgnoredWhenNotSynced(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c.state = Connecting
+	c.onWatchError(errors.New("boom"))
+	if s := c.Snapshot(); s.State != Connecting {
+		t.Fatalf("want Connecting unchanged, got %v", s.State)
+	}
+}
+
+func TestNewClusterConnDefaultsConnectTimeout(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	if c.connectTimeout != defaultConnectTimeout {
+		t.Fatalf("want default connect timeout %v, got %v", defaultConnectTimeout, c.connectTimeout)
+	}
 }

@@ -27,6 +27,7 @@ type Conn interface {
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 
 const defaultResync = 5 * time.Minute
+const defaultConnectTimeout = 30 * time.Second
 
 type ClusterConn struct {
 	name     string
@@ -43,13 +44,17 @@ type ClusterConn struct {
 	snapNodesReady int
 	snapNodesTotal int
 	snapPods       int
+	connectTimeout time.Duration
+	refresh        chan struct{} // buffered(1); coalesces informer events
 }
 
 func NewClusterConn(name string, typed kubernetes.Interface, meta metadata.Interface,
 	detector *capability.Detector, clk clock.Clock) *ClusterConn {
 	return &ClusterConn{
 		name: name, typed: typed, meta: meta, detector: detector, clk: clk,
-		state: Unconnected,
+		state:          Unconnected,
+		connectTimeout: defaultConnectTimeout,
+		refresh:        make(chan struct{}, 1),
 	}
 }
 
@@ -63,6 +68,27 @@ func (c *ClusterConn) setState(ev Event, reason string) {
 	}
 	if reason != "" {
 		c.reason = reason
+	}
+}
+
+// signalRefresh nudges the refresh loop without blocking. The buffered(1)
+// channel coalesces bursts (e.g. the initial list of many pods) into one wake.
+func (c *ClusterConn) signalRefresh() {
+	select {
+	case c.refresh <- struct{}{}:
+	default:
+	}
+}
+
+// onWatchError flips a synced connection to Stale when a list/watch fails.
+// Pre-sync watch errors (state Connecting) are left to the connect-timeout
+// path, so this is a no-op unless we are currently Synced or Degraded.
+func (c *ClusterConn) onWatchError(err error) {
+	c.mu.RLock()
+	st := c.state
+	c.mu.RUnlock()
+	if st == Synced || st == Degraded {
+		c.setState(EvWatchDrop, "watch error: "+err.Error())
 	}
 }
 
