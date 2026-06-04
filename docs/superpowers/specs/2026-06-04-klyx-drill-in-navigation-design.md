@@ -65,13 +65,15 @@ src/cluster/Overview.tsx      # the real section: summary from the DTO
 **Sidebar** - 46px rail, secondary bg, 0.5px right border. Top: the inverted "K"
 logo square. Icon buttons (Tabler outline):
 - `layout-grid` -> Fleet (always enabled -> `openFleet()`)
-- `stack-2` -> Resources, `git-branch` -> GitOps, `route` -> Network,
-  `chart-line` -> Observability: **cluster-scoped** - enabled/selectable only when
-  a cluster is open (click -> `setSection`); at the fleet root they render visibly
-  muted/disabled (no fake navigation).
+- `layout-dashboard` -> Overview, `stack-2` -> Resources, `git-branch` -> GitOps,
+  `route` -> Network, `chart-line` -> Observability: **cluster-scoped** -
+  enabled/selectable only when a cluster is open (click -> `setSection`); at the
+  fleet root they render visibly muted/disabled (no fake navigation). The Overview
+  icon is the explicit cluster-root destination: `openCluster` lands on it, and it
+  carries the active highlight while on the Overview section.
 - bottom group (`terminal-2`, `settings`): inert, for chrome completeness.
-- Active state: the current section icon gets the boxed highlight (primary bg +
-  0.5px border); others `text-secondary`.
+- Active state: the current section icon (including Overview) gets the boxed
+  highlight (primary bg + 0.5px border); others `text-secondary`.
 
 **Header** - two rows:
 - Breadcrumb (`Breadcrumb.tsx`): fleet root -> `Fleet` + count chip
@@ -118,7 +120,8 @@ Frontend only (Vitest + Testing Library); the Go suite is untouched.
 - Store routing: `openCluster` -> cluster/overview; `setSection`; `openFleet`
   reset; selected DTO stays resolvable after `setClusters`.
 - Sidebar: Fleet click -> `openFleet`; section icon disabled (no-op) at fleet
-  root, calls `setSection` in cluster scope; active highlight reflects route.
+  root, calls `setSection` in cluster scope; active highlight reflects route -
+  including the Overview (`layout-dashboard`) icon highlighted after `openCluster`.
 - Breadcrumb: fleet root label + count chip; cluster `Fleet > cluster > Section`;
   segment clicks fire the right actions.
 - ClusterCard: `onClick` -> `openCluster(c.name)`.
@@ -151,3 +154,4 @@ Frontend only (Vitest + Testing Library); the Go suite is untouched.
 | 4 | Cluster-scoped section icons disabled at fleet root | No fake navigation (principle: render only what's real) |
 | 5 | Capability-aware honest placeholders | Maximal chrome stays truthful (principle 7/9) |
 | 6 | Styled ThemeToggle replaces the bare button | The B-1 toggle was an unstyled stopgap |
+| 7 | Explicit Overview (layout-dashboard) icon in the rail | Makes the cluster root a first-class rail destination; gives Overview an active-highlight home |
