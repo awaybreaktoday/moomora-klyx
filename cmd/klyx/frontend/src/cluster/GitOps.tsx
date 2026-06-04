@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { useFleet, FluxResourceDTO } from "../store/fleet";
 import { openGitOps, closeGitOps } from "../bridge/gitops";
 
@@ -56,18 +56,39 @@ export function GitOps({ cluster }: { cluster: string }) {
   );
 }
 
+function shortRev(rev: string): string {
+  if (!rev) return "";
+  const s = rev.replace(/^refs\/heads\//, "");
+  const at = s.indexOf("@");
+  if (at < 0) return s; // chart version etc., already short
+  const branch = s.slice(0, at);
+  const sha = s.slice(at + 1).replace(/^sha1:/, "").replace(/^sha256:/, "");
+  return `${branch}@${sha.slice(0, 7)}`;
+}
+
+function ago(sec: number): string {
+  if (sec <= 0) return "";
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  return `${Math.floor(sec / 3600)}h ago`;
+}
+
+const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+
 function Row({ r }: { r: FluxResourceDTO }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 90px", gap: 10, alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 12 }}>
-      <div>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 130px 130px 72px 84px", gap: 10, alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 12 }}>
+      <div style={{ minWidth: 0 }}>
         <span style={{ fontFamily: "var(--font-mono)" }}>{r.namespace}/{r.name}</span>{" "}
         <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>{r.kind === "Kustomization" ? "ks" : "hr"}</span>
         {r.message && r.ready === "Failed" && (
-          <div style={{ color: "var(--color-text-danger)", fontSize: 11, marginTop: 2 }}>{r.message}</div>
+          <div style={{ color: "var(--color-text-danger)", fontSize: 11, marginTop: 2, ...ellipsis }}>{r.message}</div>
         )}
       </div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)" }}>{r.revision}</div>
-      <div style={{ color: readyColor[r.ready] ?? "var(--color-text-tertiary)" }}>
+      <div style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={r.sourceName}>{r.sourceName}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", ...ellipsis }} title={r.revision}>{shortRev(r.revision)}</div>
+      <div style={{ color: "var(--color-text-tertiary)", fontSize: 11, ...ellipsis }}>{ago(r.lastAppliedAgeSeconds)}</div>
+      <div style={{ ...ellipsis, color: r.suspended ? "var(--color-text-warning)" : (readyColor[r.ready] ?? "var(--color-text-tertiary)") }}>
         {r.suspended ? "suspended" : r.ready.toLowerCase()}
       </div>
     </div>

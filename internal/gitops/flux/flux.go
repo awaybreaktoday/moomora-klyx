@@ -34,6 +34,8 @@ type Resource struct {
 	Revision    string
 	LastApplied time.Time
 	Suspended   bool
+	SourceKind  string
+	SourceName  string
 }
 
 func ParseKustomization(u *unstructured.Unstructured) Resource {
@@ -53,6 +55,15 @@ func ParseHelmRelease(u *unstructured.Unstructured) Resource {
 			}
 		}
 	}
+	if r.SourceName == "" {
+		if n, ok, _ := unstructured.NestedString(u.Object, "spec", "chart", "spec", "sourceRef", "name"); ok && n != "" {
+			r.SourceName = n
+			r.SourceKind, _, _ = unstructured.NestedString(u.Object, "spec", "chart", "spec", "sourceRef", "kind")
+		} else if n, ok, _ := unstructured.NestedString(u.Object, "spec", "chartRef", "name"); ok && n != "" {
+			r.SourceName = n
+			r.SourceKind, _, _ = unstructured.NestedString(u.Object, "spec", "chartRef", "kind")
+		}
+	}
 	return r
 }
 
@@ -60,6 +71,12 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 	r := Resource{Kind: kind, Name: u.GetName(), Namespace: u.GetNamespace()}
 	if susp, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok {
 		r.Suspended = susp
+	}
+	if k, ok, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "kind"); ok {
+		r.SourceKind = k
+	}
+	if n, ok, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name"); ok {
+		r.SourceName = n
 	}
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
 	reconciling := false

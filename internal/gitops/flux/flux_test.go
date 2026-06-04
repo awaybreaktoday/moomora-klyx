@@ -22,6 +22,28 @@ func ks(status string, reason string, suspend bool, rev, msg string) *unstructur
 	}}
 }
 
+func ksWithSource(status string, reason string, suspend bool, rev, msg string, sourceKind, sourceName string) *unstructured.Unstructured {
+	conds := []interface{}{
+		map[string]interface{}{"type": "Ready", "status": status, "reason": reason, "message": msg},
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+		"kind":       "Kustomization",
+		"metadata":   map[string]interface{}{"name": "flux-system", "namespace": "flux-system"},
+		"spec": map[string]interface{}{
+			"suspend": suspend,
+			"sourceRef": map[string]interface{}{
+				"kind": sourceKind,
+				"name": sourceName,
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions":          conds,
+			"lastAppliedRevision": rev,
+		},
+	}}
+}
+
 func TestParseKustomizationReady(t *testing.T) {
 	r := ParseKustomization(ks("True", "ReconciliationSucceeded", false, "main@sha1:abc1234", ""))
 	if r.Kind != KustomizationKind {
@@ -89,5 +111,48 @@ func TestParseHelmReleaseReadyRevisionFromHistory(t *testing.T) {
 	}
 	if r.Revision != "1.16.5" {
 		t.Fatalf("revision: %q", r.Revision)
+	}
+}
+
+func TestParseKustomizationSourceRef(t *testing.T) {
+	r := ParseKustomization(ksWithSource("True", "ReconciliationSucceeded", false, "main@sha1:abc1234", "", "GitRepository", "flux-system"))
+	if r.SourceName != "flux-system" {
+		t.Fatalf("sourceRef name: %q", r.SourceName)
+	}
+	if r.SourceKind != "GitRepository" {
+		t.Fatalf("sourceRef kind: %q", r.SourceKind)
+	}
+}
+
+func TestParseHelmReleaseChartSourceRef(t *testing.T) {
+	u := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "helm.toolkit.fluxcd.io/v2",
+		"kind":       "HelmRelease",
+		"metadata":   map[string]interface{}{"name": "cilium", "namespace": "kube-system"},
+		"spec": map[string]interface{}{
+			"chart": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"sourceRef": map[string]interface{}{
+						"kind": "HelmRepository",
+						"name": "cilium",
+					},
+				},
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Ready", "status": "True", "message": "Helm install succeeded"},
+			},
+			"history": []interface{}{
+				map[string]interface{}{"chartVersion": "1.16.5"},
+			},
+		},
+	}}
+	r := ParseHelmRelease(u)
+	if r.SourceName != "cilium" {
+		t.Fatalf("chart sourceRef name: %q", r.SourceName)
+	}
+	if r.SourceKind != "HelmRepository" {
+		t.Fatalf("chart sourceRef kind: %q", r.SourceKind)
 	}
 }

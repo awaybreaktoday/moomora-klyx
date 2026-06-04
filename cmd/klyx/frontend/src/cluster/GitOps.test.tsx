@@ -15,7 +15,8 @@ const cluster = (tier: string): ClusterDTO => ({
 });
 const res = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
   kind: "Kustomization", namespace: "flux-system", name: "flux-system", ready: "Ready",
-  message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false, ...over,
+  message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false,
+  sourceKind: "", sourceName: "", ...over,
 });
 
 beforeEach(() => useFleet.setState({

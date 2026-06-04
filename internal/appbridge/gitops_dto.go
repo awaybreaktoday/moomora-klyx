@@ -16,6 +16,8 @@ type FluxResourceDTO struct {
 	Revision              string `json:"revision"`
 	LastAppliedAgeSeconds int64  `json:"lastAppliedAgeSeconds"`
 	Suspended             bool   `json:"suspended"`
+	SourceKind            string `json:"sourceKind"`
+	SourceName            string `json:"sourceName"`
 }
 
 func ToFluxDTO(r flux.Resource, now time.Time) FluxResourceDTO {
@@ -35,5 +37,7 @@ func ToFluxDTO(r flux.Resource, now time.Time) FluxResourceDTO {
 		Revision:              r.Revision,
 		LastAppliedAgeSeconds: age,
 		Suspended:             r.Suspended,
+		SourceKind:            r.SourceKind,
+		SourceName:            r.SourceName,
 	}
 }

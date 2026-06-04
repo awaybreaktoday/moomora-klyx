@@ -28,6 +28,8 @@ export type FluxResourceDTO = {
   revision: string;
   lastAppliedAgeSeconds: number;
   suspended: boolean;
+  sourceKind: string;
+  sourceName: string;
 };
 
 export type GitOpsSlice = {

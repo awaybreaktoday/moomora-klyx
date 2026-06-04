@@ -3,7 +3,8 @@ import { useFleet, FluxResourceDTO } from "./fleet";
 
 const r = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
   kind: "Kustomization", namespace: "flux-system", name: "flux-system",
-  ready: "Ready", message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false, ...over,
+  ready: "Ready", message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false,
+  sourceKind: "", sourceName: "", ...over,
 });
 
 beforeEach(() => useFleet.setState({ gitops: { cluster: null, resources: [], loading: false } }));
