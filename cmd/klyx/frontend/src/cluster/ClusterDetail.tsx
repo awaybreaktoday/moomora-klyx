@@ -1,6 +1,7 @@
 import { useFleet } from "../store/fleet";
 import { Overview } from "./Overview";
 import { GitOps } from "./GitOps";
+import { CRDBrowser } from "./CRDBrowser";
 import { Placeholder } from "../chrome/Placeholder";
 
 export function ClusterDetail() {
@@ -21,5 +22,6 @@ export function ClusterDetail() {
   }
   if (route.section === "overview") return <Overview c={cluster} />;
   if (route.section === "gitops") return <GitOps cluster={cluster.name} />;
+  if (route.section === "resources") return <CRDBrowser cluster={cluster.name} />;
   return <Placeholder section={route.section} c={cluster} />;
 }
