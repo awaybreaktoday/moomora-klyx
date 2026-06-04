@@ -33,6 +33,9 @@ func (f *fakeConn) Reconcile(ctx context.Context, kind, ns, name string) error {
 func (f *fakeConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil
 }
+func (f *fakeConn) SourceURL(ctx context.Context, kind, ns, name string) (string, bool) {
+	return "", false
+}
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{
