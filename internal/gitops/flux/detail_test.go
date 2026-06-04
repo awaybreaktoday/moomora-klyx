@@ -79,3 +79,23 @@ func TestParseDetailHelmReleaseNoInventory(t *testing.T) {
 		t.Fatalf("conditions: %+v", d.Conditions)
 	}
 }
+
+func TestParseDetailReadsSuspend(t *testing.T) {
+	u := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+		"kind":       "Kustomization",
+		"metadata":   map[string]interface{}{"name": "paused", "namespace": "flux-system"},
+		"spec":       map[string]interface{}{"suspend": true},
+		"status":     map[string]interface{}{},
+	}}
+	if d := ParseDetail(u); !d.Suspended {
+		t.Fatal("want Suspended=true")
+	}
+
+	u2 := &unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "running", "namespace": "flux-system"},
+	}}
+	if d := ParseDetail(u2); d.Suspended {
+		t.Fatal("want Suspended=false when spec.suspend absent")
+	}
+}
