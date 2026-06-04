@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
-import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend } from "../bridge/gitops";
+import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
 const readyColor: Record<string, string> = {
@@ -108,6 +108,7 @@ export function GitOps({ cluster }: { cluster: string }) {
                     detail={gitops.detail && keyOf(gitops.detail) === k ? gitops.detail : null}
                     onReconcile={() => setPending({ verb: "reconcile", r })}
                     onToggleSuspend={(suspended) => setPending({ verb: suspended ? "resume" : "suspend", r })}
+                    onViewGit={() => void resolveGitLink(cluster, r.kind, r.namespace, r.name)}
                   />
                 )}
               </div>
@@ -158,11 +159,12 @@ function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; o
   );
 }
 
-function DetailPanel({ resource, detail, onReconcile, onToggleSuspend }: {
+function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit }: {
   resource: FluxResourceDTO;
   detail: ResourceDetailDTO | null;
   onReconcile: () => void;
   onToggleSuspend: (suspended: boolean) => void;
+  onViewGit: () => void;
 }) {
   if (!detail) {
     return <div style={{ padding: "6px 12px 12px 38px", fontSize: 12, color: "var(--color-text-secondary)" }}>Loading detail…</div>;
@@ -175,6 +177,9 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend }: {
         <button onClick={() => onToggleSuspend(detail.suspended ?? false)} style={actionBtn}>
           {detail.suspended ? "Resume" : "Suspend"}
         </button>
+        {resource.kind === "Kustomization" && (
+          <button onClick={onViewGit} style={actionBtn}>View in Git</button>
+        )}
         {detail.suspended && (
           <span style={{ color: "var(--color-text-warning)", fontSize: 11, fontWeight: 500 }}>suspended</span>
         )}
