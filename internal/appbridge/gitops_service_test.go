@@ -1,6 +1,8 @@
 package appbridge
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,10 @@ type fakeGitOpsConn struct {
 	closed int
 	res    []flux.Resource
 	obj    *unstructured.Unstructured
+
+	reconcileErr error
+	suspendErr   error
+	lastSuspend  bool
 }
 
 func (f *fakeGitOpsConn) OpenGitOps()  { f.mu.Lock(); f.opened++; f.mu.Unlock() }
@@ -31,6 +37,16 @@ func (f *fakeGitOpsConn) GitOpsObject(kind, namespace, name string) (*unstructur
 		return nil, false
 	}
 	return f.obj, true
+}
+
+func (f *fakeGitOpsConn) Reconcile(ctx context.Context, kind, ns, name string) error {
+	return f.reconcileErr
+}
+func (f *fakeGitOpsConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
+	f.mu.Lock()
+	f.lastSuspend = suspend
+	f.mu.Unlock()
+	return f.suspendErr
 }
 
 func TestGitOpsServiceOpenEmitsAndCloseStops(t *testing.T) {
@@ -78,4 +94,41 @@ func TestGitOpsServiceOpenUnknownClusterNoop(t *testing.T) {
 	svc := NewGitOpsService(lookup, &fakeEmitter{}, time.Now, time.Second)
 	svc.Open("ghost") // must not panic
 	svc.Close("ghost")
+}
+
+func TestReconcileActionResult(t *testing.T) {
+	conn := &fakeGitOpsConn{}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.Reconcile("x", "Kustomization", "flux-system", "app"); !r.OK || r.Error != "" {
+		t.Fatalf("want OK, got %+v", r)
+	}
+}
+
+func TestReconcileActionSurfacesError(t *testing.T) {
+	conn := &fakeGitOpsConn{reconcileErr: errors.New("forbidden: cannot patch")}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	r := svc.Reconcile("x", "Kustomization", "flux-system", "app")
+	if r.OK || r.Error == "" {
+		t.Fatalf("want failure surfaced, got %+v", r)
+	}
+}
+
+func TestSetSuspendActionPassesFlag(t *testing.T) {
+	conn := &fakeGitOpsConn{}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.SetSuspend("x", "Kustomization", "flux-system", "app", true); !r.OK {
+		t.Fatalf("want OK, got %+v", r)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if !conn.lastSuspend {
+		t.Fatal("expected suspend=true to reach the conn")
+	}
+}
+
+func TestActionUnknownClusterIsError(t *testing.T) {
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return nil, false }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.Reconcile("ghost", "Kustomization", "n", "x"); r.OK || r.Error == "" {
+		t.Fatalf("want failure for unknown cluster, got %+v", r)
+	}
 }

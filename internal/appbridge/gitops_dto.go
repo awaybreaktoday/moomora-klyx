@@ -6,6 +6,13 @@ import (
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
+// ActionResultDTO is the result of an operational write. Error carries the
+// cluster's message (e.g. an RBAC 403) for display.
+type ActionResultDTO struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error"`
+}
+
 // FluxResourceDTO is the JSON projection of a Flux reconciliation resource.
 type FluxResourceDTO struct {
 	Kind                  string `json:"kind"`
