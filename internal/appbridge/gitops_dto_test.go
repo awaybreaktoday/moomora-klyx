@@ -37,3 +37,10 @@ func TestToFluxDTOZeroTimeAge(t *testing.T) {
 		t.Fatalf("want 0 age for zero time, got %d", d.LastAppliedAgeSeconds)
 	}
 }
+
+func TestToDetailDTOCarriesSuspended(t *testing.T) {
+	d := flux.Detail{Kind: flux.KustomizationKind, Name: "x", Namespace: "flux-system", Suspended: true}
+	if got := toDetailDTO(d); !got.Suspended {
+		t.Fatal("want Suspended=true in DTO")
+	}
+}

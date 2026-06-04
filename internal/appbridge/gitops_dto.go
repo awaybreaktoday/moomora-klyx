@@ -61,6 +61,7 @@ type ResourceDetailDTO struct {
 	Kind              string              `json:"kind"`
 	Namespace         string              `json:"namespace"`
 	Name              string              `json:"name"`
+	Suspended         bool                `json:"suspended"`
 	AppliedRevision   string              `json:"appliedRevision"`
 	AttemptedRevision string              `json:"attemptedRevision"`
 	ApplyFailed       bool                `json:"applyFailed"`
@@ -73,6 +74,7 @@ func toDetailDTO(d flux.Detail) ResourceDetailDTO {
 		Kind:              string(d.Kind),
 		Namespace:         d.Namespace,
 		Name:              d.Name,
+		Suspended:         d.Suspended,
 		AppliedRevision:   d.AppliedRevision,
 		AttemptedRevision: d.AttemptedRevision,
 		ApplyFailed:       d.AttemptedRevision != "" && d.AttemptedRevision != d.AppliedRevision,
