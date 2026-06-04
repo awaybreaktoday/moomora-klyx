@@ -26,6 +26,16 @@ describe("ClusterCard", () => {
     );
     expect(getByText(/connect timed out/i)).toBeTruthy();
   });
+
+  it("shows a lock affordance for a protected cluster", () => {
+    const { queryByTitle } = render(<ClusterCard c={{ ...base, protected: true }} />);
+    expect(queryByTitle("protected")).toBeTruthy();
+  });
+
+  it("has no lock for an unprotected cluster", () => {
+    const { queryByTitle } = render(<ClusterCard c={{ ...base, protected: false }} />);
+    expect(queryByTitle("protected")).toBeNull();
+  });
 });
 
 it("drills into the cluster on click", () => {
