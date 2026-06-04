@@ -2,8 +2,38 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestWarningsFlagsShadowedTagKey(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{
+		{Name: "homelab", Tags: map[string]string{"env": "homelab", "protected": "true"}},
+	}}
+	w := c.Warnings()
+	if len(w) != 1 || !strings.Contains(w[0], "protected") || !strings.Contains(w[0], "homelab") {
+		t.Fatalf("want one warning about protected on homelab, got %v", w)
+	}
+}
+
+func TestWarningsCleanConfigNone(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{
+		{Name: "dev", Tags: map[string]string{"env": "dev", "region": "we"}},
+	}}
+	if w := c.Warnings(); len(w) != 0 {
+		t.Fatalf("want no warnings, got %v", w)
+	}
+}
+
+func TestSummaryListsProtected(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{
+		{Name: "prd", Protected: true}, {Name: "dev"},
+	}}
+	s := c.Summary()
+	if !strings.Contains(s, "2 cluster") || !strings.Contains(s, "prd") {
+		t.Fatalf("summary: %q", s)
+	}
+}
 
 func TestLoadValidConfig(t *testing.T) {
 	c, err := Load(filepath.Join("testdata", "fleet.yaml"))
