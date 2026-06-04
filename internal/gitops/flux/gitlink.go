@@ -48,13 +48,19 @@ func ResolveGitLink(remote, path, revision string) GitLink {
 	return GitLink{URL: url, IsDeepLink: true, CopyText: copyText}
 }
 
+// refFromRevision extracts the branch/tag/sha web hosts expect in a tree URL
+// from Flux's lastAppliedRevision. Handles both the old `main@sha1:...` form and
+// the newer fully-qualified `refs/heads/main@sha1:...` / `refs/tags/v1@...` form,
+// stripping the ref-namespace prefix that a web tree endpoint does not accept.
 func refFromRevision(rev string) string {
 	if rev == "" {
 		return "HEAD"
 	}
 	if i := strings.Index(rev, "@"); i >= 0 {
-		return rev[:i]
+		rev = rev[:i]
 	}
+	rev = strings.TrimPrefix(rev, "refs/heads/")
+	rev = strings.TrimPrefix(rev, "refs/tags/")
 	return rev
 }
 
