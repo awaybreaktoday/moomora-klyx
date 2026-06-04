@@ -6,6 +6,13 @@ import (
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
+// ActionResultDTO is the result of an operational write. Error carries the
+// cluster's message (e.g. an RBAC 403) for display.
+type ActionResultDTO struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error"`
+}
+
 // FluxResourceDTO is the JSON projection of a Flux reconciliation resource.
 type FluxResourceDTO struct {
 	Kind                  string `json:"kind"`
@@ -61,6 +68,7 @@ type ResourceDetailDTO struct {
 	Kind              string              `json:"kind"`
 	Namespace         string              `json:"namespace"`
 	Name              string              `json:"name"`
+	Suspended         bool                `json:"suspended"`
 	AppliedRevision   string              `json:"appliedRevision"`
 	AttemptedRevision string              `json:"attemptedRevision"`
 	ApplyFailed       bool                `json:"applyFailed"`
@@ -73,6 +81,7 @@ func toDetailDTO(d flux.Detail) ResourceDetailDTO {
 		Kind:              string(d.Kind),
 		Namespace:         d.Namespace,
 		Name:              d.Name,
+		Suspended:         d.Suspended,
 		AppliedRevision:   d.AppliedRevision,
 		AttemptedRevision: d.AttemptedRevision,
 		ApplyFailed:       d.AttemptedRevision != "" && d.AttemptedRevision != d.AppliedRevision,

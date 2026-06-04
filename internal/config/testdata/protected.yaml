@@ -1,0 +1,8 @@
+clusters:
+  - name: prd-we
+    context: prd-we
+    environment: prd
+    protected: true
+  - name: dev-ne
+    context: dev-ne
+    environment: dev

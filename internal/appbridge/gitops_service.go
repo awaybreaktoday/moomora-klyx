@@ -16,6 +16,8 @@ type GitOpsConn interface {
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	Reconcile(ctx context.Context, kind, ns, name string) error
+	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 }
 
 // GitOpsUpdatedEvent is emitted with { cluster, resources }.
@@ -90,6 +92,34 @@ func (s *GitOpsService) pushLoop(ctx context.Context, cluster string, conn GitOp
 			s.em.Emit(GitOpsUpdatedEvent, gitOpsPayload{Cluster: cluster, Resources: dtos})
 		}
 	}
+}
+
+const actionTimeout = 30 * time.Second
+
+func (s *GitOpsService) Reconcile(cluster, kind, namespace, name string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.Reconcile(ctx, kind, namespace, name); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
+}
+
+func (s *GitOpsService) SetSuspend(cluster, kind, namespace, name string, suspend bool) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.SetSuspend(ctx, kind, namespace, name, suspend); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
 }
 
 // GetResourceDetail returns the detail view for one Flux resource from the live

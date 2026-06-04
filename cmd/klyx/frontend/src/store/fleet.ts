@@ -16,6 +16,7 @@ export type ClusterDTO = {
   region: string;
   provider: string;
   group: string;
+  protected?: boolean;
   ageSeconds: number;
 };
 
@@ -38,6 +39,7 @@ export type ResourceDetailDTO = {
   kind: string;
   namespace: string;
   name: string;
+  suspended?: boolean;
   appliedRevision: string;
   attemptedRevision: string;
   applyFailed: boolean;
@@ -67,6 +69,8 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   observability: "Observability",
 };
 
+export type ActionStatus = { kind: "success" | "error"; message: string };
+
 type FleetState = {
   clusters: ClusterDTO[];
   setClusters: (c: ClusterDTO[]) => void;
@@ -81,6 +85,9 @@ type FleetState = {
   expand: (key: string) => void;
   collapse: () => void;
   setDetail: (d: ResourceDetailDTO) => void;
+  actionStatus: ActionStatus | null;
+  setActionStatus: (s: ActionStatus) => void;
+  clearActionStatus: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -98,4 +105,7 @@ export const useFleet = create<FleetState>((set) => ({
   expand: (key) => set((s) => ({ gitops: { ...s.gitops, expandedKey: key, detail: null } })),
   collapse: () => set((s) => ({ gitops: { ...s.gitops, expandedKey: null, detail: null } })),
   setDetail: (d) => set((s) => ({ gitops: { ...s.gitops, detail: d } })),
+  actionStatus: null,
+  setActionStatus: (actionStatus) => set({ actionStatus }),
+  clearActionStatus: () => set({ actionStatus: null }),
 }));

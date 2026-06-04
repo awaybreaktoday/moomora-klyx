@@ -34,6 +34,10 @@ func main() {
 		log.Printf("warn: could not load fleet config (%v); starting with empty fleet", err)
 		cfg = &config.Config{}
 	}
+	for _, w := range cfg.Warnings() {
+		log.Printf("config warning: %s", w)
+	}
+	log.Printf("%s", cfg.Summary())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

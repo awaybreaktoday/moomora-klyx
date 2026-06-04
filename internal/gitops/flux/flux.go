@@ -136,6 +136,7 @@ type Detail struct {
 	Kind              Kind
 	Namespace         string
 	Name              string
+	Suspended         bool
 	AppliedRevision   string
 	AttemptedRevision string
 	Conditions        []Condition
@@ -148,6 +149,7 @@ func ParseDetail(u *unstructured.Unstructured) Detail {
 	d := Detail{Kind: Kind(u.GetKind()), Namespace: u.GetNamespace(), Name: u.GetName()}
 	d.AppliedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAppliedRevision")
 	d.AttemptedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAttemptedRevision")
+	d.Suspended, _, _ = unstructured.NestedBool(u.Object, "spec", "suspend")
 
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
 	for _, c := range conds {

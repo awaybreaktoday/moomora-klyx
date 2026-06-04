@@ -29,6 +29,8 @@ type Conn interface {
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	Reconcile(ctx context.Context, kind, ns, name string) error
+	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

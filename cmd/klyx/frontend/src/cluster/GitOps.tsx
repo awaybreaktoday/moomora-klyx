@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
-import { openGitOps, closeGitOps, getResourceDetail } from "../bridge/gitops";
+import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend } from "../bridge/gitops";
+import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
 const readyColor: Record<string, string> = {
   Ready: "var(--color-text-success)",
@@ -9,6 +10,10 @@ const readyColor: Record<string, string> = {
   Unknown: "var(--color-text-tertiary)",
 };
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+const actionBtn: React.CSSProperties = {
+  padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer",
+  border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)",
+};
 
 function shortRev(rev: string): string {
   if (!rev) return "";
@@ -32,6 +37,10 @@ export function GitOps({ cluster }: { cluster: string }) {
   const gitops = useFleet((s) => s.gitops);
   const expand = useFleet((s) => s.expand);
   const collapse = useFleet((s) => s.collapse);
+  const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
+  const actionStatus = useFleet((s) => s.actionStatus);
+  const clearActionStatus = useFleet((s) => s.clearActionStatus);
+  const [pending, setPending] = useState<null | { verb: "reconcile" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
   const absent = tier === "Absent";
 
   useEffect(() => {
@@ -69,6 +78,18 @@ export function GitOps({ cluster }: { cluster: string }) {
         <span>not ready <b style={{ color: notReady ? "var(--color-text-warning)" : "var(--color-text-primary)" }}>{notReady}</b></span>
       </div>
 
+      {actionStatus && (
+        <div
+          onClick={clearActionStatus}
+          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+            background: "var(--color-background-secondary)",
+            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
+            border: "0.5px solid var(--color-border-tertiary)" }}
+        >
+          {actionStatus.message}
+        </div>
+      )}
+
       {gitops.loading && rows.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading reconciliation state…</div>
       ) : rows.length === 0 ? (
@@ -81,11 +102,36 @@ export function GitOps({ cluster }: { cluster: string }) {
             return (
               <div key={k}>
                 <RowSummary r={r} open={open} onClick={() => (open ? collapse() : expand(k))} />
-                {open && <DetailPanel resource={r} detail={gitops.detail && keyOf(gitops.detail) === k ? gitops.detail : null} />}
+                {open && (
+                  <DetailPanel
+                    resource={r}
+                    detail={gitops.detail && keyOf(gitops.detail) === k ? gitops.detail : null}
+                    onReconcile={() => setPending({ verb: "reconcile", r })}
+                    onToggleSuspend={(suspended) => setPending({ verb: suspended ? "resume" : "suspend", r })}
+                  />
+                )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title={pending.verb === "reconcile" ? "Reconcile" : pending.verb === "suspend" ? "Suspend reconciliation" : "Resume reconciliation"}
+          cluster={cluster}
+          detail={`${pending.r.kind} ${pending.r.namespace}/${pending.r.name}`}
+          protected={isProtected}
+          danger={pending.verb === "suspend"}
+          confirmLabel={pending.verb === "reconcile" ? "Reconcile" : pending.verb === "suspend" ? "Suspend" : "Resume"}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { verb, r } = pending;
+            setPending(null);
+            if (verb === "reconcile") void reconcile(cluster, r.kind, r.namespace, r.name);
+            else void setSuspend(cluster, r.kind, r.namespace, r.name, verb === "suspend");
+          }}
+        />
       )}
     </div>
   );
@@ -112,13 +158,27 @@ function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; o
   );
 }
 
-function DetailPanel({ resource, detail }: { resource: FluxResourceDTO; detail: ResourceDetailDTO | null }) {
+function DetailPanel({ resource, detail, onReconcile, onToggleSuspend }: {
+  resource: FluxResourceDTO;
+  detail: ResourceDetailDTO | null;
+  onReconcile: () => void;
+  onToggleSuspend: (suspended: boolean) => void;
+}) {
   if (!detail) {
     return <div style={{ padding: "6px 12px 12px 38px", fontSize: 12, color: "var(--color-text-secondary)" }}>Loading detail…</div>;
   }
   const condColor = (c: { status: string }) => (c.status === "True" ? "var(--color-text-success)" : c.status === "False" ? "var(--color-text-danger)" : "var(--color-text-info)");
   return (
     <div style={{ padding: "6px 12px 14px 38px", background: "var(--color-background-secondary)", fontSize: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <button onClick={onReconcile} style={actionBtn}>Reconcile</button>
+        <button onClick={() => onToggleSuspend(detail.suspended ?? false)} style={actionBtn}>
+          {detail.suspended ? "Resume" : "Suspend"}
+        </button>
+        {detail.suspended && (
+          <span style={{ color: "var(--color-text-warning)", fontSize: 11, fontWeight: 500 }}>suspended</span>
+        )}
+      </div>
       {detail.applyFailed && (
         <div style={{ color: "var(--color-text-danger)", marginBottom: 8 }}>apply failed at <span style={{ fontFamily: "var(--font-mono)" }}>{shortRev(detail.attemptedRevision)}</span></div>
       )}

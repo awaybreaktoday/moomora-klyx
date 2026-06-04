@@ -30,3 +30,21 @@ export async function getResourceDetail(cluster: string, kind: string, namespace
     useFleet.getState().setDetail(d);
   }
 }
+
+type ActionResultDTO = { ok: boolean; error: string };
+
+export async function reconcile(cluster: string, kind: string, namespace: string, name: string): Promise<void> {
+  const r = (await GitOpsService.Reconcile(cluster, kind, namespace, name)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok ? { kind: "success", message: `Reconcile requested for ${namespace}/${name}` }
+         : { kind: "error", message: r.error || "Reconcile failed" },
+  );
+}
+
+export async function setSuspend(cluster: string, kind: string, namespace: string, name: string, suspend: boolean): Promise<void> {
+  const r = (await GitOpsService.SetSuspend(cluster, kind, namespace, name, suspend)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok ? { kind: "success", message: `${suspend ? "Suspended" : "Resumed"} ${namespace}/${name}` }
+         : { kind: "error", message: r.error || "Action failed" },
+  );
+}

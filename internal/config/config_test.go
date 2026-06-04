@@ -2,8 +2,38 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestWarningsFlagsShadowedTagKey(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{
+		{Name: "homelab", Tags: map[string]string{"env": "homelab", "protected": "true"}},
+	}}
+	w := c.Warnings()
+	if len(w) != 1 || !strings.Contains(w[0], "protected") || !strings.Contains(w[0], "homelab") {
+		t.Fatalf("want one warning about protected on homelab, got %v", w)
+	}
+}
+
+func TestWarningsCleanConfigNone(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{
+		{Name: "dev", Tags: map[string]string{"env": "dev", "region": "we"}},
+	}}
+	if w := c.Warnings(); len(w) != 0 {
+		t.Fatalf("want no warnings, got %v", w)
+	}
+}
+
+func TestSummaryListsProtected(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{
+		{Name: "prd", Protected: true}, {Name: "dev"},
+	}}
+	s := c.Summary()
+	if !strings.Contains(s, "2 cluster") || !strings.Contains(s, "prd") {
+		t.Fatalf("summary: %q", s)
+	}
+}
 
 func TestLoadValidConfig(t *testing.T) {
 	c, err := Load(filepath.Join("testdata", "fleet.yaml"))
@@ -26,6 +56,23 @@ func TestLoadValidConfig(t *testing.T) {
 	// Context defaults to Name when omitted.
 	if c.Clusters[1].Context != "vimadaboda-k3s" {
 		t.Fatalf("want defaulted context, got %q", c.Clusters[1].Context)
+	}
+}
+
+func TestLoadParsesEnvironmentAndProtected(t *testing.T) {
+	cfg, err := Load("testdata/protected.yaml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	byName := map[string]ClusterConfig{}
+	for _, c := range cfg.Clusters {
+		byName[c.Name] = c
+	}
+	if byName["prd-we"].Environment != "prd" || !byName["prd-we"].Protected {
+		t.Fatalf("prd-we: %+v", byName["prd-we"])
+	}
+	if byName["dev-ne"].Environment != "dev" || byName["dev-ne"].Protected {
+		t.Fatalf("dev-ne: %+v", byName["dev-ne"])
 	}
 }
 

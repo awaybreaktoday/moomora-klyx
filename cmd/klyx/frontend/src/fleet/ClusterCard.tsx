@@ -1,3 +1,4 @@
+import { IconLock } from "@tabler/icons-react";
 import type { ClusterDTO } from "../store/fleet";
 import { useFleet } from "../store/fleet";
 import { stateColor } from "../cluster/stateColors";
@@ -20,6 +21,11 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: stateColor[c.state] ?? "var(--color-text-tertiary)" }} />
         <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 12 }}>{c.name}</span>
+        {c.protected && (
+          <span title="protected" style={{ marginLeft: "auto", display: "inline-flex", color: "var(--color-text-warning)" }}>
+            <IconLock size={13} stroke={1.5} />
+          </span>
+        )}
       </div>
       <div style={{ display: "flex", gap: 4, marginBottom: 8, fontSize: 10 }}>
         {c.env && <Badge>{c.env}</Badge>}

@@ -55,6 +55,23 @@ func TestToDTO(t *testing.T) {
 	}
 }
 
+func TestToDTOMapsEnvironmentAndProtected(t *testing.T) {
+	s := fleet.Snapshot{Name: "prd-we", State: fleet.Synced}
+	cc := config.ClusterConfig{Name: "prd-we", Environment: "prd", Protected: true}
+	dto := ToDTO(s, cc, time.Now())
+	if dto.Env != "prd" {
+		t.Fatalf("want env=prd, got %q", dto.Env)
+	}
+	if !dto.Protected {
+		t.Fatal("want protected=true")
+	}
+
+	cc2 := config.ClusterConfig{Name: "x", Tags: map[string]string{"env": "stg"}}
+	if got := ToDTO(fleet.Snapshot{Name: "x"}, cc2, time.Now()).Env; got != "stg" {
+		t.Fatalf("want env fallback=stg, got %q", got)
+	}
+}
+
 func TestToDTOZeroLastSyncAgeIsZero(t *testing.T) {
 	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
 	d := ToDTO(fleet.Snapshot{Name: "x", State: fleet.Connecting}, config.ClusterConfig{Name: "x"}, now)
