@@ -6,6 +6,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
@@ -27,6 +28,7 @@ type Conn interface {
 	OpenGitOps()
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
+	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

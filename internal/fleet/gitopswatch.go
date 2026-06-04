@@ -80,6 +80,37 @@ func (c *ClusterConn) CloseGitOps() {
 	}
 }
 
+// GitOpsObject returns the watched Flux object of the given kind by namespace/name
+// from the live informer store. false if the watch is closed or not found.
+func (c *ClusterConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	c.mu.RLock()
+	g := c.gitops
+	c.mu.RUnlock()
+	if g == nil {
+		return nil, false
+	}
+	var inf cache.SharedIndexInformer
+	switch flux.Kind(kind) {
+	case flux.KustomizationKind:
+		inf = g.ksInf
+	case flux.HelmReleaseKind:
+		inf = g.hrInf
+	default:
+		return nil, false
+	}
+	if inf == nil {
+		return nil, false
+	}
+	for _, obj := range inf.GetStore().List() {
+		if u, ok := obj.(*unstructured.Unstructured); ok {
+			if u.GetNamespace() == namespace && u.GetName() == name {
+				return u, true
+			}
+		}
+	}
+	return nil, false
+}
+
 // GitOpsResources reads the informer stores and parses them. nil when not open.
 func (c *ClusterConn) GitOpsResources() []flux.Resource {
 	c.mu.RLock()

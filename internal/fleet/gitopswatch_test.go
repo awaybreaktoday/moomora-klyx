@@ -54,3 +54,31 @@ func TestOpenGitOpsListsKustomizations(t *testing.T) {
 		return len(rs) == 1 && rs[0].Kind == flux.KustomizationKind && rs[0].Ready == flux.Ready
 	})
 }
+
+func TestGitOpsObjectReturnsWatchedObject(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	typed := fake.NewSimpleClientset()
+	scheme := runtime.NewScheme()
+	ksGVR := schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		ksGVR: "KustomizationList",
+		{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}: "HelmReleaseList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, ksObj("flux-system"))
+
+	det := capability.NewDetector(typed)
+	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{})
+	c.ctx = ctx
+	c.OpenGitOps()
+	defer c.CloseGitOps()
+
+	waitFor(t, 2*time.Second, func() bool {
+		_, ok := c.GitOpsObject("Kustomization", "flux-system", "flux-system")
+		return ok
+	})
+	if _, ok := c.GitOpsObject("Kustomization", "flux-system", "nope"); ok {
+		t.Fatal("did not expect to find a nonexistent object")
+	}
+}
