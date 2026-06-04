@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"sort"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -80,6 +81,37 @@ func (c *ClusterConn) CloseGitOps() {
 	}
 }
 
+// GitOpsObject returns the watched Flux object of the given kind by namespace/name
+// from the live informer store. false if the watch is closed or not found.
+func (c *ClusterConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	c.mu.RLock()
+	g := c.gitops
+	c.mu.RUnlock()
+	if g == nil {
+		return nil, false
+	}
+	var inf cache.SharedIndexInformer
+	switch flux.Kind(kind) {
+	case flux.KustomizationKind:
+		inf = g.ksInf
+	case flux.HelmReleaseKind:
+		inf = g.hrInf
+	default:
+		return nil, false
+	}
+	if inf == nil {
+		return nil, false
+	}
+	for _, obj := range inf.GetStore().List() {
+		if u, ok := obj.(*unstructured.Unstructured); ok {
+			if u.GetNamespace() == namespace && u.GetName() == name {
+				return u, true
+			}
+		}
+	}
+	return nil, false
+}
+
 // GitOpsResources reads the informer stores and parses them. nil when not open.
 func (c *ClusterConn) GitOpsResources() []flux.Resource {
 	c.mu.RLock()
@@ -99,5 +131,26 @@ func (c *ClusterConn) GitOpsResources() []flux.Resource {
 			out = append(out, flux.ParseHelmRelease(u))
 		}
 	}
+	// Stable order: informer stores list in an unstable order, so sort
+	// deterministically (Kustomizations first, then namespace/name) to stop the
+	// UI list reshuffling on every push.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := kindRank(a.Kind), kindRank(b.Kind); ra != rb {
+			return ra < rb
+		}
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
 	return out
+}
+
+// kindRank orders Kustomizations before HelmReleases in the resource list.
+func kindRank(k flux.Kind) int {
+	if k == flux.KustomizationKind {
+		return 0
+	}
+	return 1
 }

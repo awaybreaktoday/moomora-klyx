@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
@@ -13,6 +15,7 @@ type GitOpsConn interface {
 	OpenGitOps()
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
+	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 }
 
 // GitOpsUpdatedEvent is emitted with { cluster, resources }.
@@ -87,4 +90,18 @@ func (s *GitOpsService) pushLoop(ctx context.Context, cluster string, conn GitOp
 			s.em.Emit(GitOpsUpdatedEvent, gitOpsPayload{Cluster: cluster, Resources: dtos})
 		}
 	}
+}
+
+// GetResourceDetail returns the detail view for one Flux resource from the live
+// watch store. Zero-value DTO when the cluster/object isn't available.
+func (s *GitOpsService) GetResourceDetail(cluster, kind, namespace, name string) ResourceDetailDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ResourceDetailDTO{}
+	}
+	u, ok := conn.GitOpsObject(kind, namespace, name)
+	if !ok {
+		return ResourceDetailDTO{}
+	}
+	return toDetailDTO(flux.ParseDetail(u))
 }

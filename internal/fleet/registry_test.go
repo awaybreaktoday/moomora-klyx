@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
@@ -24,6 +26,9 @@ func (f *fakeConn) Snapshot() Snapshot                  { return f.snap }
 func (f *fakeConn) OpenGitOps()                         {}
 func (f *fakeConn) CloseGitOps()                        {}
 func (f *fakeConn) GitOpsResources() []flux.Resource    { return nil }
+func (f *fakeConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	return nil, false
+}
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{

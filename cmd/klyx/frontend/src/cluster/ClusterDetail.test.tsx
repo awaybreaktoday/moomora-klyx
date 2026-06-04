@@ -27,7 +27,7 @@ describe("ClusterDetail", () => {
     useFleet.setState({
       clusters: [dto({ name: "x", gitopsTier: "Healthy" })],
       route: { name: "cluster", cluster: "x", section: "gitops" },
-      gitops: { cluster: "x", resources: [], loading: false },
+      gitops: { cluster: "x", resources: [], loading: false, expandedKey: null, detail: null },
     });
     const { getByText } = render(<ClusterDetail />);
     expect(getByText(/No Flux resources found/i)).toBeTruthy();

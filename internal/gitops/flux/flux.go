@@ -3,6 +3,7 @@
 package flux
 
 import (
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -114,4 +115,82 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 		r.Ready = Reconciling
 	}
 	return r
+}
+
+type Condition struct {
+	Type    string
+	Status  string
+	Reason  string
+	Message string
+}
+
+type InventoryEntry struct {
+	Group     string
+	Version   string
+	Kind      string
+	Namespace string
+	Name      string
+}
+
+type Detail struct {
+	Kind              Kind
+	Namespace         string
+	Name              string
+	AppliedRevision   string
+	AttemptedRevision string
+	Conditions        []Condition
+	Inventory         []InventoryEntry
+}
+
+// ParseDetail extracts the detail view from a watched Flux CR. Inventory is
+// parsed only for Kustomizations (HelmRelease CRs carry none).
+func ParseDetail(u *unstructured.Unstructured) Detail {
+	d := Detail{Kind: Kind(u.GetKind()), Namespace: u.GetNamespace(), Name: u.GetName()}
+	d.AppliedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAppliedRevision")
+	d.AttemptedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAttemptedRevision")
+
+	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cond := Condition{}
+		cond.Type, _ = cm["type"].(string)
+		cond.Status, _ = cm["status"].(string)
+		cond.Reason, _ = cm["reason"].(string)
+		cond.Message, _ = cm["message"].(string)
+		d.Conditions = append(d.Conditions, cond)
+	}
+
+	entries, _, _ := unstructured.NestedSlice(u.Object, "status", "inventory", "entries")
+	for _, e := range entries {
+		em, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, _ := em["id"].(string)
+		v, _ := em["v"].(string)
+		if ie, ok := parseInventoryID(id, v); ok {
+			d.Inventory = append(d.Inventory, ie)
+		}
+	}
+	return d
+}
+
+// parseInventoryID parses Flux's inventory id "<namespace>_<name>_<group>_<kind>".
+// Namespace is empty for cluster-scoped objects; group is empty for core kinds.
+// k8s names/namespaces/groups/kinds contain no underscore, so a 4-way split is safe.
+func parseInventoryID(id, version string) (InventoryEntry, bool) {
+	parts := strings.SplitN(id, "_", 4)
+	if len(parts) != 4 {
+		return InventoryEntry{}, false
+	}
+	return InventoryEntry{
+		Namespace: parts[0],
+		Name:      parts[1],
+		Group:     parts[2],
+		Kind:      parts[3],
+		Version:   version,
+	}, true
 }
