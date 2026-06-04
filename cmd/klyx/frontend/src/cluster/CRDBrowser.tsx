@@ -57,7 +57,6 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
     .filter((sec) => sec.kinds.length > 0);
 
   const totalKinds = flatten(groups).length;
-  const countedInstances = Object.values(crd.counts).reduce((n, c) => n + c.count, 0);
 
   if (crd.loading && groups.length === 0) {
     return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>Loading custom resources…</div>;
@@ -70,7 +69,7 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
     <div style={{ padding: "14px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          <b style={{ color: "var(--color-text-primary)" }}>{groups.length}</b> groups · <b style={{ color: "var(--color-text-primary)" }}>{totalKinds}</b> kinds · <b style={{ color: "var(--color-text-primary)" }}>{Object.keys(crd.counts).length ? countedInstances : "…"}</b> instances
+          <b style={{ color: "var(--color-text-primary)" }}>{groups.length}</b> groups · <b style={{ color: "var(--color-text-primary)" }}>{totalKinds}</b> kinds
         </div>
         <div style={{ flex: 1 }} />
         <input
@@ -124,6 +123,7 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
   }, [open, cluster, kinds, counts]);
 
   const sectionInstances = kinds.reduce((n, k) => n + (counts[crdCountKey(k.group, k.version, k.plural)]?.count ?? 0), 0);
+  const sectionCounted = kinds.every((k) => counts[crdCountKey(k.group, k.version, k.plural)]);
 
   return (
     <div>
@@ -135,7 +135,7 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 500, ...ellipsis }}>{label}</div>
         {category ? <span style={{ background: "var(--color-background-primary)", color: "var(--color-text-secondary)", fontSize: 9, padding: "1px 6px", borderRadius: 3, letterSpacing: 0.3, justifySelf: "start" }}>{category}</span> : <span />}
         <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{kinds.length} kinds</span>
-        <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{Object.keys(counts).length ? `${sectionInstances} instances` : "…"}</span>
+        <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{sectionCounted ? `${sectionInstances} instances` : "…"}</span>
       </div>
       {open && kinds.map((k) => {
         const c = counts[crdCountKey(k.group, k.version, k.plural)];
