@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/moomora/klyx/internal/config"
+	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
 type fakeConn struct {
@@ -19,7 +20,10 @@ func (f *fakeConn) Start(ctx context.Context) {
 		f.start()
 	}
 }
-func (f *fakeConn) Snapshot() Snapshot { return f.snap }
+func (f *fakeConn) Snapshot() Snapshot                  { return f.snap }
+func (f *fakeConn) OpenGitOps()                         {}
+func (f *fakeConn) CloseGitOps()                        {}
+func (f *fakeConn) GitOpsResources() []flux.Resource    { return nil }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{

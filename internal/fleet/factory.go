@@ -3,6 +3,7 @@ package fleet
 import (
 	"fmt"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/metadata"
 
@@ -27,7 +28,11 @@ func DefaultConnFactory(clk clock.Clock) ConnFactory {
 		if err != nil {
 			return nil, fmt.Errorf("metadata client for %q: %w", cc.Name, err)
 		}
+		dyn, err := dynamic.NewForConfig(rc)
+		if err != nil {
+			return nil, fmt.Errorf("dynamic client for %q: %w", cc.Name, err)
+		}
 		det := capability.NewDetector(typed)
-		return NewClusterConn(cc.Name, typed, mclient, det, clk), nil
+		return NewClusterConn(cc.Name, typed, mclient, dyn, det, clk), nil
 	}
 }

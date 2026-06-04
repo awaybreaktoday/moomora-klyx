@@ -45,7 +45,7 @@ func TestCapHealthReactsToControllerHealth(t *testing.T) {
 	mclient := metadatafake.NewSimpleMetadataClient(mscheme, podMeta("p1", "default"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c := NewClusterConn("x", typed, mclient, nil, det, clock.Real{})
 	c.Start(ctx)
 
 	waitFor(t, 3*time.Second, func() bool {

@@ -7,6 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/metadata"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
 // Conn is the interface the registry drives. ClusterConn is the production impl.
@@ -22,6 +24,9 @@ type Conn interface {
 	Name() string
 	Start(ctx context.Context)
 	Snapshot() Snapshot
+	OpenGitOps()
+	CloseGitOps()
+	GitOpsResources() []flux.Resource
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
@@ -33,6 +38,7 @@ type ClusterConn struct {
 	name     string
 	typed    kubernetes.Interface
 	meta     metadata.Interface
+	dyn      dynamic.Interface
 	detector *capability.Detector
 	clk      clock.Clock
 
@@ -47,12 +53,14 @@ type ClusterConn struct {
 	snapVersion    string
 	connectTimeout time.Duration
 	refresh        chan struct{} // buffered(1); coalesces informer events
+	ctx            context.Context // captured in Start; scopes lazy watches
+	gitops         *gitopsWatch    // lazy; nil until OpenGitOps
 }
 
 func NewClusterConn(name string, typed kubernetes.Interface, meta metadata.Interface,
-	detector *capability.Detector, clk clock.Clock) *ClusterConn {
+	dyn dynamic.Interface, detector *capability.Detector, clk clock.Clock) *ClusterConn {
 	return &ClusterConn{
-		name: name, typed: typed, meta: meta, detector: detector, clk: clk,
+		name: name, typed: typed, meta: meta, dyn: dyn, detector: detector, clk: clk,
 		state:          Unconnected,
 		connectTimeout: defaultConnectTimeout,
 		refresh:        make(chan struct{}, 1),
@@ -98,6 +106,7 @@ func (c *ClusterConn) onWatchError(err error) {
 // when a later relist succeeds.
 func (c *ClusterConn) Start(ctx context.Context) {
 	c.setState(EvStart, "")
+	c.ctx = ctx
 
 	nodeFactory := informers.NewSharedInformerFactory(c.typed, defaultResync)
 	nodeInformer := nodeFactory.Core().V1().Nodes().Informer()

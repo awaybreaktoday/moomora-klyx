@@ -53,6 +53,21 @@ func (r *Registry) Start(ctx context.Context) {
 	}
 }
 
+// Conn returns the live Conn for a cluster by name (nil,false if absent or failed).
+func (r *Registry) Conn(name string) (Conn, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, e := range r.entries {
+		if e.failed || e.conn == nil {
+			continue
+		}
+		if e.conn.Name() == name {
+			return e.conn, true
+		}
+	}
+	return nil, false
+}
+
 // Snapshots returns one snapshot per configured cluster, sorted by name.
 func (r *Registry) Snapshots() []Snapshot {
 	r.mu.RLock()
