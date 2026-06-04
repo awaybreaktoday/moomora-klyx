@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
@@ -13,6 +15,7 @@ type fakeGitOpsConn struct {
 	opened int
 	closed int
 	res    []flux.Resource
+	obj    *unstructured.Unstructured
 }
 
 func (f *fakeGitOpsConn) OpenGitOps()  { f.mu.Lock(); f.opened++; f.mu.Unlock() }
@@ -21,6 +24,13 @@ func (f *fakeGitOpsConn) GitOpsResources() []flux.Resource {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.res
+}
+
+func (f *fakeGitOpsConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	if f.obj == nil {
+		return nil, false
+	}
+	return f.obj, true
 }
 
 func TestGitOpsServiceOpenEmitsAndCloseStops(t *testing.T) {
