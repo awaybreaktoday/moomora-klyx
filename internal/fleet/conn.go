@@ -31,6 +31,7 @@ type Conn interface {
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
+	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

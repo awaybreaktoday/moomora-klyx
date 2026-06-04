@@ -1,5 +1,5 @@
 import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
-import { Events } from "@wailsio/runtime";
+import { Events, Browser, Clipboard } from "@wailsio/runtime";
 import { GitOpsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
 const GITOPS_UPDATED = "gitops:updated";
@@ -47,4 +47,19 @@ export async function setSuspend(cluster: string, kind: string, namespace: strin
     r.ok ? { kind: "success", message: `${suspend ? "Suspended" : "Resumed"} ${namespace}/${name}` }
          : { kind: "error", message: r.error || "Action failed" },
   );
+}
+
+type GitLinkDTO = { url: string; isDeepLink: boolean; copyText: string };
+
+export async function resolveGitLink(cluster: string, kind: string, namespace: string, name: string): Promise<void> {
+  const link = (await GitOpsService.ResolveGitLink(cluster, kind, namespace, name)) as GitLinkDTO;
+  if (link.isDeepLink && link.url) {
+    await Browser.OpenURL(link.url);
+    useFleet.getState().setActionStatus({ kind: "success", message: `Opened ${link.url}` });
+  } else if (link.copyText) {
+    await Clipboard.SetText(link.copyText);
+    useFleet.getState().setActionStatus({ kind: "success", message: "Copied source reference to clipboard" });
+  } else {
+    useFleet.getState().setActionStatus({ kind: "error", message: "No Git source to open for this resource" });
+  }
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { useFleet, FluxResourceDTO, ClusterDTO } from "../store/fleet";
-import { reconcile, setSuspend } from "../bridge/gitops";
+import { reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { GitOps } from "./GitOps";
 
 vi.mock("../bridge/gitops", () => ({
@@ -10,6 +10,7 @@ vi.mock("../bridge/gitops", () => ({
   getResourceDetail: async () => {},
   reconcile: vi.fn(),
   setSuspend: vi.fn(),
+  resolveGitLink: vi.fn(),
 }));
 
 const cluster = (tier: string): ClusterDTO => ({
@@ -119,6 +120,28 @@ describe("GitOps view", () => {
     const resumeButtons = getAllByRole("button", { name: "Resume" });
     fireEvent.click(resumeButtons[resumeButtons.length - 1]); // dialog confirm is last in DOM
     expect(setSuspend).toHaveBeenCalledWith("x", "Kustomization", "flux-system", "flux-system", false);
+  });
+
+  it("view-in-git button calls resolveGitLink for a Kustomization", () => {
+    useFleet.setState({ clusters: [cluster("Healthy")], gitops: expandedDetail() });
+    const { getByText } = render(<GitOps cluster="x" />);
+    fireEvent.click(getByText("View in Git"));
+    expect(resolveGitLink).toHaveBeenCalledWith("x", "Kustomization", "flux-system", "flux-system");
+  });
+
+  it("hides view-in-git for a HelmRelease", () => {
+    useFleet.setState({
+      clusters: [cluster("Healthy")],
+      gitops: {
+        cluster: "x",
+        resources: [res({ kind: "HelmRelease", namespace: "ns", name: "app" })],
+        loading: false,
+        expandedKey: "HelmRelease/ns/app",
+        detail: { kind: "HelmRelease", namespace: "ns", name: "app", suspended: false, appliedRevision: "", attemptedRevision: "", applyFailed: false, conditions: [], inventory: [] },
+      },
+    });
+    const { queryByText } = render(<GitOps cluster="x" />);
+    expect(queryByText("View in Git")).toBeNull();
   });
 
   it("renders the action-status toast", () => {
