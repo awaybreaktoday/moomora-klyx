@@ -60,12 +60,21 @@ func main() {
 		em, time.Now, time.Second,
 	)
 
+	crdSvc := appbridge.NewCRDService(func(name string) (appbridge.CRDConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
 		Services: []application.Service{
 			application.NewService(svc),
 			application.NewService(gitopsSvc),
+			application.NewService(crdSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
