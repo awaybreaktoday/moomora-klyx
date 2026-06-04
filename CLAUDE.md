@@ -24,8 +24,8 @@ A native desktop application (Go + Wails) that connects to one or more Kubernete
 
 Hard non-goals. Resist scope creep toward these even if a feature seems adjacent:
 
-- Not a resource creation wizard. Resources are written as Helm/Kustomize in Git.
-- Not an RBAC management UI. Read-only viewer for cluster state.
+- Not a resource creation/editing wizard. Desired state is authored as Helm/Kustomize in Git, never hand-written through Klyx. Klyx may drive controllers and perform day-2 operations (reconcile, suspend/resume, and later scale/restart), but it never authors desired state - Git remains the source of truth.
+- Not an RBAC management UI. Klyx views and operates on cluster state; it does not manage roles, bindings, or permissions.
 - Not an alerting platform. Delegate to AlertManager / Grafana.
 - Not a Helm chart browser or installer. That's `helm` and Flux's job.
 - Not a multi-tenant SaaS. Single-user desktop binary, with optional `klyx serve` headless mode for shared team use.
