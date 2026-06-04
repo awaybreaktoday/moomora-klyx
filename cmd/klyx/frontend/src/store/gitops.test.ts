@@ -7,7 +7,7 @@ const r = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
   sourceKind: "", sourceName: "", ...over,
 });
 
-beforeEach(() => useFleet.setState({ gitops: { cluster: null, resources: [], loading: false } }));
+beforeEach(() => useFleet.setState({ gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null } }));
 
 describe("gitops store", () => {
   it("setGitOps stores resources for a cluster", () => {
@@ -25,6 +25,6 @@ describe("gitops store", () => {
   it("clearGitOps resets the slice", () => {
     useFleet.getState().setGitOps("x", [r({})]);
     useFleet.getState().clearGitOps();
-    expect(useFleet.getState().gitops).toEqual({ cluster: null, resources: [], loading: false });
+    expect(useFleet.getState().gitops).toEqual({ cluster: null, resources: [], loading: false, expandedKey: null, detail: null });
   });
 });

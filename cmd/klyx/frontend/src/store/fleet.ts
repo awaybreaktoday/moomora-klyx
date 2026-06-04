@@ -32,10 +32,25 @@ export type FluxResourceDTO = {
   sourceName: string;
 };
 
+export type ConditionDTO = { type: string; status: string; reason: string; message: string };
+export type InventoryEntryDTO = { group: string; version: string; kind: string; namespace: string; name: string };
+export type ResourceDetailDTO = {
+  kind: string;
+  namespace: string;
+  name: string;
+  appliedRevision: string;
+  attemptedRevision: string;
+  applyFailed: boolean;
+  conditions: ConditionDTO[];
+  inventory: InventoryEntryDTO[];
+};
+
 export type GitOpsSlice = {
   cluster: string | null;
   resources: FluxResourceDTO[];
   loading: boolean;
+  expandedKey: string | null;
+  detail: ResourceDetailDTO | null;
 };
 
 export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability";
@@ -63,6 +78,9 @@ type FleetState = {
   setGitOps: (cluster: string, resources: FluxResourceDTO[]) => void;
   setGitOpsLoading: (cluster: string) => void;
   clearGitOps: () => void;
+  expand: (key: string) => void;
+  collapse: () => void;
+  setDetail: (d: ResourceDetailDTO) => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -73,8 +91,11 @@ export const useFleet = create<FleetState>((set) => ({
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
   setSection: (section) =>
     set((s) => (s.route.name === "cluster" ? { route: { ...s.route, section } } : {})),
-  gitops: { cluster: null, resources: [], loading: false },
-  setGitOps: (cluster, resources) => set({ gitops: { cluster, resources, loading: false } }),
-  setGitOpsLoading: (cluster) => set({ gitops: { cluster, resources: [], loading: true } }),
-  clearGitOps: () => set({ gitops: { cluster: null, resources: [], loading: false } }),
+  gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null },
+  setGitOps: (cluster, resources) => set((s) => ({ gitops: { ...s.gitops, cluster, resources, loading: false } })),
+  setGitOpsLoading: (cluster) => set((s) => ({ gitops: { ...s.gitops, cluster, resources: [], loading: true } })),
+  clearGitOps: () => set({ gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null } }),
+  expand: (key) => set((s) => ({ gitops: { ...s.gitops, expandedKey: key, detail: null } })),
+  collapse: () => set((s) => ({ gitops: { ...s.gitops, expandedKey: null, detail: null } })),
+  setDetail: (d) => set((s) => ({ gitops: { ...s.gitops, detail: d } })),
 }));

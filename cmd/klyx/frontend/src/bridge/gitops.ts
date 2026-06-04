@@ -1,4 +1,4 @@
-import { useFleet, FluxResourceDTO } from "../store/fleet";
+import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { Events } from "@wailsio/runtime";
 import { GitOpsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
@@ -21,5 +21,12 @@ export async function closeGitOps(cluster: string): Promise<void> {
     await GitOpsService.Close(cluster);
   } finally {
     useFleet.getState().clearGitOps();
+  }
+}
+
+export async function getResourceDetail(cluster: string, kind: string, namespace: string, name: string): Promise<void> {
+  const d = (await GitOpsService.GetResourceDetail(cluster, kind, namespace, name)) as ResourceDetailDTO;
+  if (d && d.name) {
+    useFleet.getState().setDetail(d);
   }
 }

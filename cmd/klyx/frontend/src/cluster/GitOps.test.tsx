@@ -21,7 +21,7 @@ const res = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
 
 beforeEach(() => useFleet.setState({
   clusters: [cluster("Healthy")],
-  gitops: { cluster: "x", resources: [], loading: false },
+  gitops: { cluster: "x", resources: [], loading: false, expandedKey: null, detail: null },
 }));
 
 describe("GitOps view", () => {
@@ -29,7 +29,7 @@ describe("GitOps view", () => {
     useFleet.setState({ gitops: { cluster: "x", resources: [
       res({ name: "flux-system", ready: "Ready" }),
       res({ kind: "HelmRelease", name: "cilium", ready: "Failed", message: "install failed" }),
-    ], loading: false } });
+    ], loading: false, expandedKey: null, detail: null } });
     const { getByText } = render(<GitOps cluster="x" />);
     expect(getByText("flux-system/flux-system")).toBeTruthy();
     expect(getByText("flux-system/cilium")).toBeTruthy();
