@@ -62,7 +62,7 @@ func main() {
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: "Klyx",
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
+			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},

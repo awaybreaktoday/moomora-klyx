@@ -5,7 +5,6 @@ export function FleetView() {
   const clusters = useFleet((s) => s.clusters);
   return (
     <div style={{ padding: "14px 16px" }}>
-      <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 12 }}>Fleet</div>
       {clusters.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No clusters connected yet.</div>
       ) : (
