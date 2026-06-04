@@ -17,6 +17,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
@@ -32,6 +33,8 @@ type Conn interface {
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
+	ListCRDs(ctx context.Context) ([]crd.Info, error)
+	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
