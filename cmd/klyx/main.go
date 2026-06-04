@@ -43,11 +43,25 @@ func main() {
 
 	svc := appbridge.NewFleetService(reg, cfg, time.Now)
 
+	em := &emitterAdapter{}
+
+	gitopsSvc := appbridge.NewGitOpsService(
+		func(name string) (appbridge.GitOpsConn, bool) {
+			c, ok := reg.Conn(name)
+			if !ok {
+				return nil, false
+			}
+			return c, true
+		},
+		em, time.Now, time.Second,
+	)
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
 		Services: []application.Service{
 			application.NewService(svc),
+			application.NewService(gitopsSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -57,7 +71,9 @@ func main() {
 		},
 	})
 
-	go svc.Run(ctx, emitterAdapter{app: app}, time.Second)
+	em.app = app
+
+	go svc.Run(ctx, em, time.Second)
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: "Klyx",
@@ -78,6 +94,6 @@ func main() {
 // emitterAdapter adapts the Wails app event API to appbridge.Emitter.
 type emitterAdapter struct{ app *application.App }
 
-func (e emitterAdapter) Emit(name string, data any) {
+func (e *emitterAdapter) Emit(name string, data any) {
 	e.app.Event.Emit(name, data)
 }

@@ -44,7 +44,7 @@ func TestClusterConnSnapshotCountsAndSyncs(t *testing.T) {
 
 	det := capability.NewDetector(typed)
 
-	conn := NewClusterConn("plt-sea-prd-we-aks-01", typed, mclient, det, clock.Real{})
+	conn := NewClusterConn("plt-sea-prd-we-aks-01", typed, mclient, nil, det, clock.Real{})
 	conn.Start(ctx)
 
 	waitFor(t, 2*time.Second, func() bool {
@@ -80,7 +80,7 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 }
 
 func TestOnWatchErrorFromSyncedGoesStale(t *testing.T) {
-	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c := NewClusterConn("x", nil, nil, nil, nil, clock.Real{})
 	c.state = Synced // in-package: drive directly without a live sync
 	c.onWatchError(errors.New("boom"))
 	s := c.Snapshot()
@@ -93,7 +93,7 @@ func TestOnWatchErrorFromSyncedGoesStale(t *testing.T) {
 }
 
 func TestOnWatchErrorIgnoredWhenNotSynced(t *testing.T) {
-	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c := NewClusterConn("x", nil, nil, nil, nil, clock.Real{})
 	c.state = Connecting
 	c.onWatchError(errors.New("boom"))
 	if s := c.Snapshot(); s.State != Connecting {
@@ -102,7 +102,7 @@ func TestOnWatchErrorIgnoredWhenNotSynced(t *testing.T) {
 }
 
 func TestNewClusterConnDefaultsConnectTimeout(t *testing.T) {
-	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c := NewClusterConn("x", nil, nil, nil, nil, clock.Real{})
 	if c.connectTimeout != defaultConnectTimeout {
 		t.Fatalf("want default connect timeout %v, got %v", defaultConnectTimeout, c.connectTimeout)
 	}
@@ -120,7 +120,7 @@ func TestConnectTimeoutGoesFailed(t *testing.T) {
 	mclient := metadatafake.NewSimpleMetadataClient(mscheme)
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c := NewClusterConn("x", typed, mclient, nil, det, clock.Real{})
 	c.connectTimeout = 100 * time.Millisecond // in-package override for a fast test
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,7 +134,7 @@ func TestConnectTimeoutGoesFailed(t *testing.T) {
 }
 
 func TestSetStateClearsReasonOnRecovery(t *testing.T) {
-	c := NewClusterConn("x", nil, nil, nil, clock.Real{})
+	c := NewClusterConn("x", nil, nil, nil, nil, clock.Real{})
 	c.state = Stale
 	c.reason = "watch error: boom"
 	c.setState(EvSynced, "") // Stale -> Synced recovery
@@ -162,7 +162,7 @@ func TestWatchDrivenRefreshUpdatesPodCount(t *testing.T) {
 		podMeta("p1", "default"), podMeta("p2", "default"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c := NewClusterConn("x", typed, mclient, nil, det, clock.Real{})
 	c.Start(ctx)
 
 	// Initial sync: 2 pods.
@@ -196,7 +196,7 @@ func TestClusterConnCapturesServerVersion(t *testing.T) {
 	mclient := metadatafake.NewSimpleMetadataClient(mscheme, podMeta("p1", "default"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, mclient, det, clock.Real{})
+	c := NewClusterConn("x", typed, mclient, nil, det, clock.Real{})
 	c.Start(ctx)
 
 	waitFor(t, 2*time.Second, func() bool {
