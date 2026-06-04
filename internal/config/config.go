@@ -15,12 +15,14 @@ type Config struct {
 }
 
 type ClusterConfig struct {
-	Name       string            `yaml:"name"`
-	Context    string            `yaml:"context"`
-	Kubeconfig string            `yaml:"kubeconfig"`
-	Tags       map[string]string `yaml:"tags"`
-	Group      string            `yaml:"group"`
-	Metrics    *MetricsConfig    `yaml:"metrics"`
+	Name        string            `yaml:"name"`
+	Context     string            `yaml:"context"`
+	Kubeconfig  string            `yaml:"kubeconfig"`
+	Tags        map[string]string `yaml:"tags"`
+	Group       string            `yaml:"group"`
+	Environment string            `yaml:"environment"`
+	Protected   bool              `yaml:"protected"`
+	Metrics     *MetricsConfig    `yaml:"metrics"`
 }
 
 type MetricsConfig struct {

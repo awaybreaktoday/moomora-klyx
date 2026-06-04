@@ -26,6 +26,7 @@ type ClusterDTO struct {
 	Region        string `json:"region"`
 	Provider      string `json:"provider"`
 	Group         string `json:"group"`
+	Protected     bool   `json:"protected"`
 	AgeSeconds    int64  `json:"ageSeconds"`
 }
 
@@ -51,10 +52,18 @@ func ToDTO(s fleet.Snapshot, cc config.ClusterConfig, now time.Time) ClusterDTO 
 		GitopsReason:  s.Capabilities.GitOps.Reason,
 		NetworkTier:   s.Capabilities.Network.Tier.String(),
 		NetworkReason: s.Capabilities.Network.Reason,
-		Env:           cc.Tags["env"],
+		Env:           firstNonEmpty(cc.Environment, cc.Tags["env"]),
+		Protected:     cc.Protected,
 		Region:        cc.Tags["region"],
 		Provider:      cc.Tags["provider"],
 		Group:         cc.Group,
 		AgeSeconds:    age,
 	}
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

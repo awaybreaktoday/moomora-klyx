@@ -29,6 +29,23 @@ func TestLoadValidConfig(t *testing.T) {
 	}
 }
 
+func TestLoadParsesEnvironmentAndProtected(t *testing.T) {
+	cfg, err := Load("testdata/protected.yaml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	byName := map[string]ClusterConfig{}
+	for _, c := range cfg.Clusters {
+		byName[c.Name] = c
+	}
+	if byName["prd-we"].Environment != "prd" || !byName["prd-we"].Protected {
+		t.Fatalf("prd-we: %+v", byName["prd-we"])
+	}
+	if byName["dev-ne"].Environment != "dev" || byName["dev-ne"].Protected {
+		t.Fatalf("dev-ne: %+v", byName["dev-ne"])
+	}
+}
+
 func TestValidateRejectsDuplicateNames(t *testing.T) {
 	c := &Config{Clusters: []ClusterConfig{{Name: "a"}, {Name: "a"}}}
 	if err := c.validate(); err == nil {
