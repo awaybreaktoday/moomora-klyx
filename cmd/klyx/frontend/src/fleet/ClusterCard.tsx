@@ -1,4 +1,5 @@
 import type { ClusterDTO } from "../store/fleet";
+import { useFleet } from "../store/fleet";
 
 const stateColor: Record<string, string> = {
   Synced: "var(--color-text-success)",
@@ -10,13 +11,20 @@ const stateColor: Record<string, string> = {
 };
 
 export function ClusterCard({ c }: { c: ClusterDTO }) {
+  const openCluster = useFleet((s) => s.openCluster);
   return (
-    <div style={{
-      background: "var(--color-background-primary)",
-      border: "0.5px solid var(--color-border-tertiary)",
-      borderRadius: "var(--border-radius-md)",
-      padding: "10px 12px",
-    }}>
+    <div
+      onClick={() => openCluster(c.name)}
+      style={{
+        background: "var(--color-background-primary)",
+        border: "0.5px solid var(--color-border-tertiary)",
+        borderRadius: "var(--border-radius-md)",
+        padding: "10px 12px",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--color-border-secondary)")}
+      onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--color-border-tertiary)")}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: stateColor[c.state] ?? "var(--color-text-tertiary)" }} />
         <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 12 }}>{c.name}</span>

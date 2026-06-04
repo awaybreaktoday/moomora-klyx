@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { ClusterCard } from "./ClusterCard";
 import type { ClusterDTO } from "../store/fleet";
+import { useFleet } from "../store/fleet";
 
 const base: ClusterDTO = {
   name: "plt-sea-prd-we-aks-01", state: "Synced", reason: "",
@@ -25,4 +26,11 @@ describe("ClusterCard", () => {
     );
     expect(getByText(/connect timed out/i)).toBeTruthy();
   });
+});
+
+it("drills into the cluster on click", () => {
+  useFleet.setState({ route: { name: "fleet" } });
+  const { getByText } = render(<ClusterCard c={base} />);
+  getByText("plt-sea-prd-we-aks-01").click();
+  expect(useFleet.getState().route).toMatchObject({ name: "cluster", cluster: "plt-sea-prd-we-aks-01" });
 });
