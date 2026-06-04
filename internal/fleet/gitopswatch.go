@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"sort"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -130,5 +131,26 @@ func (c *ClusterConn) GitOpsResources() []flux.Resource {
 			out = append(out, flux.ParseHelmRelease(u))
 		}
 	}
+	// Stable order: informer stores list in an unstable order, so sort
+	// deterministically (Kustomizations first, then namespace/name) to stop the
+	// UI list reshuffling on every push.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := kindRank(a.Kind), kindRank(b.Kind); ra != rb {
+			return ra < rb
+		}
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
 	return out
+}
+
+// kindRank orders Kustomizations before HelmReleases in the resource list.
+func kindRank(k flux.Kind) int {
+	if k == flux.KustomizationKind {
+		return 0
+	}
+	return 1
 }

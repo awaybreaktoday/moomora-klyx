@@ -82,3 +82,32 @@ func TestGitOpsObjectReturnsWatchedObject(t *testing.T) {
 		t.Fatal("did not expect to find a nonexistent object")
 	}
 }
+
+func TestGitOpsResourcesAreStablySorted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	typed := fake.NewSimpleClientset()
+	scheme := runtime.NewScheme()
+	ksGVR := schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		ksGVR: "KustomizationList",
+		{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}: "HelmReleaseList",
+	}
+	// Seed out of alphabetical order; GitOpsResources must return them sorted.
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind,
+		ksObj("z-app"), ksObj("a-app"), ksObj("m-app"))
+
+	det := capability.NewDetector(typed)
+	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{})
+	c.ctx = ctx
+	c.OpenGitOps()
+	defer c.CloseGitOps()
+
+	waitFor(t, 2*time.Second, func() bool { return len(c.GitOpsResources()) == 3 })
+
+	rs := c.GitOpsResources()
+	if rs[0].Name != "a-app" || rs[1].Name != "m-app" || rs[2].Name != "z-app" {
+		t.Fatalf("want a-app,m-app,z-app order, got %s,%s,%s", rs[0].Name, rs[1].Name, rs[2].Name)
+	}
+}
