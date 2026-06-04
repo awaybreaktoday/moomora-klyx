@@ -49,6 +49,13 @@ func ToFluxDTO(r flux.Resource, now time.Time) FluxResourceDTO {
 	}
 }
 
+// GitLinkDTO is a resolved Git navigation target for a Flux resource.
+type GitLinkDTO struct {
+	URL        string `json:"url"`
+	IsDeepLink bool   `json:"isDeepLink"`
+	CopyText   string `json:"copyText"`
+}
+
 type ConditionDTO struct {
 	Type    string `json:"type"`
 	Status  string `json:"status"`

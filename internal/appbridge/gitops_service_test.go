@@ -19,6 +19,8 @@ type fakeGitOpsConn struct {
 	res    []flux.Resource
 	obj    *unstructured.Unstructured
 
+	sourceURL string
+
 	reconcileErr error
 	suspendErr   error
 	lastSuspend  bool
@@ -47,6 +49,52 @@ func (f *fakeGitOpsConn) SetSuspend(ctx context.Context, kind, ns, name string, 
 	f.lastSuspend = suspend
 	f.mu.Unlock()
 	return f.suspendErr
+}
+
+func (f *fakeGitOpsConn) SourceURL(ctx context.Context, kind, ns, name string) (string, bool) {
+	if f.sourceURL == "" {
+		return "", false
+	}
+	return f.sourceURL, true
+}
+
+func TestResolveGitLinkDeepLink(t *testing.T) {
+	ks := &unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "app", "namespace": "flux-system"},
+		"kind":     "Kustomization",
+		"spec": map[string]interface{}{
+			"path":      "./apps/x",
+			"sourceRef": map[string]interface{}{"kind": "GitRepository", "name": "flux-system"},
+		},
+		"status": map[string]interface{}{"lastAppliedRevision": "main@sha1:abc"},
+	}}
+	conn := &fakeGitOpsConn{obj: ks, sourceURL: "https://gitlab.com/org/repo.git"}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+
+	link := svc.ResolveGitLink("x", "Kustomization", "flux-system", "app")
+	if !link.IsDeepLink || link.URL != "https://gitlab.com/org/repo/-/tree/main/apps/x" {
+		t.Fatalf("deep link: %+v", link)
+	}
+}
+
+func TestResolveGitLinkNonKustomizationIsEmpty(t *testing.T) {
+	conn := &fakeGitOpsConn{}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	if link := svc.ResolveGitLink("x", "HelmRelease", "ns", "app"); link.URL != "" || link.IsDeepLink {
+		t.Fatalf("HelmRelease must be empty, got %+v", link)
+	}
+}
+
+func TestResolveGitLinkNoSourceURLIsEmpty(t *testing.T) {
+	ks := &unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "app", "namespace": "flux-system"},
+		"spec":     map[string]interface{}{"sourceRef": map[string]interface{}{"kind": "GitRepository", "name": "src"}},
+	}}
+	conn := &fakeGitOpsConn{obj: ks} // sourceURL empty -> SourceURL returns ok=false
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	if link := svc.ResolveGitLink("x", "Kustomization", "flux-system", "app"); link.URL != "" || link.IsDeepLink {
+		t.Fatalf("want empty link when source url missing, got %+v", link)
+	}
 }
 
 func TestGitOpsServiceOpenEmitsAndCloseStops(t *testing.T) {

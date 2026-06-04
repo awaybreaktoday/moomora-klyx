@@ -18,6 +18,7 @@ type GitOpsConn interface {
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
+	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 }
 
 // GitOpsUpdatedEvent is emitted with { cluster, resources }.
@@ -134,4 +135,33 @@ func (s *GitOpsService) GetResourceDetail(cluster, kind, namespace, name string)
 		return ResourceDetailDTO{}
 	}
 	return toDetailDTO(flux.ParseDetail(u))
+}
+
+// ResolveGitLink resolves a Kustomization's GitRepository source to a browsable
+// link (or a copyable reference). Zero-value DTO for non-Kustomizations, a
+// non-GitRepository source, or any lookup miss.
+func (s *GitOpsService) ResolveGitLink(cluster, kind, namespace, name string) GitLinkDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return GitLinkDTO{}
+	}
+	if flux.Kind(kind) != flux.KustomizationKind {
+		return GitLinkDTO{}
+	}
+	u, ok := conn.GitOpsObject(kind, namespace, name)
+	if !ok {
+		return GitLinkDTO{}
+	}
+	src := flux.ParseKustomizationSource(u)
+	if src.SourceKind != "GitRepository" || src.SourceName == "" {
+		return GitLinkDTO{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	url, ok := conn.SourceURL(ctx, "GitRepository", src.SourceNamespace, src.SourceName)
+	if !ok {
+		return GitLinkDTO{}
+	}
+	link := flux.ResolveGitLink(url, src.Path, src.Revision)
+	return GitLinkDTO{URL: link.URL, IsDeepLink: link.IsDeepLink, CopyText: link.CopyText}
 }
