@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, fireEvent } from "@testing-library/react";
 import { useFleet, FluxResourceDTO, ClusterDTO } from "../store/fleet";
+import { reconcile, setSuspend } from "../bridge/gitops";
 import { GitOps } from "./GitOps";
 
 vi.mock("../bridge/gitops", () => ({
   openGitOps: async () => () => {},
   closeGitOps: async () => {},
   getResourceDetail: async () => {},
+  reconcile: vi.fn(),
+  setSuspend: vi.fn(),
 }));
 
 const cluster = (tier: string): ClusterDTO => ({
@@ -18,6 +21,18 @@ const res = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
   kind: "Kustomization", namespace: "flux-system", name: "flux-system", ready: "Ready",
   message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false,
   sourceKind: "", sourceName: "", ...over,
+});
+
+const expandedDetail = (over: Partial<import("../store/fleet").ResourceDetailDTO> = {}) => ({
+  cluster: "x",
+  resources: [res({ kind: "Kustomization", namespace: "flux-system", name: "flux-system" })],
+  loading: false,
+  expandedKey: "Kustomization/flux-system/flux-system",
+  detail: {
+    kind: "Kustomization", namespace: "flux-system", name: "flux-system",
+    suspended: false, appliedRevision: "main@a", attemptedRevision: "main@a", applyFailed: false,
+    conditions: [], inventory: [], ...over,
+  },
 });
 
 beforeEach(() => useFleet.setState({
@@ -84,5 +99,31 @@ describe("GitOps view", () => {
     });
     const { getByText } = render(<GitOps cluster="x" />);
     expect(getByText(/apply failed at/i)).toBeTruthy();
+  });
+
+  it("reconcile flows through the confirm dialog on a non-protected cluster", () => {
+    useFleet.setState({ clusters: [cluster("Healthy")], gitops: expandedDetail() });
+    const { getByText, getAllByRole } = render(<GitOps cluster="x" />);
+    fireEvent.click(getByText("Reconcile"));               // panel button opens the dialog
+    const reconcileButtons = getAllByRole("button", { name: "Reconcile" });
+    fireEvent.click(reconcileButtons[reconcileButtons.length - 1]); // dialog confirm is last in DOM
+    expect(reconcile).toHaveBeenCalledWith("x", "Kustomization", "flux-system", "flux-system");
+  });
+
+  it("shows Resume + a suspended badge when detail.suspended is true", () => {
+    useFleet.setState({ clusters: [cluster("Healthy")], gitops: expandedDetail({ suspended: true }) });
+    const { getByText, queryByText, getAllByRole } = render(<GitOps cluster="x" />);
+    expect(getByText("Resume")).toBeTruthy();
+    expect(queryByText("Suspend")).toBeNull();
+    fireEvent.click(getByText("Resume"));                  // panel button opens the dialog
+    const resumeButtons = getAllByRole("button", { name: "Resume" });
+    fireEvent.click(resumeButtons[resumeButtons.length - 1]); // dialog confirm is last in DOM
+    expect(setSuspend).toHaveBeenCalledWith("x", "Kustomization", "flux-system", "flux-system", false);
+  });
+
+  it("renders the action-status toast", () => {
+    useFleet.setState({ clusters: [cluster("Healthy")], actionStatus: { kind: "success", message: "Reconcile requested for flux-system/x" } });
+    const { getByText } = render(<GitOps cluster="x" />);
+    expect(getByText(/Reconcile requested/i)).toBeTruthy();
   });
 });
