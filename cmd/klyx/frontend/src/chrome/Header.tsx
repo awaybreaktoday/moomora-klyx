@@ -9,7 +9,7 @@ export function Header() {
   const title = route.name === "fleet" ? "Fleet" : SECTION_LABELS[route.section];
 
   return (
-    <div style={{ padding: "10px 16px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+    <div style={{ padding: "34px 16px 10px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
       <Breadcrumb />
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
         <div style={{ fontSize: 17, fontWeight: 500 }}>{title}</div>

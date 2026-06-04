@@ -22,7 +22,7 @@ export function Sidebar() {
     <div style={{
       width: 46, background: "var(--color-background-secondary)",
       borderRight: "0.5px solid var(--color-border-tertiary)",
-      padding: "10px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+      padding: "36px 0 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
     }}>
       <div style={{
         width: 28, height: 28, borderRadius: 6, marginBottom: 6,
