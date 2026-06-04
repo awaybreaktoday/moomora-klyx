@@ -1,0 +1,19 @@
+# Wails frontend build artifacts
+/cmd/klyx/frontend/node_modules/
+/cmd/klyx/frontend/dist/
+/cmd/klyx/frontend/bindings/
+
+# Build output
+/cmd/klyx/bin/
+/bin/
+/build/bin/
+*.dev.app/
+
+# Stray binaries at repo root
+/klyxctl
+
+# Task runner cache
+.task/
+
+# macOS
+.DS_Store
