@@ -34,3 +34,10 @@ describe("fleet store routing", () => {
     expect(st.clusters.find((c) => c.name === "x")).toBeTruthy();
   });
 });
+
+it("action status set and clear", () => {
+  useFleet.getState().setActionStatus({ kind: "success", message: "Reconcile requested" });
+  expect(useFleet.getState().actionStatus?.message).toBe("Reconcile requested");
+  useFleet.getState().clearActionStatus();
+  expect(useFleet.getState().actionStatus).toBeNull();
+});
