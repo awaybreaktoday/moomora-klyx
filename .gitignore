@@ -11,6 +11,7 @@
 
 # Stray binaries at repo root
 /klyxctl
+/klyx
 
 # Task runner cache
 .task/
