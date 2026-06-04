@@ -18,4 +18,10 @@ describe("Breadcrumb", () => {
     getByText("Fleet").click();
     expect(useFleet.getState().route).toEqual({ name: "fleet" });
   });
+  it("the cluster-name segment returns to Overview", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "homelab-nelli", section: "gitops" } });
+    const { getByText } = render(<Breadcrumb />);
+    getByText("homelab-nelli").click();
+    expect(useFleet.getState().route).toMatchObject({ name: "cluster", cluster: "homelab-nelli", section: "overview" });
+  });
 });

@@ -22,4 +22,12 @@ describe("Sidebar", () => {
     getByLabelText("GitOps").click();
     expect(useFleet.getState().route).toMatchObject({ name: "cluster", section: "gitops" });
   });
+  it("highlights the Overview icon after openCluster", () => {
+    useFleet.getState().openCluster("x");
+    const { getByLabelText } = render(<Sidebar />);
+    const overview = getByLabelText("Overview") as HTMLButtonElement;
+    // active buttons carry the boxed highlight border; disabled is false in cluster scope
+    expect(overview.disabled).toBe(false);
+    expect(overview.style.background).toContain("--color-background-primary");
+  });
 });

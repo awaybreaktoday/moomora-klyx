@@ -14,7 +14,7 @@ function message(section: ClusterSection, c: ClusterDTO): string {
       return "CRD browser arrives in M4.";
     case "observability":
       return "Inline metrics arrive with the Prometheus client (M7).";
-    default:
+    case "overview":
       return "";
   }
 }

@@ -1,14 +1,6 @@
 import type { ClusterDTO } from "../store/fleet";
 import { useFleet } from "../store/fleet";
-
-const stateColor: Record<string, string> = {
-  Synced: "var(--color-text-success)",
-  Degraded: "var(--color-text-warning)",
-  Stale: "var(--color-text-warning)",
-  Connecting: "var(--color-text-info)",
-  Failed: "var(--color-text-danger)",
-  Unconnected: "var(--color-text-tertiary)",
-};
+import { stateColor } from "../cluster/stateColors";
 
 export function ClusterCard({ c }: { c: ClusterDTO }) {
   const openCluster = useFleet((s) => s.openCluster);
