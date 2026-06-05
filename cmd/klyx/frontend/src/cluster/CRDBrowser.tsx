@@ -113,6 +113,9 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
   const toggle = useFleet((s) => s.toggleCRDGroup);
   const open = !grouped || expanded.includes(label);
 
+  // Re-firing on `counts` is safe and convergent: the `!counts[key]` guard skips
+  // already-fetched kinds, and countKind's in-flight Set dedupes the window
+  // before a count lands - so each kind is counted exactly once.
   useEffect(() => {
     if (!open) return;
     for (const k of kinds) {
@@ -124,6 +127,7 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
 
   const sectionInstances = kinds.reduce((n, k) => n + (counts[crdCountKey(k.group, k.version, k.plural)]?.count ?? 0), 0);
   const sectionCounted = kinds.every((k) => counts[crdCountKey(k.group, k.version, k.plural)]);
+  const sectionCapped = kinds.some((k) => counts[crdCountKey(k.group, k.version, k.plural)]?.capped);
 
   return (
     <div>
@@ -135,7 +139,7 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 500, ...ellipsis }}>{label}</div>
         {category ? <span style={{ background: "var(--color-background-primary)", color: "var(--color-text-secondary)", fontSize: 9, padding: "1px 6px", borderRadius: 3, letterSpacing: 0.3, justifySelf: "start" }}>{category}</span> : <span />}
         <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{kinds.length} kinds</span>
-        <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{sectionCounted ? `${sectionInstances} instances` : "…"}</span>
+        <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{sectionCounted ? `${sectionInstances}${sectionCapped ? "+" : ""} instances` : "…"}</span>
       </div>
       {open && kinds.map((k) => {
         const c = counts[crdCountKey(k.group, k.version, k.plural)];
