@@ -139,3 +139,27 @@ it("action status set and clear", () => {
   useFleet.getState().clearActionStatus();
   expect(useFleet.getState().actionStatus).toBeNull();
 });
+
+import { useFleet as uf4 } from "./fleet";
+
+test("network gateway drill-in route + slice", () => {
+  uf4.getState().openCluster("x");
+  uf4.getState().setSection("network");
+  uf4.getState().openGateway("infra", "eg");
+  const r = uf4.getState().route;
+  expect(r).toMatchObject({ name: "cluster", section: "network", gateway: { namespace: "infra", name: "eg" } });
+  expect(uf4.getState().network.selected).toEqual({ namespace: "infra", name: "eg" });
+  expect(uf4.getState().network.topologyLoading).toBe(true);
+
+  uf4.getState().setTopology({ gateway: { listeners: [], policies: [] } as any, routes: [], warnings: [] });
+  expect(uf4.getState().network.topology?.routes.length).toBe(0);
+  expect(uf4.getState().network.topologyLoading).toBe(false);
+
+  uf4.getState().closeGateway();
+  const r2 = uf4.getState().route;
+  expect(r2.name === "cluster" && r2.gateway).toBeUndefined();
+
+  uf4.getState().setGateways({ gatewayAPIServed: true, gateways: [{ namespace: "infra", name: "eg", className: "envoy-gateway", accepted: true, programmed: true }] });
+  expect(uf4.getState().network.gateways.length).toBe(1);
+  expect(uf4.getState().network.served).toBe(true);
+});
