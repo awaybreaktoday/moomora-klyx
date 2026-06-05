@@ -32,7 +32,8 @@ type RouteNode struct {
 type ServiceNode struct {
 	Namespace, Name, Type string
 	Port                  int32
-	CNPs                  []PolicyRef // M5-b; empty in M5-a
+	Policies              []PolicyRef // M5-b-i: precise (BackendTLSPolicy)
+	CNPs                  []PolicyRef // M5-b-ii: inferred Cilium; empty here
 	Resolved              bool        // false when the Service could not be read
 }
 
@@ -50,9 +51,28 @@ type PodCount struct {
 	Unknown      bool // EndpointSlices were unavailable
 }
 type PolicyRef struct {
-	Kind, Name, Summary string
-	Inferred            bool
+	Kind, Namespace, Name string
+
+	// Target metadata - first-class, NOT encoded in Details.
+	TargetKind, TargetNamespace, TargetName, TargetSectionName string
+
+	Summary  string         // chip text: feature presence only, never values
+	Details  []PolicyDetail // panel/tooltip rows: decoded values, deterministic order
+	Inferred bool           // false for all M5-b-i Envoy policies; reserved for Cilium (M5-b-ii)
 }
+
+// PolicyDetail is one decoded key/value row (e.g. "retries" -> "3").
+type PolicyDetail struct{ Key, Value string }
+
+// PolicyDecode is what a per-kind decoder returns.
+type PolicyDecode struct {
+	Summary string
+	Details []PolicyDetail
+}
+
+// TargetRef is a policy's targetRef (Namespace holds the raw value; empty until
+// resolved by BuildPolicyRefs, which defaults it to the policy's namespace).
+type TargetRef struct{ Group, Kind, Namespace, Name, SectionName string }
 type GatewayRef struct {
 	Namespace, Name, ClassName string
 	Accepted, Programmed       bool
