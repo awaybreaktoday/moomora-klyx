@@ -52,8 +52,9 @@ unstructured fixtures.
 
 ```go
 type Topology struct {
-    Gateway GatewayNode
-    Routes  []RouteNode // one lane each, ordered by name
+    Gateway  GatewayNode
+    Routes   []RouteNode // one lane each, ordered by name
+    Warnings []string    // soft, non-fatal issues surfaced to the user (see §3)
 }
 type GatewayNode struct {
     Namespace, Name, ClassName string
@@ -66,12 +67,13 @@ type RouteNode struct {
     Namespace, Name string
     Hostnames    []string
     Matches      []Match     // Path{Type,Value}, Method
-    Accepted     bool        // status.parents[].conditions Accepted
-    ResolvedRefs bool        // status.parents[].conditions ResolvedRefs
-    Backends     []Backend   // Kind, Name, Port, Weight
-    Policies     []PolicyRef // targetRef → this HTTPRoute (BTP, SecurityPolicy)
-    Service      ServiceNode // primary backend, resolved
-    Pods         PodCount    // Ready, Total
+    Accepted     bool          // status.parents[] Accepted, scoped to THIS Gateway's parentRef
+    ResolvedRefs bool          // status.parents[] ResolvedRefs, scoped to THIS Gateway's parentRef
+    Backends     []Backend     // all backendRefs: Kind, Name, Port, Weight
+    Policies     []PolicyRef   // targetRef → this HTTPRoute (BTP, SecurityPolicy)
+    Services     []ServiceNode // one per resolved Service backend (≥0); the lane renders the
+                               // first/primary + "+N more", the detail panel lists all
+    Pods         PodCount      // ready/total for the primary Service backend
 }
 type ServiceNode struct {
     Namespace, Name, Type string // ClusterIP/LoadBalancer/...
@@ -82,7 +84,15 @@ type Listener struct { Name, Protocol, Hostname string; Port int32 }
 type Match     struct { PathType, PathValue, Method string }
 type Backend   struct { Kind, Name string; Port, Weight int32 }
 type PodCount  struct { Ready, Total int }
-type PolicyRef struct { Kind, Name, Summary string } // Summary e.g. "h2 16mb", "retries 3"
+type PolicyRef struct {
+    Kind, Name, Summary string // Kind is the real kind (ClientTrafficPolicy /
+                               // BackendTrafficPolicy / SecurityPolicy /
+                               // CiliumNetworkPolicy / CiliumClusterwideNetworkPolicy)
+                               // so the chip can render "CCNP" distinctly; Summary is
+                               // conservative (a few obvious fields per kind, else the
+                               // policy name - never a guessed intent)
+    Inferred bool             // true for CNP/CCNP attached by the label heuristic, not a targetRef
+}
 type GatewayRef struct { Namespace, Name, ClassName string; Accepted, Programmed bool }
 ```
 
@@ -140,8 +150,21 @@ GVRs (preferred version resolved via the existing `preferredVersion` helper):
    label-subset against each Service's selector (best-effort).
 6. Return the assembled `gwapi.Topology`.
 
-Snapshot; no watch. A missing optional CRD group (e.g. no Envoy policies, or no
-Cilium) degrades to empty policies, never fails the topology. Bounded context.
+Snapshot; no watch. Bounded context.
+
+**Error vs warning (no silent zero-state).** `GetGatewayTopology` returns an error
+only for a **core** failure - the Gateway itself can't be read - which the UI must
+show as an error, never a fake-empty topology. Everything softer accumulates in
+`Topology.Warnings` and the topology still renders:
+- Missing Envoy policy CRDs (no CTP/BTP/SecurityPolicy group served).
+- Missing Cilium CRDs (no CNP/CCNP).
+- A route's `backendRef` Service not found (the lane renders the route with an
+  "unresolved backend" marker).
+- EndpointSlices unavailable for a backend (pod counts shown as unknown).
+- A backendRef that isn't a Service kind (skipped, noted).
+- A route with multiple backends collapsed to the primary in the lane.
+Each is a human-readable line; the route also carries its own resolution flags so
+the affected lane can mark itself rather than relying only on the global list.
 
 ## 4. appbridge (`GatewayService`)
 
@@ -149,37 +172,56 @@ A new bound service (registered in `main.go`), request/response (no push):
 
 ```go
 type TopologyDTO struct {
-    Gateway GatewayNodeDTO  `json:"gateway"`
-    Routes  []RouteNodeDTO  `json:"routes"`
+    Gateway  GatewayNodeDTO `json:"gateway"`
+    Routes   []RouteNodeDTO `json:"routes"`
+    Warnings []string       `json:"warnings,omitempty"` // soft issues (see §3)
+    Error    string         `json:"error,omitempty"`    // a core failure - UI shows it, not a fake-empty topology
 }
 // ...NodeDTOs mirror the gwapi model with json tags; status as booleans;
-// PolicyRefDTO{kind,name,summary}; PodCountDTO{ready,total}.
+// RouteNodeDTO has `services []ServiceNodeDTO`; PolicyRefDTO{kind,name,summary,inferred};
+// PodCountDTO{ready,total}.
 type GatewayRefDTO struct { Namespace, Name, ClassName string; Accepted, Programmed bool }
 
-func (s *GatewayService) ListGateways(cluster string) []GatewayRefDTO
+func (s *GatewayService) ListGateways(cluster string) GatewayListDTO          // gateways + a served flag (see §5)
 func (s *GatewayService) GetGatewayTopology(cluster, namespace, name string) TopologyDTO
 ```
 
 `GatewayConn` interface (`ListGateways` + `GetGatewayTopology`) satisfied by the
-fleet `Conn`; appbridge fake stubs it. Empty/zero DTO on cluster miss or error.
-Tested with a fake conn.
+fleet `Conn`; appbridge fake stubs it. On a **cluster miss** or a **core** topology
+error, the DTO carries a non-empty `Error` (never a silently-empty graph); soft
+issues ride in `Warnings`. `ListGateways` returns `{ gatewayAPIServed bool;
+gateways []GatewayRefDTO }` so the frontend can tell "Gateway API not installed"
+from "no Gateways". Tested with a fake conn (mapping incl. warnings/error and the
+served flag).
 
 ## 5. Frontend (`NetworkTopology` + wiring)
 
-- **Nav / capability gate**: the `network` section renders `NetworkView` when the
-  cluster's network capability is present (Gateway API detected), else a clear
-  empty state ("No Gateway API installed on this cluster"). `NetworkView` lists
-  Gateways; selecting one sets a route-carried `gateway` ref and renders
+- **Nav + three distinct states**: the `network` section renders `NetworkView`
+  when `networkTier != "Absent"`. `NetworkView` calls `ListGateways` and shows the
+  right empty state for each genuinely different operational situation (do NOT
+  conflate them):
+  1. Gateway API CRDs not served (`gatewayAPIServed == false`) → "Gateway API is
+     not installed on this cluster."
+  2. Served but zero Gateways → "No Gateways found."
+  3. A selected Gateway with no attached HTTPRoutes → "No HTTPRoutes attached to
+     this Gateway."
+  Selecting a Gateway sets a route-carried `gateway` ref and renders
   `NetworkTopology`.
 - **`NetworkTopology.tsx`**: deterministic CSS-grid columnar lanes - Gateway
-  pinned left (listeners, status badges, CTP chip), one row per HTTPRoute
-  (accepted/resolvedRefs dot, path, BTP/SecurityPolicy chips), backend Service,
-  Pods (ready/total, CNP chip). Chevrons between columns. Policy chips
-  colour-coded by kind (CTP/BTP/SecurityPolicy/CNP). A muted ClusterMesh
-  placeholder row. Clicking a route node selects it → detail panel below
-  (match / backend / attached policies / status + a "view YAML" affordance that
-  reuses the M4-c instance detail by routing to the route's resource). Refresh
-  re-fetches. Loading / empty (no Gateways) / no-Gateway-API states.
+  pinned left (listeners, Accepted/Programmed badges, CTP chip), one row per
+  HTTPRoute (accepted/resolvedRefs dot scoped to this Gateway, path, BTP/
+  SecurityPolicy chips), the route's **primary backend Service** (with a `+N more`
+  affordance when a route has multiple weighted backends), Pods (ready/total, or
+  "unknown" when EndpointSlices were unavailable), and policy chips. Chevrons
+  between columns. Policy chips colour-coded by kind; **CNP/CCNP chips are marked
+  `inferred`** (distinct `CCNP` label for cluster-wide, tooltip "matched by Service
+  selector against the policy's endpointSelector - not a Gateway API attachment").
+  An unresolved backend renders the route lane with an "unresolved backend"
+  marker rather than dropping it. A **warnings banner** surfaces `topology.warnings`
+  (and a prominent error block if `topology.error` is set). A muted ClusterMesh
+  placeholder row. Clicking a route node selects it → detail panel below (match /
+  all backends with weights / attached policies / status + a "view YAML" link that
+  opens the route via the M4-c instance detail). Refresh re-fetches. Loading state.
 - **Route**: the cluster route gains an optional `gateway?: { namespace, name }`
   (sibling to `resource`/`instance`); `setSection`/section changes drop it (same
   pattern as M4). A topology slice holds `gatewayList`, `selectedGateway`,
@@ -190,11 +232,20 @@ Tested with a fake conn.
 
 ## 6. Testing
 
-- **`internal/gwapi`** (pure, fixtures): `ParseGateway`/`ParseHTTPRoute` (listeners,
-  matches, backends, status conditions); `RouteParents` + `linkRoutes`
-  (cross-namespace parentRef matching); `PolicyTargets` + `attachPolicies`
-  (CTP→gateway, BTP→route, both `targetRefs` and legacy `targetRef`);
-  `PolicySummary`; `CNPSelector` + `attachCNPs` (label-subset match + non-match).
+- **`internal/gwapi`** (pure, fixtures) - Gateway API status is fiddly, so cover
+  the namespace/status edge cases explicitly:
+  - `ParseGateway`/`ParseHTTPRoute` (listeners, matches, backends, status conditions).
+  - parentRef matching: HTTPRoute in ns A → Gateway in ns B (cross-namespace);
+    parentRef with `sectionName`; a route accepted by one parent but rejected by
+    another (the per-this-Gateway status must reflect THIS parent only).
+  - backendRef: namespace omitted (defaults to the route's) vs namespace set;
+    multiple weighted backends → `Services` has all, primary is first; a
+    non-Service-kind backendRef skipped with a warning.
+  - `PolicyTargets` + `attachPolicies`: CTP→gateway, BTP→route, both `targetRefs`
+    and legacy singular `targetRef`, and a `sectionName`-scoped targetRef.
+  - `PolicySummary` (a known field → short chip; unknown → name fallback, never a
+    guess); `CNPSelector` + `attachCNPs` (label-subset match, non-match, and the
+    cluster-wide CCNP marked distinctly + `Inferred`).
 - **`internal/fleet`**: `GetGatewayTopology` against the dynamic fake (gateway +
   two httproutes + CTP/BTP) and the typed fake (Services + EndpointSlices →
   ready/total); a missing-policy-group path degrading to empty; the cluster-scoped
@@ -220,3 +271,8 @@ Tested with a fake conn.
 | 7 | EndpointSlices (not Endpoints) for pod counts | The modern, non-deprecated source on k8s 1.36 |
 | 8 | ClusterMesh + observability deferred (M5-c / M7) | ClusterMesh is single-cluster-undogfoodable on the homelab; observability is its own milestone |
 | 9 | Two plans under one spec (lane, then policies+detail) | Isolates the structural topology for a native-verify checkpoint before the fiddly policy attachment |
+| 10 | Surface `Warnings []` + `Error` in the topology; never a silent zero-state | A blank graph on an error is a debugging swamp; optional-CRD-missing/unresolved-backend are warnings, core failures are a visible error (review) |
+| 11 | Model `Services []ServiceNode` per route even though the lane renders the primary | HTTPRoute backendRefs is a weighted list; modelling one Service would hide half a split route - `+N more` in the lane, all in the detail (review) |
+| 12 | Three distinct empty states (API not installed / no Gateways / no routes) | They are different operational situations; conflating them annoys the operator (review) |
+| 13 | CNP/CCNP chips marked `Inferred`; CCNP labelled distinctly; conservative policy summaries | CNP attaches by label heuristic, not a Gateway API targetRef - the UI must not imply a precise attachment; a guessed summary is worse than the policy name (review) |
+| 14 | Route Accepted/ResolvedRefs scoped to THIS Gateway's parentRef | A route can attach to multiple Gateways with different acceptance; the per-Gateway view must show this Gateway's parent status, not a global OR |
