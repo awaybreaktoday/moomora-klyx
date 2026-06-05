@@ -14,15 +14,39 @@ export async function listCRDs(cluster: string): Promise<void> {
 // high-cardinality kinds like Cilium's).
 const inFlight = new Set<string>();
 
+// The operator/scope/alphabetical group-by modes make every kind visible at
+// once, which would otherwise dispatch one count per kind (~100+) simultaneously
+// and slam the apiserver / client rate limiter. Cap how many counts run at a
+// time; the rest queue and drain as slots free.
+const COUNT_CONCURRENCY = 8;
+let countActive = 0;
+const countQueue: (() => void)[] = [];
+
+function acquireCountSlot(): Promise<void> {
+  if (countActive < COUNT_CONCURRENCY) {
+    countActive++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => countQueue.push(resolve));
+}
+
+function releaseCountSlot(): void {
+  const next = countQueue.shift();
+  if (next) next(); // hand the freed slot straight to a waiter (countActive unchanged)
+  else countActive--;
+}
+
 export async function countKind(cluster: string, group: string, version: string, plural: string): Promise<void> {
   const key = crdCountKey(group, version, plural);
   if (inFlight.has(key)) return;
   inFlight.add(key);
+  await acquireCountSlot();
   try {
     const c = (await CRDService.CountKind(cluster, group, version, plural)) as CRDCountDTO;
     useFleet.getState().setCRDCount(key, c);
   } finally {
     inFlight.delete(key);
+    releaseCountSlot();
   }
 }
 
