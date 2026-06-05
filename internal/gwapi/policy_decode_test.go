@@ -85,6 +85,30 @@ func TestDecodeBTLSAndEEP(t *testing.T) {
 	}
 }
 
+func TestDecodeCTPConnectionLimitPresence(t *testing.T) {
+	// spec.connection without connectionLimit (buffer tuning only) must NOT
+	// claim the connection-limit feature.
+	bufOnly := specObj("ClientTrafficPolicy", "buf-only", map[string]interface{}{
+		"connection": map[string]interface{}{"bufferLimit": "32Ki"},
+	})
+	d := Decode("ClientTrafficPolicy", bufOnly)
+	if strings.Contains(d.Summary, "connection-limit") {
+		t.Fatalf("buffer-only connection should not claim connection-limit: %q", d.Summary)
+	}
+
+	// spec.connection.connectionLimit.value present -> feature + detail.
+	withLimit := specObj("ClientTrafficPolicy", "with-limit", map[string]interface{}{
+		"connection": map[string]interface{}{"connectionLimit": map[string]interface{}{"value": int64(1000)}},
+	})
+	d = Decode("ClientTrafficPolicy", withLimit)
+	if !strings.Contains(d.Summary, "connection-limit") {
+		t.Fatalf("connectionLimit present should claim connection-limit: %q", d.Summary)
+	}
+	if d.Details[0] != (PolicyDetail{"max connections", "1000"}) {
+		t.Fatalf("ctp details: %+v", d.Details)
+	}
+}
+
 func TestDecodeNeverPanicsOnMalformed(t *testing.T) {
 	for _, kind := range []string{"ClientTrafficPolicy", "BackendTrafficPolicy", "SecurityPolicy", "EnvoyExtensionPolicy", "BackendTLSPolicy"} {
 		u := &unstructured.Unstructured{Object: map[string]interface{}{"kind": kind, "metadata": map[string]interface{}{"name": "x"}, "spec": "not-a-map"}}

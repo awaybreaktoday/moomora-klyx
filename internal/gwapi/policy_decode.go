@@ -109,9 +109,11 @@ func decodeCTP(u *unstructured.Unstructured) PolicyDecode {
 		}
 	}
 	if conn, ok := s["connection"].(map[string]interface{}); ok {
-		f.add("connection-limit")
-		if v, ok, _ := unstructured.NestedInt64(conn, "connectionLimit", "value"); ok {
-			f.kv("max connections", strconv.FormatInt(v, 10))
+		if _, hasLimit := conn["connectionLimit"]; hasLimit {
+			f.add("connection-limit")
+			if v, ok, _ := unstructured.NestedInt64(conn, "connectionLimit", "value"); ok {
+				f.kv("max connections", strconv.FormatInt(v, 10))
+			}
 		}
 	}
 	if _, ok := s["tls"]; ok {

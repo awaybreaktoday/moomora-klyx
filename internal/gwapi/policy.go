@@ -39,10 +39,11 @@ func BuildPolicyRefs(u *unstructured.Unstructured, kind string) []PolicyRef {
 		if tns == "" {
 			tns = polNS
 		}
+		details := append([]PolicyDetail(nil), dec.Details...) // own copy per fanned-out ref
 		out = append(out, PolicyRef{
 			Kind: kind, Namespace: polNS, Name: u.GetName(),
 			TargetKind: t.Kind, TargetNamespace: tns, TargetName: t.Name, TargetSectionName: t.SectionName,
-			Summary: dec.Summary, Details: dec.Details,
+			Summary: dec.Summary, Details: details,
 		})
 	}
 	return out
@@ -50,6 +51,9 @@ func BuildPolicyRefs(u *unstructured.Unstructured, kind string) []PolicyRef {
 
 // AttachPolicies places each PolicyRef on the node its resolved target names.
 // A ref whose target matches nothing in this (single-Gateway) topology is dropped.
+// Matching is by TargetKind + namespace + name; targetRef.group is intentionally
+// not matched - the in-scope kinds (Gateway, HTTPRoute, Service) are unambiguous
+// in this environment, so group adds no disambiguation.
 func AttachPolicies(topo *Topology, refs []PolicyRef) {
 	for _, p := range refs {
 		switch p.TargetKind {
