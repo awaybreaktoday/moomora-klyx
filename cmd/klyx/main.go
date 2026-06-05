@@ -68,6 +68,14 @@ func main() {
 		return c, true
 	})
 
+	gatewaySvc := appbridge.NewGatewayService(func(name string) (appbridge.GatewayConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -75,6 +83,7 @@ func main() {
 			application.NewService(svc),
 			application.NewService(gitopsSvc),
 			application.NewService(crdSvc),
+			application.NewService(gatewaySvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

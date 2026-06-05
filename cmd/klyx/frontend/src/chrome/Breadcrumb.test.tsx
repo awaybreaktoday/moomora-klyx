@@ -36,4 +36,10 @@ describe("Breadcrumb", () => {
     expect(getByText("web-tls")).toBeTruthy();
     expect(getByText("Certificate")).toBeTruthy();
   });
+  it("shows the gateway crumb when a gateway is selected", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "network", gateway: { namespace: "infra", name: "eg" } } });
+    const { getByText } = render(<Breadcrumb />);
+    expect(getByText("eg")).toBeTruthy();
+    expect(getByText("Network")).toBeTruthy();
+  });
 });

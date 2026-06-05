@@ -9,6 +9,7 @@ import (
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/gwapi"
 )
 
 type fakeConn struct {
@@ -46,6 +47,12 @@ func (f *fakeConn) ListInstances(ctx context.Context, group, version, plural str
 }
 func (f *fakeConn) GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error) {
 	return crd.InstanceDetail{}, nil
+}
+func (f *fakeConn) ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, error) {
+	return nil, false, nil
+}
+func (f *fakeConn) GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error) {
+	return gwapi.Topology{}, nil
 }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {

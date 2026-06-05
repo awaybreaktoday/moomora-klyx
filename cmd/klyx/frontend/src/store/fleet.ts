@@ -68,7 +68,7 @@ export type InstanceDetailSlice = { ref: InstanceRef | null; detail: InstanceDet
 
 export type Route =
   | { name: "fleet" }
-  | { name: "cluster"; cluster: string; section: ClusterSection; resource?: ResourceRef; instance?: InstanceRef };
+  | { name: "cluster"; cluster: string; section: ClusterSection; resource?: ResourceRef; instance?: InstanceRef; gateway?: GatewayRef };
 
 export const SECTION_LABELS: Record<ClusterSection, string> = {
   overview: "Overview",
@@ -94,6 +94,29 @@ export type CRDSlice = {
 };
 
 export const crdCountKey = (group: string, version: string, plural: string) => `${group}/${version}/${plural}`;
+
+export type GatewayRefDTO = { namespace: string; name: string; className: string; accepted: boolean; programmed: boolean };
+export type GatewayListDTO = { gatewayAPIServed: boolean; gateways: GatewayRefDTO[] };
+export type PolicyRefDTO = { kind: string; name: string; summary: string; inferred: boolean };
+export type ListenerDTO = { name: string; protocol: string; hostname: string; port: number };
+export type MatchDTO = { pathType: string; pathValue: string; method: string };
+export type BackendDTO = { kind: string; name: string; namespace: string; port: number; weight: number };
+export type PodCountDTO = { ready: number; total: number; unknown: boolean };
+export type ServiceNodeDTO = { namespace: string; name: string; type: string; port: number; resolved: boolean; cnps: PolicyRefDTO[] };
+export type GatewayNodeDTO = { namespace: string; name: string; className: string; listeners: ListenerDTO[]; accepted: boolean; programmed: boolean; policies: PolicyRefDTO[] };
+export type RouteNodeDTO = { namespace: string; name: string; hostnames: string[]; matches: MatchDTO[]; accepted: boolean; resolvedRefs: boolean; backends: BackendDTO[]; services: ServiceNodeDTO[]; pods: PodCountDTO; policies: PolicyRefDTO[] };
+export type TopologyDTO = { gateway: GatewayNodeDTO; routes: RouteNodeDTO[]; warnings?: string[]; error?: string };
+export type GatewayRef = { namespace: string; name: string };
+
+export type NetworkSlice = {
+  served: boolean;
+  gateways: GatewayRefDTO[];
+  listLoading: boolean;
+  selected: GatewayRef | null;
+  topology: TopologyDTO | null;
+  topologyLoading: boolean;
+  selectedRoute: string | null; // "<ns>/<name>"
+};
 
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
@@ -136,6 +159,15 @@ type FleetState = {
   setCRDCount: (key: string, dto: CRDCountDTO) => void;
   setCRDGroupBy: (g: CRDGroupBy) => void;
   setCRDSearch: (s: string) => void;
+  openGateway: (namespace: string, name: string) => void;
+  closeGateway: () => void;
+  network: NetworkSlice;
+  setGatewaysLoading: () => void;
+  setGateways: (l: GatewayListDTO) => void;
+  setTopologyLoading: (ref: GatewayRef) => void;
+  setTopology: (t: TopologyDTO) => void;
+  selectRoute: (key: string | null) => void;
+  clearNetwork: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -199,4 +231,21 @@ export const useFleet = create<FleetState>((set) => ({
   setCRDCount: (key, dto) => set((s) => ({ crd: { ...s.crd, counts: { ...s.crd.counts, [key]: dto } } })),
   setCRDGroupBy: (groupBy) => set((s) => ({ crd: { ...s.crd, groupBy } })),
   setCRDSearch: (search) => set((s) => ({ crd: { ...s.crd, search } })),
+  openGateway: (namespace, name) =>
+    set((s) =>
+      s.route.name === "cluster"
+        ? {
+            route: { name: "cluster", cluster: s.route.cluster, section: "network", gateway: { namespace, name } },
+            network: { ...s.network, selected: { namespace, name }, topology: null, topologyLoading: true, selectedRoute: null },
+          }
+        : {}),
+  closeGateway: () =>
+    set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section: "network" } } : {})),
+  network: { served: false, gateways: [], listLoading: false, selected: null, topology: null, topologyLoading: false, selectedRoute: null },
+  setGatewaysLoading: () => set((s) => ({ network: { ...s.network, listLoading: true } })),
+  setGateways: (l) => set((s) => ({ network: { ...s.network, served: l.gatewayAPIServed, gateways: l.gateways ?? [], listLoading: false } })),
+  setTopologyLoading: (ref) => set((s) => ({ network: { ...s.network, selected: ref, topology: null, topologyLoading: true, selectedRoute: null } })),
+  setTopology: (topology) => set((s) => ({ network: { ...s.network, topology, topologyLoading: false } })),
+  selectRoute: (selectedRoute) => set((s) => ({ network: { ...s.network, selectedRoute } })),
+  clearNetwork: () => set((s) => ({ network: { ...s.network, selected: null, topology: null, topologyLoading: false, selectedRoute: null } })),
 }));

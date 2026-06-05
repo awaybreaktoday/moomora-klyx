@@ -11,6 +11,7 @@ export function Breadcrumb() {
   const setSection = useFleet((s) => s.setSection);
   const closeResource = useFleet((s) => s.closeResource);
   const closeInstance = useFleet((s) => s.closeInstance);
+  const closeGateway = useFleet((s) => s.closeGateway);
 
   if (route.name === "fleet") {
     return <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Fleet</span>;
@@ -27,6 +28,8 @@ export function Breadcrumb() {
           <span>/</span>
           {route.resource ? (
             <button onClick={closeResource} style={crumbBtn}>{SECTION_LABELS[route.section]}</button>
+          ) : route.section === "network" && route.gateway ? (
+            <button onClick={closeGateway} style={crumbBtn}>{SECTION_LABELS[route.section]}</button>
           ) : (
             <span style={{ color: "var(--color-text-primary)" }}>{SECTION_LABELS[route.section]}</span>
           )}
@@ -44,6 +47,12 @@ export function Breadcrumb() {
             <>
               <span>/</span>
               <span style={{ color: "var(--color-text-primary)", fontFamily: "var(--font-mono)" }}>{route.instance.name}</span>
+            </>
+          )}
+          {route.section === "network" && route.gateway && (
+            <>
+              <span>/</span>
+              <span style={{ color: "var(--color-text-primary)", fontFamily: "var(--font-mono)" }}>{route.gateway.name}</span>
             </>
           )}
         </>
