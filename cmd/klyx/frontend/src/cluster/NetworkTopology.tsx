@@ -99,7 +99,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
           {visibleRoutes.map((r) => {
             const svc = r.services[0];
             return (
-              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "150px 20px 1fr 20px 130px 20px 130px", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
+              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "170px 20px 1fr 20px 200px 20px 104px", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
                 <div style={nb}>
                   <div style={lab}>gateway</div><div style={nm}>{t.gateway.namespace}/{t.gateway.name}</div>
                   <div style={{ fontSize: 9, color: "var(--color-text-secondary)", marginTop: 2 }}>{t.gateway.listeners.map((l) => `${l.protocol}:${l.port}`).join(" · ")}</div>
