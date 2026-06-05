@@ -14,6 +14,17 @@ const topo: TopologyDTO = {
   warnings: ["route apps/share has 2 backends; the lane shows the primary"],
 };
 
+function route(namespace: string, name: string, path: string): TopologyDTO["routes"][number] {
+  const svc = `${name}-svc`;
+  return { namespace, name, hostnames: [], matches: [{ pathType: "PathPrefix", pathValue: path, method: "" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: svc, namespace, port: 80, weight: 0 }], services: [{ namespace, name: svc, type: "ClusterIP", port: 80, resolved: true, cnps: [] }], pods: { ready: 1, total: 1, unknown: false }, policies: [] };
+}
+
+const multiTopo: TopologyDTO = {
+  gateway: topo.gateway,
+  routes: [route("apps", "share", "/share"), route("monitoring", "grafana", "/grafana")],
+  warnings: [],
+};
+
 function seed(t: TopologyDTO | null, loading = false) {
   useFleet.setState({ network: { served: true, gateways: [], listLoading: false, selected: gateway, topology: t, topologyLoading: loading, selectedRoute: null } });
 }
@@ -51,5 +62,43 @@ describe("NetworkTopology", () => {
     seed({ gateway: topo.gateway, routes: [], warnings: [] });
     const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
     expect(getByText(/No HTTPRoutes attached/i)).toBeTruthy();
+  });
+
+  it("shows no namespace filter when routes span a single namespace", () => {
+    seed(topo); // one route in "apps"
+    const { queryByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(queryByText("All")).toBeNull();
+  });
+
+  it("shows a namespace filter when routes span multiple namespaces", () => {
+    seed(multiTopo);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText("All")).toBeTruthy();
+    expect(getByText("apps")).toBeTruthy();
+    expect(getByText("monitoring")).toBeTruthy();
+    // both routes visible by default
+    expect(getByText("share")).toBeTruthy();
+    expect(getByText("grafana")).toBeTruthy();
+  });
+
+  it("filtering by namespace narrows the visible routes", () => {
+    seed(multiTopo);
+    const { getByText, queryByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    fireEvent.click(getByText("monitoring"));
+    expect(getByText("grafana")).toBeTruthy();
+    expect(queryByText("share")).toBeNull();
+    // returning to All restores everything
+    fireEvent.click(getByText("All"));
+    expect(queryByText("share")).toBeTruthy();
+  });
+
+  it("hides the detail panel for a selected route filtered out of view", () => {
+    seed(multiTopo);
+    const { getByText, queryByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    fireEvent.click(getByText("share")); // select apps/share -> detail panel shows
+    expect(queryByText("HTTPRoute")).toBeTruthy(); // detail-only badge
+    fireEvent.click(getByText("monitoring")); // filter away apps
+    expect(queryByText("share")).toBeNull(); // lane gone
+    expect(queryByText("HTTPRoute")).toBeNull(); // detail panel gone too
   });
 });

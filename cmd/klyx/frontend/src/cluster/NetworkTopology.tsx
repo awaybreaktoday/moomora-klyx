@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFleet, GatewayRef, RouteNodeDTO } from "../store/fleet";
 import { getGatewayTopology } from "../bridge/gateway";
 
@@ -14,6 +14,7 @@ const dot = (ok: boolean) => (ok ? "var(--color-text-success)" : "var(--color-te
 export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway: GatewayRef }) {
   const net = useFleet((s) => s.network);
   const selectRoute = useFleet((s) => s.selectRoute);
+  const [nsFilter, setNsFilter] = useState<string | null>(null);
 
   useEffect(() => {
     void getGatewayTopology(cluster, gateway);
@@ -26,7 +27,17 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
   if (net.topologyLoading && !t) return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>Loading topology…</div>;
   if (!t) return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>Could not load the topology.</div>;
 
-  const selected = t.routes.find((r) => routeKey(r) === net.selectedRoute) ?? null;
+  // Namespace filter: a busy shared Gateway aggregates HTTPRoutes from many app
+  // namespaces. The filter is opt-in (default "All" = the full data path) and only
+  // appears when routes actually span more than one namespace.
+  const nsCounts = new Map<string, number>();
+  for (const r of t.routes) nsCounts.set(r.namespace, (nsCounts.get(r.namespace) ?? 0) + 1);
+  const namespaces = [...nsCounts.keys()].sort();
+  const showFilter = namespaces.length > 1;
+  const activeNs = showFilter && nsFilter && nsCounts.has(nsFilter) ? nsFilter : null;
+  const visibleRoutes = activeNs ? t.routes.filter((r) => r.namespace === activeNs) : t.routes;
+
+  const selected = visibleRoutes.find((r) => routeKey(r) === net.selectedRoute) ?? null;
 
   return (
     <div style={{ padding: "14px 16px" }}>
@@ -42,11 +53,21 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <div style={{ marginBottom: 12, padding: "8px 10px", fontSize: 12, borderRadius: 4, background: "var(--color-background-danger)", color: "var(--color-text-danger)", border: "0.5px solid var(--color-border-danger)" }}>{t.error}</div>
       )}
 
+      {showFilter && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)", marginRight: 2 }}>namespace</span>
+          <Chip label="All" active={activeNs === null} onClick={() => setNsFilter(null)} />
+          {namespaces.map((ns) => (
+            <Chip key={ns} label={ns} count={nsCounts.get(ns)} active={activeNs === ns} onClick={() => setNsFilter(ns)} />
+          ))}
+        </div>
+      )}
+
       {t.routes.length === 0 && !t.error ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No HTTPRoutes attached to this Gateway.</div>
       ) : (
         <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px 12px" }}>
-          {t.routes.map((r) => {
+          {visibleRoutes.map((r) => {
             const svc = r.services[0];
             return (
               <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "150px 20px 1fr 20px 130px 20px 130px", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
@@ -88,6 +109,30 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
 
       {selected && <RouteDetail route={selected} />}
     </div>
+  );
+}
+
+function Chip({ label, count, active, onClick }: { label: string; count?: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 9px",
+        fontSize: 11,
+        borderRadius: 999,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        border: active ? "0.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
+        background: active ? "var(--color-background-info)" : "var(--color-background-primary)",
+        color: active ? "var(--color-text-info)" : "var(--color-text-secondary)",
+      }}
+    >
+      {label}
+      {count !== undefined && <span style={{ fontSize: 9, opacity: 0.7 }}>{count}</span>}
+    </button>
   );
 }
 
