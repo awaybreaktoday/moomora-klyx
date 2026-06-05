@@ -58,9 +58,36 @@ func ParseConditions(obj map[string]interface{}) []Condition {
 
 // ToYAML marshals an unstructured Object map to kubectl-style YAML.
 func ToYAML(obj map[string]interface{}) (string, error) {
-	b, err := yaml.Marshal(obj)
+	b, err := yaml.Marshal(withoutManagedFields(obj))
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// withoutManagedFields returns obj with metadata.managedFields removed, matching
+// the modern `kubectl get -o yaml` default (managedFields hidden since 1.21).
+// The server-side-apply ownership tree is pure noise in a detail view and buries
+// the real spec. Does not mutate the input (shallow-clones the touched maps).
+func withoutManagedFields(obj map[string]interface{}) map[string]interface{} {
+	md, ok := obj["metadata"].(map[string]interface{})
+	if !ok {
+		return obj
+	}
+	if _, has := md["managedFields"]; !has {
+		return obj
+	}
+	out := make(map[string]interface{}, len(obj))
+	for k, v := range obj {
+		out[k] = v
+	}
+	nmd := make(map[string]interface{}, len(md))
+	for k, v := range md {
+		if k == "managedFields" {
+			continue
+		}
+		nmd[k] = v
+	}
+	out["metadata"] = nmd
+	return out
 }
