@@ -85,11 +85,12 @@ Node fields:
 ## 2. Pure functions (`internal/gwapi`)
 
 **`PolicyTargets(u) []TargetRef`** — reads `spec.targetRefs[]` plus the legacy singular
-`spec.targetRef`, returning `{Group, Kind, Name, SectionName}` for each. Namespace is resolved
-by the attach step (targetRefs are namespace-local to the policy in these APIs).
+`spec.targetRef`, returning `{Group, Kind, Namespace, Name, SectionName}` for each. `Namespace`
+holds the raw `targetRef.namespace` (empty when omitted); the attach/fan-out step resolves it:
+it defaults to the policy's namespace when omitted, and uses the explicit value when present.
 
 ```go
-type TargetRef struct{ Group, Kind, Name, SectionName string }
+type TargetRef struct{ Group, Kind, Namespace, Name, SectionName string }
 ```
 
 **Decoder registry** — one explicit, unit-tested decoder per kind:
@@ -125,9 +126,13 @@ unambiguous):
 ```
 known features found    -> Summary = feature names,  Details = decoded rows
 kind known, no features -> Summary = policy name,     Details = []
-kind unknown            -> Summary = policy name,     Details = []
+kind unknown            -> Summary = policy name,     Details = []   (defensive only — see note)
 value present but unparseable -> omit from Details (never invent a label/value)
 ```
+
+The "kind unknown" rung is **defensive code, not a feature**: the fleet pass lists only the five
+known GVRs, so an unknown kind reaches a decoder only if the registry and the GVR list drift out of
+sync. The rung guarantees that drift degrades to a name-only chip rather than a panic or a blank.
 
 **Invariants** (test conventions):
 - `Summary` contains **feature names only** — no decoded values ever leak into it.
@@ -147,6 +152,13 @@ target names:
 - `targetRef.kind == Service` & name matches a route's backend Service → that `ServiceNode.Policies`.
 - A `PolicyRef` whose target matches nothing in this topology is dropped (it belongs to another
   gateway); not a warning (expected — policies are cluster-wide, the topology is one gateway).
+
+**BackendTLSPolicy visibility caveat.** A BackendTLSPolicy attaches only to backend Services the
+topology actually represents as `ServiceNode`s. M5-a collapses a route's multiple `backendRefs` to
+the **primary** Service in the lane (with a warning); a BackendTLSPolicy targeting a *non-primary*
+backend therefore has no node to land on and is dropped. This is an accepted M5-b-i limitation —
+full multi-backend BTLS visibility waits on the topology modelling all backend Services, not just
+the primary. We make no false claim: BTLS chips appear only on Services we render.
 
 **targetRef namespace defaulting** (explicit, tested):
 
@@ -234,7 +246,9 @@ The chip placement + detail panel were approved in the M5 brainstorm mockup; M5-
     per try timeout: 10s
     request timeout: 30s
   ```
-  The existing **view-YAML** link remains the source of truth.
+  The existing **view-YAML** link remains the source of truth. The section carries a one-line
+  hint — *"Gateway policies are shown in the topology header"* — so a route with no route-level
+  policies doesn't read as if a CTP vanished into the floorboards.
 - Capability-gated: when no Envoy/Gateway-API policy group is served, no chips and an
   informational warning (consistent with M5-a's warnings surface).
 
