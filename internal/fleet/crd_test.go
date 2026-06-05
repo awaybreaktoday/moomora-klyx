@@ -6,16 +6,71 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	typedfake "k8s.io/client-go/kubernetes/fake"
 	metadatafake "k8s.io/client-go/metadata/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/moomora/klyx/internal/clock"
 	"github.com/moomora/klyx/internal/crd"
 )
+
+func TestGetInstanceDetailEventsErrorDegrades(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1", "kind": "Widget",
+		"metadata": map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-1"},
+		"status":   map[string]interface{}{"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True"}}},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	typed := typedfake.NewSimpleClientset()
+	typed.PrependReactor("list", "events", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "events"}, "", nil)
+	})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("an events error must not fail the detail: %v", err)
+	}
+	if !strings.Contains(d.YAML, "kind: Widget") || len(d.Conditions) != 1 {
+		t.Fatalf("yaml/conditions must survive an events error: %+v", d)
+	}
+	if len(d.Events) != 0 {
+		t.Fatalf("want no events on error, got %d", len(d.Events))
+	}
+}
+
+func TestGetInstanceDetailNoUIDSkipsEvents(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1", "kind": "Widget",
+		"metadata": map[string]interface{}{"name": "w1", "namespace": "team-a"}, // no uid
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	// Seed an unrelated event; the fake does not apply the uid field selector, so
+	// without the empty-uid guard this would leak into the result.
+	ev := &corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "x.evt", Namespace: "team-a"}, Type: "Normal", Reason: "X"}
+	typed := typedfake.NewSimpleClientset(ev)
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if len(d.Events) != 0 {
+		t.Fatalf("a uid-less object must skip the event list, got %d events", len(d.Events))
+	}
+}
 
 func crdUnstructured(group, kind, plural, scope string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]interface{}{
