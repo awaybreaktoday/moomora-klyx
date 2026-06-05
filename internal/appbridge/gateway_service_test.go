@@ -49,6 +49,33 @@ func TestGetGatewayTopologyDTO(t *testing.T) {
 	}
 }
 
+func TestGatewayTopologyDTOPolicies(t *testing.T) {
+	conn := &fakeGatewayConn{topo: gwapi.Topology{
+		Gateway: gwapi.GatewayNode{Namespace: "infra", Name: "eg", Policies: []gwapi.PolicyRef{
+			{Kind: "ClientTrafficPolicy", Namespace: "infra", Name: "ctp", TargetKind: "Gateway", TargetNamespace: "infra", TargetName: "eg", Summary: "http2"},
+		}},
+		Routes: []gwapi.RouteNode{{
+			Namespace: "apps", Name: "share",
+			Policies: []gwapi.PolicyRef{{Kind: "BackendTrafficPolicy", Namespace: "apps", Name: "btp", TargetKind: "HTTPRoute", TargetName: "share", Summary: "retries + timeout", Details: []gwapi.PolicyDetail{{Key: "retries", Value: "3"}, {Key: "request timeout", Value: "30s"}}}},
+			Services: []gwapi.ServiceNode{{Namespace: "apps", Name: "share-api", Resolved: true, Policies: []gwapi.PolicyRef{{Kind: "BackendTLSPolicy", Name: "btls", TargetKind: "Service", TargetName: "share-api", Summary: "hostname"}}}},
+		}},
+	}}
+	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
+	d := svc.GetGatewayTopology("x", "infra", "eg")
+
+	if len(d.Gateway.Policies) != 1 || d.Gateway.Policies[0].Kind != "ClientTrafficPolicy" || d.Gateway.Policies[0].TargetName != "eg" {
+		t.Fatalf("gateway policy DTO: %+v", d.Gateway.Policies)
+	}
+	rp := d.Routes[0].Policies
+	if len(rp) != 1 || rp[0].Summary != "retries + timeout" || len(rp[0].Details) != 2 || rp[0].Details[0].Key != "retries" || rp[0].Details[0].Value != "3" {
+		t.Fatalf("route policy DTO: %+v", rp)
+	}
+	sp := d.Routes[0].Services[0].Policies
+	if len(sp) != 1 || sp[0].Kind != "BackendTLSPolicy" {
+		t.Fatalf("service policy DTO: %+v", sp)
+	}
+}
+
 func TestGetGatewayTopologyErrorSurfaced(t *testing.T) {
 	conn := &fakeGatewayConn{err: context.DeadlineExceeded}
 	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
