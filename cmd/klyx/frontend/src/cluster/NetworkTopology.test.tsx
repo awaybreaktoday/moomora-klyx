@@ -4,7 +4,6 @@ import { useFleet, TopologyDTO, GatewayRef } from "../store/fleet";
 import { NetworkTopology } from "./NetworkTopology";
 
 vi.mock("../bridge/gateway", () => ({ getGatewayTopology: vi.fn(async () => {}), listGateways: vi.fn(async () => {}) }));
-import { getGatewayTopology } from "../bridge/gateway";
 
 const gateway: GatewayRef = { namespace: "infra", name: "eg" };
 const topo: TopologyDTO = {
