@@ -19,6 +19,7 @@ import (
 	"github.com/moomora/klyx/internal/clock"
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/gwapi"
 )
 
 // Conn is the interface the registry drives. ClusterConn is the production impl.
@@ -37,6 +38,8 @@ type Conn interface {
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)
+	ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, error)
+	GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
@@ -62,7 +65,7 @@ type ClusterConn struct {
 	snapPods       int
 	snapVersion    string
 	connectTimeout time.Duration
-	refresh        chan struct{} // buffered(1); coalesces informer events
+	refresh        chan struct{}   // buffered(1); coalesces informer events
 	ctx            context.Context // captured in Start; scopes lazy watches
 	gitops         *gitopsWatch    // lazy; nil until OpenGitOps
 }
