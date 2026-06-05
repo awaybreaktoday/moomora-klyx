@@ -103,6 +103,7 @@ type FleetState = {
   closeResource: () => void;
   instances: InstancesSlice;
   setInstancesLoading: (ref: ResourceRef) => void;
+  setInstancePage: (items: InstanceDTO[], nextToken: string) => void;
   addInstancePage: (items: InstanceDTO[], nextToken: string) => void;
   setInstanceFilter: (s: string) => void;
   clearInstances: () => void;
@@ -146,6 +147,7 @@ export const useFleet = create<FleetState>((set) => ({
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section: "resources" } } : {})),
   instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" },
   setInstancesLoading: (ref) => set({ instances: { ref, rows: [], nextToken: "", loading: true, filter: "" } }),
+  setInstancePage: (items, nextToken) => set((s) => ({ instances: { ...s.instances, rows: items, nextToken, loading: false } })),
   addInstancePage: (items, nextToken) => set((s) => ({ instances: { ...s.instances, rows: [...s.instances.rows, ...items], nextToken, loading: false } })),
   setInstanceFilter: (filter) => set((s) => ({ instances: { ...s.instances, filter } })),
   clearInstances: () => set({ instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" } }),
