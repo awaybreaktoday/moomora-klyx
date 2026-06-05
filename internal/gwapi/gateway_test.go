@@ -38,6 +38,18 @@ func TestParseGateway(t *testing.T) {
 	}
 }
 
+func TestParseGatewayFloat64Port(t *testing.T) {
+	// json.Unmarshal into interface{} yields float64 for the port.
+	u := gwObj("eg", "infra", "envoy-gateway",
+		[]interface{}{
+			map[string]interface{}{"name": "https", "protocol": "HTTPS", "port": float64(443)},
+		}, nil)
+	g := ParseGateway(u)
+	if len(g.Listeners) != 1 || g.Listeners[0].Port != 443 {
+		t.Fatalf("float64 port must decode: %+v", g.Listeners)
+	}
+}
+
 func TestParseGatewayNotProgrammed(t *testing.T) {
 	u := gwObj("g", "n", "c", nil, []interface{}{
 		map[string]interface{}{"type": "Accepted", "status": "True"},

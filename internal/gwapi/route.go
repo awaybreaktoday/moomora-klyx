@@ -6,11 +6,16 @@ import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 // (by parentRef, namespace defaulting to the route's), returns the RouteNode with
 // Accepted/ResolvedRefs scoped to THAT parent. ok=false when it does not attach.
 // Services/Pods are filled later by the fleet layer.
+//
+// Known limitation: a route that attaches to the same Gateway via multiple
+// parentRefs with different sectionNames collapses to a single lane scoped to
+// the first matching parentRef. Per-listener lanes are out of scope for M5-a.
 func RouteForGateway(u *unstructured.Unstructured, gwNamespace, gwName string) (RouteNode, bool) {
 	routeNS := u.GetNamespace()
 
 	parents, _, _ := unstructured.NestedSlice(u.Object, "spec", "parentRefs")
 	attached := false
+	var sectionName string
 	for _, p := range parents {
 		m, ok := p.(map[string]interface{})
 		if !ok {
@@ -21,13 +26,16 @@ func RouteForGateway(u *unstructured.Unstructured, gwNamespace, gwName string) (
 		if ns == "" {
 			ns = routeNS
 		}
-		// kind defaults to Gateway; group to gateway.networking.k8s.io.
-		kind, _ := m["kind"].(string)
-		if kind != "" && kind != "Gateway" {
+		// group/kind default to gateway.networking.k8s.io / Gateway.
+		if g, _ := m["group"].(string); g != "" && g != "gateway.networking.k8s.io" {
+			continue
+		}
+		if kind, _ := m["kind"].(string); kind != "" && kind != "Gateway" {
 			continue
 		}
 		if name == gwName && ns == gwNamespace {
 			attached = true
+			sectionName, _ = m["sectionName"].(string)
 			break
 		}
 	}
@@ -74,25 +82,30 @@ func RouteForGateway(u *unstructured.Unstructured, gwNamespace, gwName string) (
 			if be.Namespace == "" {
 				be.Namespace = routeNS
 			}
-			if p, ok := bm["port"].(int64); ok {
+			if p, ok, _ := unstructured.NestedNumberAsFloat64(bm, "port"); ok {
 				be.Port = int32(p)
 			}
-			if w, ok := bm["weight"].(int64); ok {
+			if w, ok, _ := unstructured.NestedNumberAsFloat64(bm, "weight"); ok {
 				be.Weight = int32(w)
 			}
 			rn.Backends = append(rn.Backends, be)
 		}
 	}
 
-	// Scope status to this Gateway's parent entry.
-	rn.Accepted, rn.ResolvedRefs = parentStatus(u.Object, gwNamespace, gwName, routeNS)
+	// Scope status to this Gateway's parent entry (and listener, if pinned).
+	rn.Accepted, rn.ResolvedRefs = parentStatus(u.Object, gwNamespace, gwName, routeNS, sectionName)
 	return rn, true
 }
 
 // parentStatus reads status.parents[] and returns Accepted/ResolvedRefs for the
 // entry whose parentRef matches the given Gateway (namespace defaulting to the
-// route's). Returns false,false when no matching parent status exists yet.
-func parentStatus(obj map[string]interface{}, gwNamespace, gwName, routeNS string) (accepted, resolved bool) {
+// route's). When wantSection is non-empty, the status entry must be pinned to
+// the same listener via sectionName; an empty wantSection matches the first
+// entry regardless of its sectionName. Returns false,false when no matching
+// parent status exists yet.
+func parentStatus(obj map[string]interface{}, gwNamespace, gwName, routeNS, wantSection string) (accepted, resolved bool) {
+	// Returns the first status entry matching the parentRef; controllerName is
+	// not disambiguated (single Gateway controller assumed).
 	sps, _, _ := unstructured.NestedSlice(obj, "status", "parents")
 	for _, sp := range sps {
 		spm, ok := sp.(map[string]interface{})
@@ -103,6 +116,12 @@ func parentStatus(obj map[string]interface{}, gwNamespace, gwName, routeNS strin
 		if !ok {
 			continue
 		}
+		if g, _ := pr["group"].(string); g != "" && g != "gateway.networking.k8s.io" {
+			continue
+		}
+		if kind, _ := pr["kind"].(string); kind != "" && kind != "Gateway" {
+			continue
+		}
 		name, _ := pr["name"].(string)
 		ns, _ := pr["namespace"].(string)
 		if ns == "" {
@@ -110,6 +129,12 @@ func parentStatus(obj map[string]interface{}, gwNamespace, gwName, routeNS strin
 		}
 		if name != gwName || ns != gwNamespace {
 			continue
+		}
+		if wantSection != "" {
+			gotSection, _ := pr["sectionName"].(string)
+			if gotSection != wantSection {
+				continue
+			}
 		}
 		conds, _, _ := unstructured.NestedSlice(spm, "conditions")
 		for _, c := range conds {

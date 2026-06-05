@@ -31,10 +31,44 @@ func parentRef(name, ns, section string) map[string]interface{} {
 	return m
 }
 
+// parentRefGroup builds a parentRef with an explicit group (and optional kind).
+func parentRefGroup(name, ns, group, kind string) map[string]interface{} {
+	m := map[string]interface{}{"name": name}
+	if ns != "" {
+		m["namespace"] = ns
+	}
+	if group != "" {
+		m["group"] = group
+	}
+	if kind != "" {
+		m["kind"] = kind
+	}
+	return m
+}
+
 func statusParent(name, ns string, accepted, resolved string) map[string]interface{} {
 	pr := map[string]interface{}{"name": name}
 	if ns != "" {
 		pr["namespace"] = ns
+	}
+	return map[string]interface{}{
+		"parentRef": pr,
+		"conditions": []interface{}{
+			map[string]interface{}{"type": "Accepted", "status": accepted},
+			map[string]interface{}{"type": "ResolvedRefs", "status": resolved},
+		},
+	}
+}
+
+// statusParentSection builds a status.parents[] entry whose parentRef is pinned
+// to a specific listener via sectionName.
+func statusParentSection(name, ns, section string, accepted, resolved string) map[string]interface{} {
+	pr := map[string]interface{}{"name": name}
+	if ns != "" {
+		pr["namespace"] = ns
+	}
+	if section != "" {
+		pr["sectionName"] = section
 	}
 	return map[string]interface{}{
 		"parentRef": pr,
@@ -119,5 +153,55 @@ func TestRouteForGatewayNotAttached(t *testing.T) {
 		nil, nil)
 	if _, ok := RouteForGateway(u, "apps", "eg"); ok {
 		t.Fatal("should not attach")
+	}
+}
+
+func TestRouteForGatewaySectionNameScopesStatus(t *testing.T) {
+	// Route pins sectionName "https"; status has TWO entries for infra/eg:
+	// http (Accepted=False) and https (Accepted=True). Must pick the https one.
+	u := hrObj("pinned", "apps",
+		[]interface{}{parentRef("eg", "infra", "https")},
+		[]interface{}{rule("/", "", "svc", 443, 0)},
+		[]interface{}{
+			statusParentSection("eg", "infra", "http", "False", "True"),
+			statusParentSection("eg", "infra", "https", "True", "True"),
+		},
+		nil)
+	rn, ok := RouteForGateway(u, "infra", "eg")
+	if !ok {
+		t.Fatal("route should attach to infra/eg")
+	}
+	if !rn.Accepted {
+		t.Fatalf("status must be scoped to the https listener (accepted): %+v", rn)
+	}
+}
+
+func TestRouteForGatewayFloat64Ports(t *testing.T) {
+	// json.Unmarshal into interface{} yields float64 for numeric fields.
+	u := hrObj("f", "apps",
+		[]interface{}{parentRef("eg", "infra", "")},
+		[]interface{}{map[string]interface{}{
+			"backendRefs": []interface{}{map[string]interface{}{
+				"name": "svc", "port": float64(8080), "weight": float64(50),
+			}},
+		}},
+		[]interface{}{statusParent("eg", "infra", "True", "True")},
+		nil)
+	rn, ok := RouteForGateway(u, "infra", "eg")
+	if !ok {
+		t.Fatal("route should attach to infra/eg")
+	}
+	if len(rn.Backends) != 1 || rn.Backends[0].Port != 8080 || rn.Backends[0].Weight != 50 {
+		t.Fatalf("float64 port/weight must decode: %+v", rn.Backends)
+	}
+}
+
+func TestRouteForGatewayWrongGroupParentDoesNotMatch(t *testing.T) {
+	u := hrObj("r", "infra",
+		[]interface{}{parentRefGroup("eg", "infra", "example.com", "Gateway")},
+		[]interface{}{rule("/", "", "svc", 80, 0)},
+		nil, nil)
+	if _, ok := RouteForGateway(u, "infra", "eg"); ok {
+		t.Fatal("parentRef with non-default group must not attach")
 	}
 }

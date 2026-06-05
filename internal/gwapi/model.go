@@ -19,10 +19,10 @@ type GatewayNode struct {
 }
 
 type RouteNode struct {
-	Namespace, Name string
-	Hostnames       []string
-	Matches         []Match
-	Accepted, ResolvedRefs bool          // scoped to THIS Gateway's parentRef
+	Namespace, Name        string
+	Hostnames              []string
+	Matches                []Match
+	Accepted, ResolvedRefs bool // scoped to THIS Gateway's parentRef
 	Backends               []Backend
 	Policies               []PolicyRef   // M5-b; empty in M5-a
 	Services               []ServiceNode // resolved Service backends; lane shows primary

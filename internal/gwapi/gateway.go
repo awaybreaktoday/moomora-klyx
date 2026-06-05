@@ -35,7 +35,7 @@ func ParseGateway(u *unstructured.Unstructured) GatewayNode {
 		lis.Name, _ = m["name"].(string)
 		lis.Protocol, _ = m["protocol"].(string)
 		lis.Hostname, _ = m["hostname"].(string)
-		if p, ok := m["port"].(int64); ok {
+		if p, ok, _ := unstructured.NestedNumberAsFloat64(m, "port"); ok {
 			lis.Port = int32(p)
 		}
 		g.Listeners = append(g.Listeners, lis)
