@@ -35,6 +35,7 @@ type Conn interface {
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 	ListCRDs(ctx context.Context) ([]crd.Info, error)
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
+	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

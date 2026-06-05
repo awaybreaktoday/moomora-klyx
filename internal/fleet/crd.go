@@ -39,3 +39,23 @@ func (c *ClusterConn) CountResource(ctx context.Context, group, version, plural 
 	count, capped := crd.CountDisplay(len(list.Items), list.GetContinue())
 	return count, capped, nil
 }
+
+// ListInstances returns one metadata-only page of instances of a kind plus the
+// next continue token ("" on the last page). A single list page; no watch.
+func (c *ClusterConn) ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error) {
+	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: plural}
+	list, err := c.meta.Resource(gvr).List(ctx, metav1.ListOptions{Limit: limit, Continue: continueToken})
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]crd.InstanceMeta, 0, len(list.Items))
+	for i := range list.Items {
+		m := &list.Items[i]
+		out = append(out, crd.InstanceMeta{
+			Namespace: m.GetNamespace(),
+			Name:      m.GetName(),
+			Created:   m.GetCreationTimestamp().Time,
+		})
+	}
+	return out, list.GetContinue(), nil
+}
