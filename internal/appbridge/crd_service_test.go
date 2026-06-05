@@ -13,6 +13,7 @@ type fakeCRDConn struct {
 	counts    map[string]int
 	instances []crd.InstanceMeta
 	nextToken string
+	detail    crd.InstanceDetail
 }
 
 func (f *fakeCRDConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return f.infos, nil }
@@ -25,6 +26,9 @@ func (f *fakeCRDConn) CountResource(ctx context.Context, group, version, plural 
 }
 func (f *fakeCRDConn) ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error) {
 	return f.instances, f.nextToken, nil
+}
+func (f *fakeCRDConn) GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error) {
+	return f.detail, nil
 }
 
 func TestListCRDsGroupsAndAttributes(t *testing.T) {
@@ -87,6 +91,40 @@ func TestListInstancesUnknownClusterEmpty(t *testing.T) {
 	svc := NewCRDService(func(string) (CRDConn, bool) { return nil, false })
 	if p := svc.ListInstances("ghost", "g", "v", "p", ""); len(p.Items) != 0 || p.NextToken != "" {
 		t.Fatalf("want empty page, got %+v", p)
+	}
+}
+
+func TestGetInstanceDetailMapsDTO(t *testing.T) {
+	created := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	last := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	conn := &fakeCRDConn{detail: crd.InstanceDetail{
+		Kind: "Widget", Namespace: "team-a", Name: "w1", Created: created,
+		Labels:     map[string]string{"app": "w"},
+		Conditions: []crd.Condition{{Type: "Ready", Status: "True", Reason: "OK", Message: "ready"}},
+		Events:     []crd.Event{{Type: "Warning", Reason: "Failed", Message: "boom", Count: 2, Last: last}},
+		YAML:       "kind: Widget\n",
+	}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	d := svc.GetInstanceDetail("x", "example.com", "v1", "widgets", "team-a", "w1")
+	if d.Kind != "Widget" || d.Created != "2026-06-01T09:00:00Z" {
+		t.Fatalf("header: %+v", d)
+	}
+	if len(d.Conditions) != 1 || d.Conditions[0].Type != "Ready" {
+		t.Fatalf("conditions: %+v", d.Conditions)
+	}
+	if len(d.Events) != 1 || d.Events[0].Count != 2 || d.Events[0].LastSeen != "2026-06-02T10:00:00Z" {
+		t.Fatalf("events: %+v", d.Events)
+	}
+	if d.YAML != "kind: Widget\n" || d.Labels["app"] != "w" {
+		t.Fatalf("yaml/labels: %+v", d)
+	}
+}
+
+func TestGetInstanceDetailUnknownClusterEmpty(t *testing.T) {
+	svc := NewCRDService(func(string) (CRDConn, bool) { return nil, false })
+	if d := svc.GetInstanceDetail("ghost", "g", "v", "p", "n", "x"); d.Kind != "" || len(d.Conditions) != 0 {
+		t.Fatalf("want empty, got %+v", d)
 	}
 }
 

@@ -42,6 +42,27 @@ type InstancePageDTO struct {
 	NextToken string        `json:"nextToken"`
 }
 
+// EventDTO is a describe-style event.
+type EventDTO struct {
+	Type     string `json:"type"` // Normal | Warning
+	Reason   string `json:"reason"`
+	Message  string `json:"message"`
+	Count    int    `json:"count"`
+	LastSeen string `json:"lastSeen"` // RFC3339; "" when unset
+}
+
+// InstanceDetailDTO is the full per-instance detail.
+type InstanceDetailDTO struct {
+	Kind       string            `json:"kind"`
+	Namespace  string            `json:"namespace"`
+	Name       string            `json:"name"`
+	Created    string            `json:"created"` // RFC3339; "" when unset
+	Labels     map[string]string `json:"labels"`
+	Conditions []ConditionDTO    `json:"conditions"`
+	Events     []EventDTO        `json:"events"`
+	YAML       string            `json:"yaml"`
+}
+
 // groupCRDs groups parsed CRDs by API group, attaches the curated category, and
 // sorts groups and kinds by name for a stable UI.
 func groupCRDs(infos []crd.Info) []CRDGroupDTO {
