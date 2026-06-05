@@ -124,7 +124,8 @@ test("instance detail drill-in route + slice", () => {
 
   uf3.getState().openInstance("default", "web-tls");
   uf3.getState().openResource(ref);
-  expect(uf3.getState().route.name === "cluster" && uf3.getState().route.instance).toBeUndefined();
+  const rReopen = uf3.getState().route;
+  expect(rReopen.name === "cluster" && rReopen.instance).toBeUndefined();
   uf3.getState().openInstance("default", "web-tls");
   uf3.getState().setSection("gitops");
   const r3 = uf3.getState().route;
