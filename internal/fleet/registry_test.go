@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/moomora/klyx/internal/config"
+	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
@@ -35,6 +36,10 @@ func (f *fakeConn) SetSuspend(ctx context.Context, kind, ns, name string, suspen
 }
 func (f *fakeConn) SourceURL(ctx context.Context, kind, ns, name string) (string, bool) {
 	return "", false
+}
+func (f *fakeConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return nil, nil }
+func (f *fakeConn) CountResource(ctx context.Context, group, version, plural string) (int, bool, error) {
+	return 0, false, nil
 }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {

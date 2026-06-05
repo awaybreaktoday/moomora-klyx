@@ -69,6 +69,23 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   observability: "Observability",
 };
 
+export type CRDKindDTO = { kind: string; plural: string; scope: string; version: string; operator: string; shortNames: string[] };
+export type CRDGroupDTO = { group: string; category: string; kinds: CRDKindDTO[] };
+export type CRDCountDTO = { count: number; capped: boolean };
+export type CRDGroupBy = "group" | "operator" | "scope" | "alphabetical";
+
+export type CRDSlice = {
+  cluster: string | null;
+  groups: CRDGroupDTO[];
+  loading: boolean;
+  expanded: string[];
+  counts: Record<string, CRDCountDTO>;
+  groupBy: CRDGroupBy;
+  search: string;
+};
+
+export const crdCountKey = (group: string, version: string, plural: string) => `${group}/${version}/${plural}`;
+
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
 type FleetState = {
@@ -88,6 +105,14 @@ type FleetState = {
   actionStatus: ActionStatus | null;
   setActionStatus: (s: ActionStatus) => void;
   clearActionStatus: () => void;
+  crd: CRDSlice;
+  setCRDs: (cluster: string, groups: CRDGroupDTO[]) => void;
+  setCRDLoading: (cluster: string) => void;
+  clearCRDs: () => void;
+  toggleCRDGroup: (group: string) => void;
+  setCRDCount: (key: string, dto: CRDCountDTO) => void;
+  setCRDGroupBy: (g: CRDGroupBy) => void;
+  setCRDSearch: (s: string) => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -108,4 +133,14 @@ export const useFleet = create<FleetState>((set) => ({
   actionStatus: null,
   setActionStatus: (actionStatus) => set({ actionStatus }),
   clearActionStatus: () => set({ actionStatus: null }),
+  crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
+  setCRDs: (cluster, groups) => set((s) => ({ crd: { ...s.crd, cluster, groups, loading: false } })),
+  setCRDLoading: (cluster) => set((s) => ({ crd: { ...s.crd, cluster, groups: [], loading: true, expanded: [], counts: {} } })),
+  clearCRDs: () => set({ crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" } }),
+  toggleCRDGroup: (group) => set((s) => ({
+    crd: { ...s.crd, expanded: s.crd.expanded.includes(group) ? s.crd.expanded.filter((g) => g !== group) : [...s.crd.expanded, group] },
+  })),
+  setCRDCount: (key, dto) => set((s) => ({ crd: { ...s.crd, counts: { ...s.crd.counts, [key]: dto } } })),
+  setCRDGroupBy: (groupBy) => set((s) => ({ crd: { ...s.crd, groupBy } })),
+  setCRDSearch: (search) => set((s) => ({ crd: { ...s.crd, search } })),
 }));
