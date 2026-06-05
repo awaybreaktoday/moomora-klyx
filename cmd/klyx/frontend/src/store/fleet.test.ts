@@ -56,6 +56,37 @@ test("crd slice: set groups, toggle, count, search, groupBy", () => {
   expect(useFleet.getState().crd.search).toBe("cep");
 });
 
+import { useFleet as uf2 } from "./fleet";
+
+test("resource drill-in route + instances slice", () => {
+  uf2.getState().openCluster("x");
+  const ref = { group: "cilium.io", version: "v2", plural: "ciliumendpoints", kind: "CiliumEndpoint", scope: "Namespaced" };
+  uf2.getState().openResource(ref);
+  const r = uf2.getState().route;
+  expect(r).toMatchObject({ name: "cluster", cluster: "x", section: "resources", resource: { kind: "CiliumEndpoint" } });
+  expect(uf2.getState().instances.ref?.kind).toBe("CiliumEndpoint");
+  expect(uf2.getState().instances.loading).toBe(true);
+
+  uf2.getState().addInstancePage([{ namespace: "n", name: "a", created: "" }], "tok");
+  expect(uf2.getState().instances.rows.length).toBe(1);
+  expect(uf2.getState().instances.nextToken).toBe("tok");
+  uf2.getState().addInstancePage([{ namespace: "n", name: "b", created: "" }], "");
+  expect(uf2.getState().instances.rows.length).toBe(2);
+
+  uf2.getState().setInstanceFilter("a");
+  expect(uf2.getState().instances.filter).toBe("a");
+
+  uf2.getState().setSection("gitops");
+  const r2 = uf2.getState().route;
+  expect(r2.name === "cluster" && r2.resource).toBeUndefined();
+
+  uf2.getState().openResource(ref);
+  uf2.getState().closeResource();
+  const r3 = uf2.getState().route;
+  expect(r3).toMatchObject({ name: "cluster", cluster: "x", section: "resources" });
+  expect(r3.name === "cluster" && r3.resource).toBeUndefined();
+});
+
 it("action status set and clear", () => {
   useFleet.getState().setActionStatus({ kind: "success", message: "Reconcile requested" });
   expect(useFleet.getState().actionStatus?.message).toBe("Reconcile requested");

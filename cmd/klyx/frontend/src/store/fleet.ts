@@ -57,9 +57,13 @@ export type GitOpsSlice = {
 
 export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability";
 
+export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
+export type InstanceDTO = { namespace: string; name: string; created: string };
+export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nextToken: string; loading: boolean; filter: string };
+
 export type Route =
   | { name: "fleet" }
-  | { name: "cluster"; cluster: string; section: ClusterSection };
+  | { name: "cluster"; cluster: string; section: ClusterSection; resource?: ResourceRef };
 
 export const SECTION_LABELS: Record<ClusterSection, string> = {
   overview: "Overview",
@@ -95,6 +99,13 @@ type FleetState = {
   openFleet: () => void;
   openCluster: (name: string) => void;
   setSection: (s: ClusterSection) => void;
+  openResource: (ref: ResourceRef) => void;
+  closeResource: () => void;
+  instances: InstancesSlice;
+  setInstancesLoading: (ref: ResourceRef) => void;
+  addInstancePage: (items: InstanceDTO[], nextToken: string) => void;
+  setInstanceFilter: (s: string) => void;
+  clearInstances: () => void;
   gitops: GitOpsSlice;
   setGitOps: (cluster: string, resources: FluxResourceDTO[]) => void;
   setGitOpsLoading: (cluster: string) => void;
@@ -122,7 +133,22 @@ export const useFleet = create<FleetState>((set) => ({
   openFleet: () => set({ route: { name: "fleet" } }),
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
   setSection: (section) =>
-    set((s) => (s.route.name === "cluster" ? { route: { ...s.route, section } } : {})),
+    set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section } } : {})),
+  openResource: (resource) =>
+    set((s) =>
+      s.route.name === "cluster"
+        ? {
+            route: { name: "cluster", cluster: s.route.cluster, section: "resources", resource },
+            instances: { ref: resource, rows: [], nextToken: "", loading: true, filter: "" },
+          }
+        : {}),
+  closeResource: () =>
+    set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section: "resources" } } : {})),
+  instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" },
+  setInstancesLoading: (ref) => set({ instances: { ref, rows: [], nextToken: "", loading: true, filter: "" } }),
+  addInstancePage: (items, nextToken) => set((s) => ({ instances: { ...s.instances, rows: [...s.instances.rows, ...items], nextToken, loading: false } })),
+  setInstanceFilter: (filter) => set((s) => ({ instances: { ...s.instances, filter } })),
+  clearInstances: () => set({ instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" } }),
   gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null },
   setGitOps: (cluster, resources) => set((s) => ({ gitops: { ...s.gitops, cluster, resources, loading: false } })),
   setGitOpsLoading: (cluster) => set((s) => ({ gitops: { ...s.gitops, cluster, resources: [], loading: true } })),
