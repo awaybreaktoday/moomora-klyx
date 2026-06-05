@@ -8,11 +8,21 @@ type ListenerDTO struct {
 	Hostname string `json:"hostname"`
 	Port     int32  `json:"port"`
 }
+type PolicyDetailDTO struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
 type PolicyRefDTO struct {
-	Kind     string `json:"kind"`
-	Name     string `json:"name"`
-	Summary  string `json:"summary"`
-	Inferred bool   `json:"inferred"`
+	Kind              string            `json:"kind"`
+	Namespace         string            `json:"namespace"`
+	Name              string            `json:"name"`
+	TargetKind        string            `json:"targetKind"`
+	TargetNamespace   string            `json:"targetNamespace"`
+	TargetName        string            `json:"targetName"`
+	TargetSectionName string            `json:"targetSectionName"`
+	Summary           string            `json:"summary"`
+	Details           []PolicyDetailDTO `json:"details"`
+	Inferred          bool              `json:"inferred"`
 }
 type GatewayNodeDTO struct {
 	Namespace  string         `json:"namespace"`
@@ -46,6 +56,7 @@ type ServiceNodeDTO struct {
 	Type      string         `json:"type"`
 	Port      int32          `json:"port"`
 	Resolved  bool           `json:"resolved"`
+	Policies  []PolicyRefDTO `json:"policies"`
 	CNPs      []PolicyRefDTO `json:"cnps"`
 }
 type RouteNodeDTO struct {
@@ -81,7 +92,15 @@ type GatewayListDTO struct {
 func policyDTOs(ps []gwapi.PolicyRef) []PolicyRefDTO {
 	out := make([]PolicyRefDTO, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, PolicyRefDTO{Kind: p.Kind, Name: p.Name, Summary: p.Summary, Inferred: p.Inferred})
+		details := make([]PolicyDetailDTO, 0, len(p.Details))
+		for _, d := range p.Details {
+			details = append(details, PolicyDetailDTO{Key: d.Key, Value: d.Value})
+		}
+		out = append(out, PolicyRefDTO{
+			Kind: p.Kind, Namespace: p.Namespace, Name: p.Name,
+			TargetKind: p.TargetKind, TargetNamespace: p.TargetNamespace, TargetName: p.TargetName, TargetSectionName: p.TargetSectionName,
+			Summary: p.Summary, Details: details, Inferred: p.Inferred,
+		})
 	}
 	return out
 }
@@ -102,7 +121,7 @@ func toTopologyDTO(t gwapi.Topology) TopologyDTO {
 			rd.Backends = append(rd.Backends, BackendDTO{Kind: b.Kind, Name: b.Name, Namespace: b.Namespace, Port: b.Port, Weight: b.Weight})
 		}
 		for _, s := range r.Services {
-			rd.Services = append(rd.Services, ServiceNodeDTO{Namespace: s.Namespace, Name: s.Name, Type: s.Type, Port: s.Port, Resolved: s.Resolved, CNPs: policyDTOs(s.CNPs)})
+			rd.Services = append(rd.Services, ServiceNodeDTO{Namespace: s.Namespace, Name: s.Name, Type: s.Type, Port: s.Port, Resolved: s.Resolved, Policies: policyDTOs(s.Policies), CNPs: policyDTOs(s.CNPs)})
 		}
 		out.Routes = append(out.Routes, rd)
 	}

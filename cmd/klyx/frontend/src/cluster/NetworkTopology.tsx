@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useFleet, GatewayRef, RouteNodeDTO } from "../store/fleet";
 import { getGatewayTopology } from "../bridge/gateway";
+import { PolicyChip } from "./PolicyChip";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const nb: React.CSSProperties = { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "8px 9px", minWidth: 0 };
@@ -50,6 +51,14 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <div style={{ fontSize: 15, fontWeight: 500 }}>{t.gateway.name}</div>
         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: t.gateway.programmed ? "var(--color-background-success)" : "var(--color-background-warning)", color: t.gateway.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{t.gateway.programmed ? "programmed" : "pending"}</span>
         <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{t.gateway.className}</span>
+        {t.gateway.policies.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)" }}>policies</span>
+            {t.gateway.policies.map((p) => (
+              <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+            ))}
+          </div>
+        )}
         <div style={{ flex: 1 }} />
         <button onClick={() => void getGatewayTopology(cluster, gateway)} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>Refresh</button>
       </div>
@@ -90,7 +99,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
           {visibleRoutes.map((r) => {
             const svc = r.services[0];
             return (
-              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "150px 20px 1fr 20px 130px 20px 130px", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
+              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "170px 20px 1fr 20px 200px 20px 104px", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
                 <div style={nb}>
                   <div style={lab}>gateway</div><div style={nm}>{t.gateway.namespace}/{t.gateway.name}</div>
                   <div style={{ fontSize: 9, color: "var(--color-text-secondary)", marginTop: 2 }}>{t.gateway.listeners.map((l) => `${l.protocol}:${l.port}`).join(" · ")}</div>
@@ -100,12 +109,26 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                   <div style={{ ...lab, color: "var(--color-text-info)" }}>httproute</div>
                   <div style={{ ...nm, color: "var(--color-text-info)" }}>{r.name}</div>
                   <div style={{ fontSize: 9, marginTop: 2, ...ellipsis }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: dot(r.accepted), display: "inline-block", marginRight: 4 }} />{r.accepted ? "accepted" : "rejected"} · {r.matches[0]?.pathValue ?? "/"}</div>
+                  {r.policies.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                      {r.policies.map((p) => (
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={chev}>›</div>
                 <div style={nb}>
                   <div style={lab}>service</div>
                   <div style={nm}>{svc ? svc.name : "—"}</div>
                   <div style={{ fontSize: 9, color: svc?.resolved ? "var(--color-text-secondary)" : "var(--color-text-danger)", marginTop: 2 }}>{!svc ? "no backend" : svc.resolved ? `${svc.type} :${svc.port}` : "unresolved"}{r.backends.length > 1 ? ` · +${r.backends.length - 1}` : ""}</div>
+                  {svc && svc.policies.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                      {svc.policies.map((p) => (
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={chev}>›</div>
                 <div style={nb}>
@@ -175,6 +198,42 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
           <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 5 }}>backends</div>
           {route.backends.map((b, i) => (<div key={i}>{b.name}:{b.port}{b.weight ? ` · weight ${b.weight}` : ""}</div>))}
         </div>
+      </div>
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 6 }}>attached policies</div>
+        {(() => {
+          const svcPolicies = route.services.flatMap((s) => s.policies);
+          const all = [...route.policies, ...svcPolicies];
+          if (all.length === 0) {
+            return <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>None on this route.</div>;
+          }
+          return all.map((p, idx) => (
+            <div
+              key={`${p.kind}/${p.namespace}/${p.name}`}
+              style={{
+                marginBottom: 12,
+                paddingBottom: idx < all.length - 1 ? 8 : 0,
+                borderBottom: idx < all.length - 1 ? "0.5px solid var(--color-border-tertiary)" : undefined,
+              }}
+            >
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                <span style={{ fontWeight: 600 }}>{p.kind} {p.namespace}/{p.name}</span>
+              </div>
+              <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>
+                Target: {p.targetKind} {p.targetNamespace}/{p.targetName}{p.targetSectionName ? ` (Section: ${p.targetSectionName})` : ""}
+              </div>
+              {p.summary && <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>Features: {p.summary}</div>}
+              {p.details.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  {p.details.map((d, i) => (
+                    <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text-secondary)" }}>{d.key}: {d.value}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ));
+        })()}
+        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>Gateway policies are shown in the topology header.</div>
       </div>
     </div>
   );
