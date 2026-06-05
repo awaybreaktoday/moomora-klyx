@@ -43,21 +43,42 @@ func stripChartVersion(chart string) string {
 }
 
 // categories maps a CRD API group to a curated category badge. Extend by adding
-// a line. Unknown groups return "".
+// a line. Unknown groups return "". An unmatched entry is harmless (no badge),
+// so the map errs toward breadth across the common platform ecosystem.
 var categories = map[string]string{
-	"cilium.io":                      "CNI",
+	// CNI
+	"cilium.io": "CNI",
+	// GitOps - Flux toolkit + Flux Operator + Argo
 	"kustomize.toolkit.fluxcd.io":    "GITOPS",
 	"source.toolkit.fluxcd.io":       "GITOPS",
 	"helm.toolkit.fluxcd.io":         "GITOPS",
 	"notification.toolkit.fluxcd.io": "GITOPS",
+	"image.toolkit.fluxcd.io":        "GITOPS",
+	"fluxcd.controlplane.io":         "GITOPS",
 	"argoproj.io":                    "GITOPS",
-	"cert-manager.io":                "PKI",
-	"acme.cert-manager.io":           "PKI",
-	"gateway.networking.k8s.io":      "NETWORK",
-	"gateway.envoyproxy.io":          "NETWORK",
+	// PKI
+	"cert-manager.io":      "PKI",
+	"acme.cert-manager.io": "PKI",
+	// Networking / ingress / DNS
+	"gateway.networking.k8s.io": "NETWORK",
+	"gateway.envoyproxy.io":     "NETWORK",
+	"externaldns.k8s.io":        "NETWORK",
+	"ingress.haproxy.org":       "NETWORK",
+	// Secrets
 	"external-secrets.io":            "SECRETS",
-	"monitoring.coreos.com":          "OBSERV",
-	"postgresql.cnpg.io":             "DATABASE",
+	"generators.external-secrets.io": "SECRETS",
+	// Observability
+	"monitoring.coreos.com": "OBSERV",
+	"jaegertracing.io":      "OBSERV",
+	"opentelemetry.io":      "OBSERV",
+	// Databases
+	"postgresql.cnpg.io": "DATABASE",
+	// Storage
+	"openebs.io":         "STORAGE",
+	"zfs.openebs.io":     "STORAGE",
+	"localpv.openebs.io": "STORAGE",
+	// Identity
+	"k8s.keycloak.org": "IDENTITY",
 }
 
 // Category returns the curated category for a group, or "".

@@ -31,6 +31,11 @@ func TestCategory(t *testing.T) {
 		"external-secrets.io":       "SECRETS",
 		"monitoring.coreos.com":     "OBSERV",
 		"postgresql.cnpg.io":        "DATABASE",
+		"fluxcd.controlplane.io":    "GITOPS",
+		"externaldns.k8s.io":        "NETWORK",
+		"jaegertracing.io":          "OBSERV",
+		"k8s.keycloak.org":          "IDENTITY",
+		"openebs.io":                "STORAGE",
 		"unknown.example.com":       "",
 	}
 	for group, want := range cases {
