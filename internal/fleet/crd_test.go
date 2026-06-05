@@ -2,12 +2,15 @@ package fleet
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	typedfake "k8s.io/client-go/kubernetes/fake"
 	metadatafake "k8s.io/client-go/metadata/fake"
 
 	"github.com/moomora/klyx/internal/clock"
@@ -97,6 +100,70 @@ func TestListInstances(t *testing.T) {
 	}
 	if next != "" {
 		t.Fatalf("fake should report no continue token, got %q", next)
+	}
+}
+
+func TestGetInstanceDetail(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1",
+		"kind":       "Widget",
+		"metadata":   map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-1", "labels": map[string]interface{}{"app": "w"}},
+		"status":     map[string]interface{}{"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True", "reason": "OK", "message": "ready"}}},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+
+	ev := &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: "w1.evt", Namespace: "team-a"},
+		InvolvedObject: corev1.ObjectReference{Kind: "Widget", Name: "w1", Namespace: "team-a", UID: "uid-1"},
+		Type:           "Warning", Reason: "Failed", Message: "could not reconcile", Count: 3,
+		LastTimestamp:  metav1.Now(),
+	}
+	typed := typedfake.NewSimpleClientset(ev)
+
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.Kind != "Widget" || d.Name != "w1" || d.Namespace != "team-a" {
+		t.Fatalf("header: %+v", d)
+	}
+	if len(d.Conditions) != 1 || d.Conditions[0].Type != "Ready" {
+		t.Fatalf("conditions: %+v", d.Conditions)
+	}
+	if len(d.Events) != 1 || d.Events[0].Type != "Warning" || d.Events[0].Count != 3 {
+		t.Fatalf("events: %+v", d.Events)
+	}
+	if !strings.Contains(d.YAML, "kind: Widget") {
+		t.Fatalf("yaml: %s", d.YAML)
+	}
+	if d.Labels["app"] != "w" {
+		t.Fatalf("labels: %+v", d.Labels)
+	}
+}
+
+func TestGetInstanceDetailClusterScoped(t *testing.T) {
+	nGVR := schema.GroupVersionResource{Group: "cilium.io", Version: "v2", Resource: "ciliumnodes"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{nGVR: "CiliumNodeList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cilium.io/v2",
+		"kind":       "CiliumNode",
+		"metadata":   map[string]interface{}{"name": "node-1", "uid": "uid-n1"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "cilium.io", "v2", "ciliumnodes", "", "node-1")
+	if err != nil {
+		t.Fatalf("cluster-scoped detail: %v", err)
+	}
+	if d.Kind != "CiliumNode" || d.Namespace != "" || !strings.Contains(d.YAML, "kind: CiliumNode") {
+		t.Fatalf("cluster-scoped: %+v", d)
 	}
 }
 
