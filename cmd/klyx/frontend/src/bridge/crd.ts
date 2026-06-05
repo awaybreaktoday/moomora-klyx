@@ -1,5 +1,6 @@
-import { useFleet, CRDGroupDTO, CRDCountDTO, crdCountKey, ResourceRef, InstanceDTO } from "../store/fleet";
+import { useFleet, CRDGroupDTO, CRDCountDTO, crdCountKey, ResourceRef, InstanceDTO, InstanceRef, InstanceDetailDTO } from "../store/fleet";
 import { CRDService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
+import { Clipboard } from "@wailsio/runtime";
 
 export async function listCRDs(cluster: string): Promise<void> {
   useFleet.getState().setCRDLoading(cluster);
@@ -37,4 +38,17 @@ export async function loadInstances(cluster: string, ref: ResourceRef, token?: s
   // any re-trigger); only "load more" (token set) appends.
   if (token) useFleet.getState().addInstancePage(page.items ?? [], page.nextToken ?? "");
   else useFleet.getState().setInstancePage(page.items ?? [], page.nextToken ?? "");
+}
+
+export async function getInstanceDetail(cluster: string, resource: ResourceRef, instance: InstanceRef): Promise<void> {
+  useFleet.getState().setInstanceDetailLoading(instance);
+  const d = (await CRDService.GetInstanceDetail(cluster, resource.group, resource.version, resource.plural, instance.namespace, instance.name)) as InstanceDetailDTO;
+  // Drop a stale detail if the user navigated to a different instance meanwhile.
+  const cur = useFleet.getState().instanceDetail.ref;
+  if (!cur || cur.namespace !== instance.namespace || cur.name !== instance.name) return;
+  useFleet.getState().setInstanceDetail(d);
+}
+
+export async function copyText(text: string): Promise<void> {
+  await Clipboard.SetText(text);
 }
