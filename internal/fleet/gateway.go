@@ -13,6 +13,68 @@ import (
 
 const gwGroup = "gateway.networking.k8s.io"
 
+const envoyGroup = "gateway.envoyproxy.io"
+
+// policyKinds is the M5-b-i precise policy set (display Kind + resource + group).
+var policyKinds = []struct{ Kind, Group, Resource string }{
+	{"ClientTrafficPolicy", envoyGroup, "clienttrafficpolicies"},
+	{"BackendTrafficPolicy", envoyGroup, "backendtrafficpolicies"},
+	{"SecurityPolicy", envoyGroup, "securitypolicies"},
+	{"EnvoyExtensionPolicy", envoyGroup, "envoyextensionpolicies"},
+	{"BackendTLSPolicy", gwGroup, "backendtlspolicies"},
+}
+
+// policyCandidateVersions lists the versions a policy resource may be served at,
+// preferred first. A resource's version is resolved per-resource (not via the
+// group's preferred version, since BackendTLSPolicy lives at v1alpha3 while the
+// gateway.networking.k8s.io group prefers v1).
+var policyCandidateVersions = map[string][]string{
+	envoyGroup: {"v1alpha1"},
+	gwGroup:    {"v1", "v1alpha3", "v1alpha2"},
+}
+
+// servedResourceGVR finds the served GVR for a (group, resource), probing the
+// candidate versions in order. ok=false means the CRD is not installed.
+func (c *ClusterConn) servedResourceGVR(group, resource string) (schema.GroupVersionResource, bool) {
+	disc := c.typed.Discovery()
+	for _, v := range policyCandidateVersions[group] {
+		rl, err := disc.ServerResourcesForGroupVersion(group + "/" + v)
+		if err != nil || rl == nil {
+			continue
+		}
+		for _, r := range rl.APIResources {
+			if r.Name == resource {
+				return schema.GroupVersionResource{Group: group, Version: v, Resource: resource}, true
+			}
+		}
+	}
+	return schema.GroupVersionResource{}, false
+}
+
+// attachGatewayPolicies lists the five precise policy kinds and attaches them by
+// targetRef. Two warning classes: not-installed (informational) and served-but-
+// list-failed (operational).
+func (c *ClusterConn) attachGatewayPolicies(ctx context.Context, topo *gwapi.Topology) {
+	for _, pk := range policyKinds {
+		gvr, ok := c.servedResourceGVR(pk.Group, pk.Resource)
+		if !ok {
+			topo.Warnings = append(topo.Warnings, pk.Kind+" CRD not installed")
+			continue
+		}
+		list, err := c.dyn.Resource(gvr).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			topo.Warnings = append(topo.Warnings, fmt.Sprintf("could not list %s: %v", pk.Kind, err))
+			continue
+		}
+		var refs []gwapi.PolicyRef
+		for i := range list.Items {
+			u := &unstructured.Unstructured{Object: list.Items[i].Object}
+			refs = append(refs, gwapi.BuildPolicyRefs(u, pk.Kind)...)
+		}
+		gwapi.AttachPolicies(topo, refs)
+	}
+}
+
 func (c *ClusterConn) gwGVR(resource string) schema.GroupVersionResource {
 	v := preferredVersion(c.typed.Discovery(), gwGroup, "v1")
 	return schema.GroupVersionResource{Group: gwGroup, Version: v, Resource: resource}
@@ -70,6 +132,7 @@ func (c *ClusterConn) GetGatewayTopology(ctx context.Context, namespace, name st
 		c.resolveBackends(ctx, &rn, &topo)
 		topo.Routes = append(topo.Routes, rn)
 	}
+	c.attachGatewayPolicies(ctx, &topo)
 	return topo, nil
 }
 
