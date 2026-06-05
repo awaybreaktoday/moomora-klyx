@@ -97,12 +97,13 @@ export const crdCountKey = (group: string, version: string, plural: string) => `
 
 export type GatewayRefDTO = { namespace: string; name: string; className: string; accepted: boolean; programmed: boolean };
 export type GatewayListDTO = { gatewayAPIServed: boolean; gateways: GatewayRefDTO[] };
-export type PolicyRefDTO = { kind: string; name: string; summary: string; inferred: boolean };
+export type PolicyDetailDTO = { key: string; value: string };
+export type PolicyRefDTO = { kind: string; namespace: string; name: string; targetKind: string; targetNamespace: string; targetName: string; targetSectionName: string; summary: string; details: PolicyDetailDTO[]; inferred: boolean };
 export type ListenerDTO = { name: string; protocol: string; hostname: string; port: number };
 export type MatchDTO = { pathType: string; pathValue: string; method: string };
 export type BackendDTO = { kind: string; name: string; namespace: string; port: number; weight: number };
 export type PodCountDTO = { ready: number; total: number; unknown: boolean };
-export type ServiceNodeDTO = { namespace: string; name: string; type: string; port: number; resolved: boolean; cnps: PolicyRefDTO[] };
+export type ServiceNodeDTO = { namespace: string; name: string; type: string; port: number; resolved: boolean; policies: PolicyRefDTO[]; cnps: PolicyRefDTO[] };
 export type GatewayNodeDTO = { namespace: string; name: string; className: string; listeners: ListenerDTO[]; accepted: boolean; programmed: boolean; policies: PolicyRefDTO[] };
 export type RouteNodeDTO = { namespace: string; name: string; hostnames: string[]; matches: MatchDTO[]; accepted: boolean; resolvedRefs: boolean; backends: BackendDTO[]; services: ServiceNodeDTO[]; pods: PodCountDTO; policies: PolicyRefDTO[] };
 export type TopologyDTO = { gateway: GatewayNodeDTO; routes: RouteNodeDTO[]; warnings?: string[]; error?: string };

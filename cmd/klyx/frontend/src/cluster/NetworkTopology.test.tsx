@@ -9,14 +9,14 @@ const gateway: GatewayRef = { namespace: "infra", name: "eg" };
 const topo: TopologyDTO = {
   gateway: { namespace: "infra", name: "eg", className: "envoy-gateway", accepted: true, programmed: true, listeners: [{ name: "https", protocol: "HTTPS", hostname: "", port: 443 }], policies: [] },
   routes: [
-    { namespace: "apps", name: "share", hostnames: ["share.example.com"], matches: [{ pathType: "PathPrefix", pathValue: "/api/share", method: "GET" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: "share-api", namespace: "apps", port: 8080, weight: 100 }], services: [{ namespace: "apps", name: "share-api", type: "ClusterIP", port: 8080, resolved: true, cnps: [] }], pods: { ready: 3, total: 3, unknown: false }, policies: [] },
+    { namespace: "apps", name: "share", hostnames: ["share.example.com"], matches: [{ pathType: "PathPrefix", pathValue: "/api/share", method: "GET" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: "share-api", namespace: "apps", port: 8080, weight: 100 }], services: [{ namespace: "apps", name: "share-api", type: "ClusterIP", port: 8080, resolved: true, policies: [], cnps: [] }], pods: { ready: 3, total: 3, unknown: false }, policies: [] },
   ],
   warnings: ["route apps/share has 2 backends; the lane shows the primary"],
 };
 
 function route(namespace: string, name: string, path: string): TopologyDTO["routes"][number] {
   const svc = `${name}-svc`;
-  return { namespace, name, hostnames: [], matches: [{ pathType: "PathPrefix", pathValue: path, method: "" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: svc, namespace, port: 80, weight: 0 }], services: [{ namespace, name: svc, type: "ClusterIP", port: 80, resolved: true, cnps: [] }], pods: { ready: 1, total: 1, unknown: false }, policies: [] };
+  return { namespace, name, hostnames: [], matches: [{ pathType: "PathPrefix", pathValue: path, method: "" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: svc, namespace, port: 80, weight: 0 }], services: [{ namespace, name: svc, type: "ClusterIP", port: 80, resolved: true, policies: [], cnps: [] }], pods: { ready: 1, total: 1, unknown: false }, policies: [] };
 }
 
 const multiTopo: TopologyDTO = {
@@ -120,5 +120,22 @@ describe("NetworkTopology", () => {
     fireEvent.click(getByText("monitoring")); // filter away apps
     expect(queryByText("share")).toBeNull(); // lane gone
     expect(queryByText("HTTPRoute")).toBeNull(); // detail panel gone too
+  });
+
+  it("renders policy chips on the gateway header, route, and service", () => {
+    const withPolicies: TopologyDTO = {
+      gateway: { ...topo.gateway, policies: [{ kind: "ClientTrafficPolicy", namespace: "infra", name: "ctp", targetKind: "Gateway", targetNamespace: "infra", targetName: "eg", targetSectionName: "", summary: "http2", details: [], inferred: false }] },
+      routes: [{
+        ...topo.routes[0],
+        policies: [{ kind: "BackendTrafficPolicy", namespace: "apps", name: "btp", targetKind: "HTTPRoute", targetNamespace: "apps", targetName: "share", targetSectionName: "", summary: "retries", details: [{ key: "retries", value: "3" }], inferred: false }],
+        services: [{ ...topo.routes[0].services[0], policies: [{ kind: "BackendTLSPolicy", namespace: "apps", name: "btls", targetKind: "Service", targetNamespace: "apps", targetName: "share-api", targetSectionName: "", summary: "hostname", details: [], inferred: false }] }],
+      }],
+      warnings: [],
+    };
+    seed(withPolicies);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText(/CTP/)).toBeTruthy();   // gateway header
+    expect(getByText(/BTP/)).toBeTruthy();   // route box
+    expect(getByText(/BTLS/)).toBeTruthy();  // service box
   });
 });

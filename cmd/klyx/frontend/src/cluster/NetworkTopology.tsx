@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useFleet, GatewayRef, RouteNodeDTO } from "../store/fleet";
 import { getGatewayTopology } from "../bridge/gateway";
+import { PolicyChip } from "./PolicyChip";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const nb: React.CSSProperties = { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "8px 9px", minWidth: 0 };
@@ -50,6 +51,9 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <div style={{ fontSize: 15, fontWeight: 500 }}>{t.gateway.name}</div>
         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: t.gateway.programmed ? "var(--color-background-success)" : "var(--color-background-warning)", color: t.gateway.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{t.gateway.programmed ? "programmed" : "pending"}</span>
         <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{t.gateway.className}</span>
+        {t.gateway.policies.map((p) => (
+          <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+        ))}
         <div style={{ flex: 1 }} />
         <button onClick={() => void getGatewayTopology(cluster, gateway)} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>Refresh</button>
       </div>
@@ -100,12 +104,26 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                   <div style={{ ...lab, color: "var(--color-text-info)" }}>httproute</div>
                   <div style={{ ...nm, color: "var(--color-text-info)" }}>{r.name}</div>
                   <div style={{ fontSize: 9, marginTop: 2, ...ellipsis }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: dot(r.accepted), display: "inline-block", marginRight: 4 }} />{r.accepted ? "accepted" : "rejected"} · {r.matches[0]?.pathValue ?? "/"}</div>
+                  {r.policies.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                      {r.policies.map((p) => (
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={chev}>›</div>
                 <div style={nb}>
                   <div style={lab}>service</div>
                   <div style={nm}>{svc ? svc.name : "—"}</div>
                   <div style={{ fontSize: 9, color: svc?.resolved ? "var(--color-text-secondary)" : "var(--color-text-danger)", marginTop: 2 }}>{!svc ? "no backend" : svc.resolved ? `${svc.type} :${svc.port}` : "unresolved"}{r.backends.length > 1 ? ` · +${r.backends.length - 1}` : ""}</div>
+                  {svc && svc.policies.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                      {svc.policies.map((p) => (
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={chev}>›</div>
                 <div style={nb}>
