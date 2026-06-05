@@ -11,6 +11,11 @@ const chev: React.CSSProperties = { display: "flex", alignItems: "center", justi
 const routeKey = (r: { namespace: string; name: string }) => `${r.namespace}/${r.name}`;
 const dot = (ok: boolean) => (ok ? "var(--color-text-success)" : "var(--color-text-danger)");
 
+// Above this many namespaces the inline chips would wrap into a wall and shove
+// the lanes off-screen, so we fall back to a native <select>. A proper
+// searchable combobox primitive replaces this select in a later slice.
+const NS_CHIP_LIMIT = 8;
+
 export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway: GatewayRef }) {
   const net = useFleet((s) => s.network);
   const selectRoute = useFleet((s) => s.selectRoute);
@@ -56,10 +61,25 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
       {showFilter && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, alignItems: "center" }}>
           <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)", marginRight: 2 }}>namespace</span>
-          <Chip label="All" active={activeNs === null} onClick={() => setNsFilter(null)} />
-          {namespaces.map((ns) => (
-            <Chip key={ns} label={ns} count={nsCounts.get(ns)} active={activeNs === ns} onClick={() => setNsFilter(ns)} />
-          ))}
+          {namespaces.length <= NS_CHIP_LIMIT ? (
+            <>
+              <Chip label="All" active={activeNs === null} onClick={() => setNsFilter(null)} />
+              {namespaces.map((ns) => (
+                <Chip key={ns} label={ns} count={nsCounts.get(ns)} active={activeNs === ns} onClick={() => setNsFilter(ns)} />
+              ))}
+            </>
+          ) : (
+            <select
+              value={activeNs ?? ""}
+              onChange={(e) => setNsFilter(e.target.value || null)}
+              style={{ fontSize: 12, fontFamily: "var(--font-mono)", padding: "3px 8px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", maxWidth: 280 }}
+            >
+              <option value="">All namespaces ({t.routes.length})</option>
+              {namespaces.map((ns) => (
+                <option key={ns} value={ns}>{ns} ({nsCounts.get(ns)})</option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 

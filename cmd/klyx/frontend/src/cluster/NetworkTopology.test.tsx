@@ -92,6 +92,26 @@ describe("NetworkTopology", () => {
     expect(queryByText("share")).toBeTruthy();
   });
 
+  it("falls back to a dropdown (not chips) above the namespace threshold", () => {
+    const routes = Array.from({ length: 12 }, (_, i) => route(`ns-${i}`, `r-${i}`, `/r${i}`));
+    seed({ gateway: topo.gateway, routes, warnings: [] });
+    const { getByRole, queryByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    const select = getByRole("combobox") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    expect(queryByText("All")).toBeNull(); // no chip wall
+    // selecting a namespace narrows the lanes
+    fireEvent.change(select, { target: { value: "ns-3" } });
+    expect(queryByText("r-3")).toBeTruthy();
+    expect(queryByText("r-0")).toBeNull();
+  });
+
+  it("uses chips (no dropdown) at or below the threshold", () => {
+    seed(multiTopo); // 2 namespaces
+    const { queryByRole, getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(queryByRole("combobox")).toBeNull();
+    expect(getByText("All")).toBeTruthy();
+  });
+
   it("hides the detail panel for a selected route filtered out of view", () => {
     seed(multiTopo);
     const { getByText, queryByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
