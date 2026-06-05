@@ -194,6 +194,31 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
           {route.backends.map((b, i) => (<div key={i}>{b.name}:{b.port}{b.weight ? ` · weight ${b.weight}` : ""}</div>))}
         </div>
       </div>
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 6 }}>attached policies</div>
+        {(() => {
+          const svcPolicies = route.services.flatMap((s) => s.policies);
+          const all = [...route.policies, ...svcPolicies];
+          if (all.length === 0) {
+            return <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>None on this route.</div>;
+          }
+          return all.map((p) => (
+            <div key={`${p.kind}/${p.namespace}/${p.name}`} style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                <span style={{ fontWeight: 600 }}>{p.kind}/{p.name}</span>
+              </div>
+              <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>
+                Target: {p.targetKind}/{p.targetName}{p.targetSectionName ? ` (Section: ${p.targetSectionName})` : ""}
+              </div>
+              {p.summary && <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>Features: {p.summary}</div>}
+              {p.details.map((d, i) => (
+                <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text-secondary)" }}>{d.key}: {d.value}</div>
+              ))}
+            </div>
+          ));
+        })()}
+        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>Gateway policies are shown in the topology header.</div>
+      </div>
     </div>
   );
 }

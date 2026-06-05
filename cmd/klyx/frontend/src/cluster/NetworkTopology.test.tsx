@@ -138,4 +138,24 @@ describe("NetworkTopology", () => {
     expect(getByText(/BTP/)).toBeTruthy();   // route box
     expect(getByText(/BTLS/)).toBeTruthy();  // service box
   });
+
+  it("shows attached policies (with target + detail rows) in the route detail panel", () => {
+    const withPolicies: TopologyDTO = {
+      gateway: topo.gateway,
+      routes: [{
+        ...topo.routes[0],
+        policies: [{ kind: "BackendTrafficPolicy", namespace: "apps", name: "backend-retries", targetKind: "HTTPRoute", targetNamespace: "apps", targetName: "share", targetSectionName: "", summary: "retries + timeout", details: [{ key: "retries", value: "3" }, { key: "request timeout", value: "30s" }], inferred: false }],
+        services: [topo.routes[0].services[0]],
+      }],
+      warnings: [],
+    };
+    seed(withPolicies);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    fireEvent.click(getByText("share")); // open the detail panel
+    expect(getByText(/attached policies/i)).toBeTruthy();
+    expect(getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "BackendTrafficPolicy/backend-retries")).toBeTruthy();
+    expect(getByText((_, el) => el?.tagName === "DIV" && /^Target: HTTPRoute\/share/.test(el.textContent ?? ""))).toBeTruthy();
+    expect(getByText(/request timeout/)).toBeTruthy();
+    expect(getByText(/Gateway policies are shown in the topology header/i)).toBeTruthy();
+  });
 });
