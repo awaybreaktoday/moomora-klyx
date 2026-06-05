@@ -3,13 +3,16 @@ package appbridge
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/moomora/klyx/internal/crd"
 )
 
 type fakeCRDConn struct {
-	infos  []crd.Info
-	counts map[string]int
+	infos     []crd.Info
+	counts    map[string]int
+	instances []crd.InstanceMeta
+	nextToken string
 }
 
 func (f *fakeCRDConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return f.infos, nil }
@@ -19,6 +22,9 @@ func (f *fakeCRDConn) CountResource(ctx context.Context, group, version, plural 
 		return 0, false, nil
 	}
 	return n, n >= crd.Cap, nil
+}
+func (f *fakeCRDConn) ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error) {
+	return f.instances, f.nextToken, nil
 }
 
 func TestListCRDsGroupsAndAttributes(t *testing.T) {
@@ -48,6 +54,39 @@ func TestListCRDsUnknownClusterEmpty(t *testing.T) {
 	svc := NewCRDService(func(string) (CRDConn, bool) { return nil, false })
 	if g := svc.ListCRDs("ghost"); len(g) != 0 {
 		t.Fatalf("want empty, got %d", len(g))
+	}
+}
+
+func TestListInstancesMapsDTO(t *testing.T) {
+	created := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	conn := &fakeCRDConn{
+		instances: []crd.InstanceMeta{
+			{Namespace: "team-a", Name: "w1", Created: created},
+			{Namespace: "", Name: "cluster-scoped", Created: time.Time{}},
+		},
+		nextToken: "tok-2",
+	}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	page := svc.ListInstances("x", "example.com", "v1", "widgets", "")
+	if page.NextToken != "tok-2" {
+		t.Fatalf("nextToken: %q", page.NextToken)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("items: %d", len(page.Items))
+	}
+	if page.Items[0].Created != "2026-06-01T09:00:00Z" {
+		t.Fatalf("created RFC3339: %q", page.Items[0].Created)
+	}
+	if page.Items[1].Created != "" {
+		t.Fatalf("zero time must map to empty string, got %q", page.Items[1].Created)
+	}
+}
+
+func TestListInstancesUnknownClusterEmpty(t *testing.T) {
+	svc := NewCRDService(func(string) (CRDConn, bool) { return nil, false })
+	if p := svc.ListInstances("ghost", "g", "v", "p", ""); len(p.Items) != 0 || p.NextToken != "" {
+		t.Fatalf("want empty page, got %+v", p)
 	}
 }
 

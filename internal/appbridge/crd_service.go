@@ -11,9 +11,12 @@ import (
 type CRDConn interface {
 	ListCRDs(ctx context.Context) ([]crd.Info, error)
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
+	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 }
 
 const crdTimeout = 30 * time.Second
+
+const instancePageSize = 100
 
 // CRDService is bound to JS. Pure request/response: ListCRDs returns the grouped
 // tree (no counts); CountKind lazily counts one kind on group-expand.
@@ -54,4 +57,28 @@ func (s *CRDService) CountKind(cluster, group, version, plural string) CRDCountD
 		return CRDCountDTO{}
 	}
 	return CRDCountDTO{Count: count, Capped: capped}
+}
+
+// ListInstances returns one page of instances of a kind plus the next token.
+// Empty page on a cluster miss or error.
+func (s *CRDService) ListInstances(cluster, group, version, plural, continueToken string) InstancePageDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return InstancePageDTO{Items: []InstanceDTO{}}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), crdTimeout)
+	defer cancel()
+	items, next, err := conn.ListInstances(ctx, group, version, plural, instancePageSize, continueToken)
+	if err != nil {
+		return InstancePageDTO{Items: []InstanceDTO{}}
+	}
+	dtos := make([]InstanceDTO, 0, len(items))
+	for _, m := range items {
+		created := ""
+		if !m.Created.IsZero() {
+			created = m.Created.Format(time.RFC3339)
+		}
+		dtos = append(dtos, InstanceDTO{Namespace: m.Namespace, Name: m.Name, Created: created})
+	}
+	return InstancePageDTO{Items: dtos, NextToken: next}
 }

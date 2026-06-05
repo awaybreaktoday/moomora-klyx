@@ -5,6 +5,8 @@
 package crd
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -26,6 +28,13 @@ type Info struct {
 	Scope      string // "Namespaced" | "Cluster"
 	Version    string // storage (else first served, else first) version
 	Operator   string // best-effort from metadata.labels; "" when unknown
+}
+
+// InstanceMeta is the metadata-only view of one custom-resource instance.
+type InstanceMeta struct {
+	Namespace string
+	Name      string
+	Created   time.Time
 }
 
 // ParseCRD maps a CRD unstructured to Info. ok=false when group/kind/plural are

@@ -29,6 +29,19 @@ type CRDCountDTO struct {
 	Capped bool `json:"capped"`
 }
 
+// InstanceDTO is the metadata-only view of one instance.
+type InstanceDTO struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Created   string `json:"created"` // RFC3339; "" when unset
+}
+
+// InstancePageDTO is one page of instances plus the next continue token.
+type InstancePageDTO struct {
+	Items     []InstanceDTO `json:"items"`
+	NextToken string        `json:"nextToken"`
+}
+
 // groupCRDs groups parsed CRDs by API group, attaches the curated category, and
 // sorts groups and kinds by name for a stable UI.
 func groupCRDs(infos []crd.Info) []CRDGroupDTO {

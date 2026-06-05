@@ -35,6 +35,20 @@ describe("fleet store routing", () => {
   });
 });
 
+test("instance first page replaces (idempotent), load-more appends", () => {
+  const ref = { group: "cilium.io", version: "v2", plural: "ciliumendpoints", kind: "CiliumEndpoint", scope: "Namespaced" };
+  useFleet.getState().openCluster("y");
+  useFleet.getState().openResource(ref);
+  const page = [{ namespace: "n", name: "a", created: "" }];
+  // Two first-page sets (e.g. StrictMode double effect) must not duplicate.
+  useFleet.getState().setInstancePage(page, "tok");
+  useFleet.getState().setInstancePage(page, "tok");
+  expect(useFleet.getState().instances.rows.length).toBe(1);
+  // Load-more appends.
+  useFleet.getState().addInstancePage([{ namespace: "n", name: "b", created: "" }], "");
+  expect(useFleet.getState().instances.rows.length).toBe(2);
+});
+
 test("crd slice: set groups, toggle, count, search, groupBy", () => {
   useFleet.getState().setCRDs("x", [
     { group: "cilium.io", category: "CNI", kinds: [{ kind: "CiliumEndpoint", plural: "ciliumendpoints", scope: "Namespaced", version: "v2", operator: "cilium", shortNames: ["cep"] }] },
@@ -54,6 +68,37 @@ test("crd slice: set groups, toggle, count, search, groupBy", () => {
   expect(useFleet.getState().crd.groupBy).toBe("scope");
   useFleet.getState().setCRDSearch("cep");
   expect(useFleet.getState().crd.search).toBe("cep");
+});
+
+import { useFleet as uf2 } from "./fleet";
+
+test("resource drill-in route + instances slice", () => {
+  uf2.getState().openCluster("x");
+  const ref = { group: "cilium.io", version: "v2", plural: "ciliumendpoints", kind: "CiliumEndpoint", scope: "Namespaced" };
+  uf2.getState().openResource(ref);
+  const r = uf2.getState().route;
+  expect(r).toMatchObject({ name: "cluster", cluster: "x", section: "resources", resource: { kind: "CiliumEndpoint" } });
+  expect(uf2.getState().instances.ref?.kind).toBe("CiliumEndpoint");
+  expect(uf2.getState().instances.loading).toBe(true);
+
+  uf2.getState().addInstancePage([{ namespace: "n", name: "a", created: "" }], "tok");
+  expect(uf2.getState().instances.rows.length).toBe(1);
+  expect(uf2.getState().instances.nextToken).toBe("tok");
+  uf2.getState().addInstancePage([{ namespace: "n", name: "b", created: "" }], "");
+  expect(uf2.getState().instances.rows.length).toBe(2);
+
+  uf2.getState().setInstanceFilter("a");
+  expect(uf2.getState().instances.filter).toBe("a");
+
+  uf2.getState().setSection("gitops");
+  const r2 = uf2.getState().route;
+  expect(r2.name === "cluster" && r2.resource).toBeUndefined();
+
+  uf2.getState().openResource(ref);
+  uf2.getState().closeResource();
+  const r3 = uf2.getState().route;
+  expect(r3).toMatchObject({ name: "cluster", cluster: "x", section: "resources" });
+  expect(r3.name === "cluster" && r3.resource).toBeUndefined();
 });
 
 it("action status set and clear", () => {

@@ -72,6 +72,34 @@ func TestCountResourceUncapped(t *testing.T) {
 	}
 }
 
+func TestListInstances(t *testing.T) {
+	scheme := metadatafake.NewTestScheme()
+	_ = metav1.AddMetaToScheme(scheme)
+	mc := metadatafake.NewSimpleMetadataClient(scheme,
+		partialMeta("example.com", "v1", "Widget", "team-a", "w1"),
+		partialMeta("example.com", "v1", "Widget", "team-b", "w2"),
+	)
+	c := NewClusterConn("x", nil, mc, nil, nil, clock.Real{})
+
+	items, next, err := c.ListInstances(context.Background(), "example.com", "v1", "widgets", 100, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 instances, got %d", len(items))
+	}
+	byName := map[string]crd.InstanceMeta{}
+	for _, m := range items {
+		byName[m.Name] = m
+	}
+	if byName["w1"].Namespace != "team-a" {
+		t.Fatalf("w1 namespace: %q", byName["w1"].Namespace)
+	}
+	if next != "" {
+		t.Fatalf("fake should report no continue token, got %q", next)
+	}
+}
+
 func partialMeta(group, version, kind, ns, name string) *metav1.PartialObjectMetadata {
 	return &metav1.PartialObjectMetadata{
 		TypeMeta:   metav1.TypeMeta{APIVersion: group + "/" + version, Kind: kind},
