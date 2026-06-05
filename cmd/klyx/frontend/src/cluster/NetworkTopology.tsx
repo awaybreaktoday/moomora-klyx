@@ -207,8 +207,15 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
           if (all.length === 0) {
             return <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>None on this route.</div>;
           }
-          return all.map((p) => (
-            <div key={`${p.kind}/${p.namespace}/${p.name}`} style={{ marginBottom: 8 }}>
+          return all.map((p, idx) => (
+            <div
+              key={`${p.kind}/${p.namespace}/${p.name}`}
+              style={{
+                marginBottom: 12,
+                paddingBottom: idx < all.length - 1 ? 8 : 0,
+                borderBottom: idx < all.length - 1 ? "0.5px solid var(--color-border-tertiary)" : undefined,
+              }}
+            >
               <div style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--font-mono)", fontSize: 11 }}>
                 <span style={{ fontWeight: 600 }}>{p.kind} {p.namespace}/{p.name}</span>
               </div>
@@ -216,9 +223,13 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
                 Target: {p.targetKind} {p.targetNamespace}/{p.targetName}{p.targetSectionName ? ` (Section: ${p.targetSectionName})` : ""}
               </div>
               {p.summary && <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>Features: {p.summary}</div>}
-              {p.details.map((d, i) => (
-                <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text-secondary)" }}>{d.key}: {d.value}</div>
-              ))}
+              {p.details.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  {p.details.map((d, i) => (
+                    <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text-secondary)" }}>{d.key}: {d.value}</div>
+                  ))}
+                </div>
+              )}
             </div>
           ));
         })()}

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { PolicyRefDTO } from "../store/fleet";
 
 const ABBREV: Record<string, string> = {
@@ -18,38 +19,81 @@ const COLOUR: Record<string, { fg: string; bg: string }> = {
   BackendTLSPolicy: { fg: "#ec6547", bg: "rgba(236,101,71,.16)" },
 };
 
-export function policyTooltip(p: PolicyRefDTO): string {
-  const id = `${p.kind} ${p.namespace}/${p.name}`;
-  if (p.details.length === 0) return id;
-  return [id, ...p.details.slice(0, 4).map((d) => `${d.key}: ${d.value}`)].join("\n");
+// The chip summary is feature names joined by " + " (the delimiter never appears
+// inside a feature name). Show at most the first two features, then "+N" for the
+// rest, so a busy policy collapses to e.g. "retries + timeout +1" instead of an
+// ellipsis-clipped wall.
+export function chipSummary(summary: string): string {
+  if (!summary) return "";
+  const feats = summary.split(" + ");
+  if (feats.length <= 2) return feats.join(" + ");
+  return `${feats.slice(0, 2).join(" + ")} +${feats.length - 2}`;
 }
 
 export function PolicyChip({ p }: { p: PolicyRefDTO }) {
   const abbr = ABBREV[p.kind] ?? p.kind;
   const c = COLOUR[p.kind] ?? { fg: "var(--color-text-secondary)", bg: "var(--color-background-secondary)" };
+  const [hover, setHover] = useState(false);
   return (
     <span
-      title={policyTooltip(p)}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 8,
-        padding: "1px 5px",
-        borderRadius: 3,
-        fontFamily: "var(--font-mono)",
-        color: c.fg,
-        background: c.bg,
-        cursor: "default",
-        maxWidth: 160,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
+      style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
     >
-      <b style={{ fontWeight: 700 }}>{abbr}</b>
-      {p.summary && <span>{p.summary}</span>}
-      {p.inferred && <span style={{ opacity: 0.7 }}>~</span>}
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 8,
+          padding: "1px 5px",
+          borderRadius: 3,
+          fontFamily: "var(--font-mono)",
+          color: c.fg,
+          background: c.bg,
+          cursor: "default",
+          maxWidth: 160,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <b style={{ fontWeight: 700 }}>{abbr}</b>
+        {p.summary && <span>{chipSummary(p.summary)}</span>}
+        {p.inferred && <span style={{ opacity: 0.7 }}>~</span>}
+      </span>
+      {hover && (
+        <span
+          role="tooltip"
+          style={{
+            position: "absolute",
+            bottom: "100%",
+            left: 0,
+            marginBottom: 4,
+            zIndex: 50,
+            minWidth: 260,
+            maxWidth: 360,
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: "0.5px solid var(--color-border-tertiary)",
+            background: "var(--color-background-tertiary)",
+            color: "var(--color-text-primary)",
+            fontSize: 10,
+            lineHeight: 1.5,
+            boxShadow: "0 4px 14px rgba(0,0,0,.35)",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: p.details.length ? 4 : 0 }}>
+            {p.kind} {p.namespace}/{p.name}
+          </div>
+          {p.details.map((d, i) => (
+            <div key={i} style={{ color: "var(--color-text-secondary)" }}>
+              {d.key}: {d.value}
+            </div>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
