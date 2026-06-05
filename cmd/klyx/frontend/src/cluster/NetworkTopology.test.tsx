@@ -153,8 +153,8 @@ describe("NetworkTopology", () => {
     const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
     fireEvent.click(getByText("share")); // open the detail panel
     expect(getByText(/attached policies/i)).toBeTruthy();
-    expect(getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "BackendTrafficPolicy/backend-retries")).toBeTruthy();
-    expect(getByText((_, el) => el?.tagName === "DIV" && /^Target: HTTPRoute\/share/.test(el.textContent ?? ""))).toBeTruthy();
+    expect(getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "BackendTrafficPolicy apps/backend-retries")).toBeTruthy();
+    expect(getByText((_, el) => el?.tagName === "DIV" && /^Target: HTTPRoute apps\/share/.test(el.textContent ?? ""))).toBeTruthy();
     expect(getByText(/request timeout/)).toBeTruthy();
     expect(getByText(/Gateway policies are shown in the topology header/i)).toBeTruthy();
   });

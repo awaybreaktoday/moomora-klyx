@@ -51,9 +51,14 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <div style={{ fontSize: 15, fontWeight: 500 }}>{t.gateway.name}</div>
         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: t.gateway.programmed ? "var(--color-background-success)" : "var(--color-background-warning)", color: t.gateway.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{t.gateway.programmed ? "programmed" : "pending"}</span>
         <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{t.gateway.className}</span>
-        {t.gateway.policies.map((p) => (
-          <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
-        ))}
+        {t.gateway.policies.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)" }}>policies</span>
+            {t.gateway.policies.map((p) => (
+              <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+            ))}
+          </div>
+        )}
         <div style={{ flex: 1 }} />
         <button onClick={() => void getGatewayTopology(cluster, gateway)} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>Refresh</button>
       </div>
@@ -205,10 +210,10 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
           return all.map((p) => (
             <div key={`${p.kind}/${p.namespace}/${p.name}`} style={{ marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                <span style={{ fontWeight: 600 }}>{p.kind}/{p.name}</span>
+                <span style={{ fontWeight: 600 }}>{p.kind} {p.namespace}/{p.name}</span>
               </div>
               <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>
-                Target: {p.targetKind}/{p.targetName}{p.targetSectionName ? ` (Section: ${p.targetSectionName})` : ""}
+                Target: {p.targetKind} {p.targetNamespace}/{p.targetName}{p.targetSectionName ? ` (Section: ${p.targetSectionName})` : ""}
               </div>
               {p.summary && <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>Features: {p.summary}</div>}
               {p.details.map((d, i) => (

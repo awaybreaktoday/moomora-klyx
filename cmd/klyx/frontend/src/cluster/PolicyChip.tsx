@@ -19,8 +19,9 @@ const COLOUR: Record<string, { fg: string; bg: string }> = {
 };
 
 export function policyTooltip(p: PolicyRefDTO): string {
-  if (p.details.length === 0) return `${p.kind}/${p.namespace}/${p.name}`;
-  return p.details.slice(0, 4).map((d) => `${d.key}: ${d.value}`).join("\n");
+  const id = `${p.kind} ${p.namespace}/${p.name}`;
+  if (p.details.length === 0) return id;
+  return [id, ...p.details.slice(0, 4).map((d) => `${d.key}: ${d.value}`)].join("\n");
 }
 
 export function PolicyChip({ p }: { p: PolicyRefDTO }) {

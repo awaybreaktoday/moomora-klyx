@@ -20,12 +20,13 @@ describe("PolicyChip", () => {
 
   it("exposes the first detail rows as a tooltip title", () => {
     const { getByTitle } = render(<PolicyChip p={btp} />);
+    expect(getByTitle(/BackendTrafficPolicy apps\/btp/)).toBeTruthy();
     expect(getByTitle(/retries: 3/)).toBeTruthy();
     expect(getByTitle(/request timeout: 30s/)).toBeTruthy();
   });
 
   it("falls back to kind/namespace/name when there are no details", () => {
     const { getByTitle } = render(<PolicyChip p={{ ...btp, details: [] }} />);
-    expect(getByTitle(/BackendTrafficPolicy\/apps\/btp/)).toBeTruthy();
+    expect(getByTitle(/BackendTrafficPolicy apps\/btp/)).toBeTruthy();
   });
 });
