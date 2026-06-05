@@ -3,6 +3,7 @@ import { Overview } from "./Overview";
 import { GitOps } from "./GitOps";
 import { CRDBrowser } from "./CRDBrowser";
 import { InstanceList } from "./InstanceList";
+import { InstanceDetail } from "./InstanceDetail";
 import { Placeholder } from "../chrome/Placeholder";
 
 export function ClusterDetail() {
@@ -24,9 +25,9 @@ export function ClusterDetail() {
   if (route.section === "overview") return <Overview c={cluster} />;
   if (route.section === "gitops") return <GitOps cluster={cluster.name} />;
   if (route.section === "resources") {
-    return route.resource
-      ? <InstanceList cluster={cluster.name} resource={route.resource} />
-      : <CRDBrowser cluster={cluster.name} />;
+    if (route.resource && route.instance) return <InstanceDetail cluster={cluster.name} resource={route.resource} instance={route.instance} />;
+    if (route.resource) return <InstanceList cluster={cluster.name} resource={route.resource} />;
+    return <CRDBrowser cluster={cluster.name} />;
   }
   return <Placeholder section={route.section} c={cluster} />;
 }

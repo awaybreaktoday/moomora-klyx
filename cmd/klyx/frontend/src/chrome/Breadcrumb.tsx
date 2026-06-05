@@ -10,6 +10,7 @@ export function Breadcrumb() {
   const openFleet = useFleet((s) => s.openFleet);
   const setSection = useFleet((s) => s.setSection);
   const closeResource = useFleet((s) => s.closeResource);
+  const closeInstance = useFleet((s) => s.closeInstance);
 
   if (route.name === "fleet") {
     return <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Fleet</span>;
@@ -32,7 +33,17 @@ export function Breadcrumb() {
           {route.resource && (
             <>
               <span>/</span>
-              <span style={{ color: "var(--color-text-primary)", fontFamily: "var(--font-mono)" }}>{route.resource.kind}</span>
+              {route.instance ? (
+                <button onClick={closeInstance} style={{ ...crumbBtn, fontFamily: "var(--font-mono)" }}>{route.resource.kind}</button>
+              ) : (
+                <span style={{ color: "var(--color-text-primary)", fontFamily: "var(--font-mono)" }}>{route.resource.kind}</span>
+              )}
+            </>
+          )}
+          {route.resource && route.instance && (
+            <>
+              <span>/</span>
+              <span style={{ color: "var(--color-text-primary)", fontFamily: "var(--font-mono)" }}>{route.instance.name}</span>
             </>
           )}
         </>

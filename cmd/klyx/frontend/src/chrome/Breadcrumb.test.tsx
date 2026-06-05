@@ -30,4 +30,10 @@ describe("Breadcrumb", () => {
     expect(getByText("CiliumEndpoint")).toBeTruthy();
     expect(getByText("Resources")).toBeTruthy();
   });
+  it("shows the instance name crumb when an instance is selected", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources", resource: { group: "cert-manager.io", version: "v1", plural: "certificates", kind: "Certificate", scope: "Namespaced" }, instance: { namespace: "default", name: "web-tls" } } });
+    const { getByText } = render(<Breadcrumb />);
+    expect(getByText("web-tls")).toBeTruthy();
+    expect(getByText("Certificate")).toBeTruthy();
+  });
 });

@@ -57,4 +57,13 @@ describe("InstanceList", () => {
     const { getByText } = render(<InstanceList cluster="x" resource={nsRef} />);
     expect(getByText(/No instances/i)).toBeTruthy();
   });
+
+  it("clicking a row opens the instance detail", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources", resource: nsRef } });
+    seed(nsRef);
+    const { getByText } = render(<InstanceList cluster="x" resource={nsRef} />);
+    fireEvent.click(getByText("coredns-abc"));
+    const r = useFleet.getState().route;
+    expect(r.name === "cluster" && r.instance).toEqual({ namespace: "kube-system", name: "coredns-abc" });
+  });
 });
