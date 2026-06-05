@@ -31,5 +31,16 @@ func RESTConfig(cc config.ClusterConfig) (*rest.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve rest config for context %q: %w", cc.Context, err)
 	}
+	// client-go defaults to 5 QPS / 10 burst - kubectl-conservative and far too
+	// low for a platform tool that fans out reads across a cluster's CRD kinds
+	// (a CRD browser counting ~100 kinds would otherwise queue for minutes behind
+	// client-side throttling). Raise it; the apiserver's API Priority & Fairness
+	// still protects the server. Only applied when the kubeconfig did not set it.
+	if rc.QPS == 0 {
+		rc.QPS = 50
+	}
+	if rc.Burst == 0 {
+		rc.Burst = 100
+	}
 	return rc, nil
 }
