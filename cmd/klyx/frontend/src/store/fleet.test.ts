@@ -101,6 +101,38 @@ test("resource drill-in route + instances slice", () => {
   expect(r3.name === "cluster" && r3.resource).toBeUndefined();
 });
 
+import { useFleet as uf3 } from "./fleet";
+
+test("instance detail drill-in route + slice", () => {
+  uf3.getState().openCluster("x");
+  const ref = { group: "cert-manager.io", version: "v1", plural: "certificates", kind: "Certificate", scope: "Namespaced" };
+  uf3.getState().openResource(ref);
+  uf3.getState().openInstance("default", "web-tls");
+  const r = uf3.getState().route;
+  expect(r).toMatchObject({ name: "cluster", section: "resources", resource: { kind: "Certificate" }, instance: { namespace: "default", name: "web-tls" } });
+  expect(uf3.getState().instanceDetail.ref).toEqual({ namespace: "default", name: "web-tls" });
+  expect(uf3.getState().instanceDetail.loading).toBe(true);
+
+  uf3.getState().setInstanceDetail({ kind: "Certificate", namespace: "default", name: "web-tls", created: "", labels: {}, conditions: [], events: [], yaml: "kind: Certificate\n" });
+  expect(uf3.getState().instanceDetail.detail?.yaml).toContain("Certificate");
+  expect(uf3.getState().instanceDetail.loading).toBe(false);
+
+  uf3.getState().closeInstance();
+  const r2 = uf3.getState().route;
+  expect(r2.name === "cluster" && r2.resource?.kind).toBe("Certificate");
+  expect(r2.name === "cluster" && r2.instance).toBeUndefined();
+
+  uf3.getState().openInstance("default", "web-tls");
+  uf3.getState().openResource(ref);
+  const rReopen = uf3.getState().route;
+  expect(rReopen.name === "cluster" && rReopen.instance).toBeUndefined();
+  uf3.getState().openInstance("default", "web-tls");
+  uf3.getState().setSection("gitops");
+  const r3 = uf3.getState().route;
+  expect(r3.name === "cluster" && r3.resource).toBeUndefined();
+  expect(r3.name === "cluster" && r3.instance).toBeUndefined();
+});
+
 it("action status set and clear", () => {
   useFleet.getState().setActionStatus({ kind: "success", message: "Reconcile requested" });
   expect(useFleet.getState().actionStatus?.message).toBe("Reconcile requested");

@@ -12,6 +12,7 @@ type CRDConn interface {
 	ListCRDs(ctx context.Context) ([]crd.Info, error)
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
+	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)
 }
 
 const crdTimeout = 30 * time.Second
@@ -57,6 +58,44 @@ func (s *CRDService) CountKind(cluster, group, version, plural string) CRDCountD
 		return CRDCountDTO{}
 	}
 	return CRDCountDTO{Count: count, Capped: capped}
+}
+
+func rfc3339(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
+
+// GetInstanceDetail returns the full per-instance detail. Zero value on miss/error.
+func (s *CRDService) GetInstanceDetail(cluster, group, version, plural, namespace, name string) InstanceDetailDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return InstanceDetailDTO{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), crdTimeout)
+	defer cancel()
+	d, err := conn.GetInstanceDetail(ctx, group, version, plural, namespace, name)
+	if err != nil {
+		return InstanceDetailDTO{}
+	}
+	labels := d.Labels
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	conds := make([]ConditionDTO, 0, len(d.Conditions))
+	for _, c := range d.Conditions {
+		conds = append(conds, ConditionDTO{Type: c.Type, Status: c.Status, Reason: c.Reason, Message: c.Message})
+	}
+	events := make([]EventDTO, 0, len(d.Events))
+	for _, e := range d.Events {
+		events = append(events, EventDTO{Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: rfc3339(e.Last)})
+	}
+	return InstanceDetailDTO{
+		Kind: d.Kind, Namespace: d.Namespace, Name: d.Name,
+		Created: rfc3339(d.Created), Labels: labels,
+		Conditions: conds, Events: events, YAML: d.YAML,
+	}
 }
 
 // ListInstances returns one page of instances of a kind plus the next token.

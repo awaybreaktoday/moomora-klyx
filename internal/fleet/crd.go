@@ -2,9 +2,11 @@ package fleet
 
 import (
 	"context"
+	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/moomora/klyx/internal/crd"
@@ -58,4 +60,59 @@ func (c *ClusterConn) ListInstances(ctx context.Context, group, version, plural 
 		})
 	}
 	return out, list.GetContinue(), nil
+}
+
+// GetInstanceDetail fetches one object (full YAML + conditions + header) plus its
+// describe-style Events (filtered by involvedObject.uid). Snapshot; no watch.
+func (c *ClusterConn) GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error) {
+	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: plural}
+	var (
+		u   *unstructured.Unstructured
+		err error
+	)
+	if ns == "" {
+		u, err = c.dyn.Resource(gvr).Get(ctx, name, metav1.GetOptions{})
+	} else {
+		u, err = c.dyn.Resource(gvr).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return crd.InstanceDetail{}, err
+	}
+
+	y, _ := crd.ToYAML(u.Object)
+	d := crd.InstanceDetail{
+		Kind:       u.GetKind(),
+		Namespace:  ns,
+		Name:       name,
+		Created:    u.GetCreationTimestamp().Time,
+		Labels:     u.GetLabels(),
+		Conditions: crd.ParseConditions(u.Object),
+		YAML:       y,
+	}
+	d.Events = c.instanceEvents(ctx, string(u.GetUID()))
+	return d, nil
+}
+
+// instanceEvents lists core Events for an object's uid, newest first. A list
+// error degrades to no events (the detail still renders).
+func (c *ClusterConn) instanceEvents(ctx context.Context, uid string) []crd.Event {
+	if uid == "" {
+		return nil
+	}
+	sel := fields.OneTermEqualSelector("involvedObject.uid", uid).String()
+	list, err := c.typed.CoreV1().Events("").List(ctx, metav1.ListOptions{FieldSelector: sel, Limit: 50})
+	if err != nil || list == nil {
+		return nil
+	}
+	out := make([]crd.Event, 0, len(list.Items))
+	for i := range list.Items {
+		e := &list.Items[i]
+		last := e.LastTimestamp.Time
+		if last.IsZero() {
+			last = e.EventTime.Time
+		}
+		out = append(out, crd.Event{Type: e.Type, Reason: e.Reason, Message: e.Message, Count: e.Count, Last: last})
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Last.After(out[b].Last) })
+	return out
 }

@@ -44,6 +44,9 @@ func (f *fakeConn) CountResource(ctx context.Context, group, version, plural str
 func (f *fakeConn) ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error) {
 	return nil, "", nil
 }
+func (f *fakeConn) GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error) {
+	return crd.InstanceDetail{}, nil
+}
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{

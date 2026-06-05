@@ -18,6 +18,7 @@ function age(created: string): string {
 export function InstanceList({ cluster, resource }: { cluster: string; resource: ResourceRef }) {
   const instances = useFleet((s) => s.instances);
   const setFilter = useFleet((s) => s.setInstanceFilter);
+  const openInstance = useFleet((s) => s.openInstance);
 
   useEffect(() => {
     void loadInstances(cluster, resource);
@@ -61,7 +62,11 @@ export function InstanceList({ cluster, resource }: { cluster: string; resource:
             <span>age</span>
           </div>
           {rows.map((r) => (
-            <div key={`${r.namespace}/${r.name}`} style={{ display: "grid", gridTemplateColumns: cols, gap: 10, alignItems: "center", padding: "6px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11 }}>
+            <div
+              key={`${r.namespace}/${r.name}`}
+              onClick={() => openInstance(r.namespace, r.name)}
+              style={{ display: "grid", gridTemplateColumns: cols, gap: 10, alignItems: "center", padding: "6px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, cursor: "pointer" }}
+            >
               {namespaced && <span style={{ color: "var(--color-text-secondary)", ...ellipsis }}>{r.namespace}</span>}
               <span style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{r.name}</span>
               <span style={{ color: "var(--color-text-tertiary)" }}>{age(r.created)}</span>
