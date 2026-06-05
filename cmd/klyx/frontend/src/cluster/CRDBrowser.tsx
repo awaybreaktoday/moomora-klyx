@@ -111,6 +111,7 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
   const expanded = useFleet((s) => s.crd.expanded);
   const counts = useFleet((s) => s.crd.counts);
   const toggle = useFleet((s) => s.toggleCRDGroup);
+  const openResource = useFleet((s) => s.openResource);
   const open = !grouped || expanded.includes(label);
 
   // Re-firing on `counts` is safe and convergent: the `!counts[key]` guard skips
@@ -145,7 +146,11 @@ function Section({ cluster, label, category, kinds, grouped }: { cluster: string
         const c = counts[crdCountKey(k.group, k.version, k.plural)];
         const display = c ? (c.capped ? `${c.count}+` : `${c.count}`) : "…";
         return (
-          <div key={`${k.group}/${k.kind}`} style={{ display: "grid", gridTemplateColumns: "18px 1fr 90px 70px 1fr", gap: 10, alignItems: "center", padding: "6px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11 }}>
+          <div
+            key={`${k.group}/${k.kind}`}
+            onClick={() => openResource({ group: k.group, version: k.version, plural: k.plural, kind: k.kind, scope: k.scope })}
+            style={{ display: "grid", gridTemplateColumns: "18px 1fr 90px 70px 1fr", gap: 10, alignItems: "center", padding: "6px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, cursor: "pointer" }}
+          >
             <span />
             <div style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{k.kind} {k.shortNames[0] && <span style={{ color: "var(--color-text-tertiary)" }}>{k.shortNames[0]}</span>}</div>
             <span style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 9, padding: "1px 5px", borderRadius: 3, justifySelf: "start" }}>{k.scope.toLowerCase()}</span>

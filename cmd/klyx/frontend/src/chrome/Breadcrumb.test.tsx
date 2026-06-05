@@ -24,4 +24,10 @@ describe("Breadcrumb", () => {
     getByText("homelab-nelli").click();
     expect(useFleet.getState().route).toMatchObject({ name: "cluster", cluster: "homelab-nelli", section: "overview" });
   });
+  it("shows the kind crumb when a resource is selected", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources", resource: { group: "cilium.io", version: "v2", plural: "ciliumendpoints", kind: "CiliumEndpoint", scope: "Namespaced" } } });
+    const { getByText } = render(<Breadcrumb />);
+    expect(getByText("CiliumEndpoint")).toBeTruthy();
+    expect(getByText("Resources")).toBeTruthy();
+  });
 });

@@ -63,4 +63,13 @@ describe("CRDBrowser", () => {
     const { getByText } = render(<CRDBrowser cluster="x" />);
     expect(getByText(/No custom resources/i)).toBeTruthy();
   });
+
+  it("clicking a kind opens the resource drill-in", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" }, crd: { ...useFleet.getState().crd, expanded: ["cilium.io"] } });
+    const { getByText } = render(<CRDBrowser cluster="x" />);
+    fireEvent.click(getByText("CiliumEndpoint"));
+    const r = useFleet.getState().route;
+    expect(r.name === "cluster" && r.resource?.kind).toBe("CiliumEndpoint");
+    expect(r.name === "cluster" && r.resource?.plural).toBe("ciliumendpoints");
+  });
 });
