@@ -4,6 +4,7 @@ import { GitOps } from "./GitOps";
 import { CRDBrowser } from "./CRDBrowser";
 import { InstanceList } from "./InstanceList";
 import { InstanceDetail } from "./InstanceDetail";
+import { NetworkView } from "./NetworkView";
 import { Placeholder } from "../chrome/Placeholder";
 
 export function ClusterDetail() {
@@ -29,5 +30,6 @@ export function ClusterDetail() {
     if (route.resource) return <InstanceList cluster={cluster.name} resource={route.resource} />;
     return <CRDBrowser cluster={cluster.name} />;
   }
+  if (route.section === "network") return <NetworkView cluster={cluster.name} />;
   return <Placeholder section={route.section} c={cluster} />;
 }
