@@ -6,9 +6,10 @@ package gwapi
 
 // Topology is the per-Gateway data path.
 type Topology struct {
-	Gateway  GatewayNode
-	Routes   []RouteNode // one lane each
-	Warnings []string    // soft, non-fatal issues (filled by the fleet layer)
+	Gateway         GatewayNode
+	Routes          []RouteNode // one lane each
+	ClusterPolicies []PolicyRef // broad/empty CCNPs - header context, not per-service (M5-b-ii)
+	Warnings        []string    // soft, non-fatal issues (filled by the fleet layer)
 }
 
 type GatewayNode struct {
@@ -32,9 +33,10 @@ type RouteNode struct {
 type ServiceNode struct {
 	Namespace, Name, Type string
 	Port                  int32
-	Policies              []PolicyRef // M5-b-i: precise (BackendTLSPolicy)
-	CNPs                  []PolicyRef // M5-b-ii: inferred Cilium; empty here
-	Resolved              bool        // false when the Service could not be read
+	Selector              map[string]string // svc spec.selector; internal, for CNP label matching
+	Policies              []PolicyRef       // M5-b-i: precise (BackendTLSPolicy)
+	CNPs                  []PolicyRef       // M5-b-ii: inferred Cilium; empty here
+	Resolved              bool              // false when the Service could not be read
 }
 
 type Listener struct {
@@ -56,10 +58,21 @@ type PolicyRef struct {
 	// Target metadata - first-class, NOT encoded in Details.
 	TargetKind, TargetNamespace, TargetName, TargetSectionName string
 
-	Summary  string         // chip text: feature presence only, never values
-	Details  []PolicyDetail // panel/tooltip rows: decoded values, deterministic order
-	Inferred bool           // false for all M5-b-i Envoy policies; reserved for Cilium (M5-b-ii)
+	Summary  string          // chip text: feature presence only, never values
+	Details  []PolicyDetail  // panel/tooltip rows: decoded values, deterministic order
+	Inferred bool            // false for all M5-b-i Envoy policies; reserved for Cilium (M5-b-ii)
+	Match    PolicyMatchKind // empty for precise policies; set for inferred Cilium policies
 }
+
+// PolicyMatchKind describes HOW an inferred policy matched. An expressions-only policy
+// never produces a PolicyRef (warned + skipped), so there is no "matchExpressions" value.
+type PolicyMatchKind string
+
+const (
+	MatchSelector      PolicyMatchKind = "selector"
+	MatchNamespaceWide PolicyMatchKind = "namespace-wide"
+	MatchClusterWide   PolicyMatchKind = "cluster-wide"
+)
 
 // PolicyDetail is one decoded key/value row (e.g. "retries" -> "3").
 type PolicyDetail struct{ Key, Value string }
