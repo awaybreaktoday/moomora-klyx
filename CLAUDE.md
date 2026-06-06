@@ -98,10 +98,10 @@ After M1, milestones in priority order:
 - M2: Multi-cluster fleet view (the killer feature)
 - M3: GitOps view with Flux support
 - M4: CRD browser grouped by API group
-- M5: Gateway API topology view
-- M6: Argo support + coexistence mode
+- M5: Gateway API topology view (M5-a lanes, M5-b-i Envoy policies, M5-b-ii Cilium inference shipped; M5-c ClusterMesh edges next)
 - M7: Inline observability (Prom queries)
 - M8: `klyx serve` headless mode
+- Deferred: Argo support + coexistence (was M6) — the owner runs Flux only and Argo ships a strong UI, so the Klyx wedge is thin and it can't be native-verified here. The M3 GitOps view is already vocabulary-correct (Flux ready/drift as its own concept), so an Argo provider can be added later if Argo enters the fleet or `klyx serve` goes multi-user (where fleet-wide Argo aggregation would beat per-instance Argo UIs).
 
 ## References
 
