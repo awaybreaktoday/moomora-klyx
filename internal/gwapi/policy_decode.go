@@ -181,23 +181,49 @@ func decodeBTLS(u *unstructured.Unstructured) PolicyDecode {
 	return f.decode()
 }
 
+// defaultDenyEnabled reports whether an empty rule list in the given direction implies
+// default-deny. Cilium defaults to true; spec.enableDefaultDeny.<dir>=false disables it.
+func defaultDenyEnabled(u *unstructured.Unstructured, dir string) bool {
+	v, found, _ := unstructured.NestedBool(u.Object, "spec", "enableDefaultDeny", dir)
+	if found {
+		return v
+	}
+	return true
+}
+
+// decodeCNP decodes the inline spec.ingress/spec.egress (and ingressDeny/egressDeny)
+// rule-list form, the common case. The alternative spec.specs[] rule-list form is NOT
+// decoded - the policy still attaches and shows as a name-only chip (honest under-report).
 func decodeCNP(u *unstructured.Unstructured) PolicyDecode {
 	var f feat
 	ing, ingFound, _ := unstructured.NestedSlice(u.Object, "spec", "ingress")
+	ingDeny, _, _ := unstructured.NestedSlice(u.Object, "spec", "ingressDeny")
 	egr, egrFound, _ := unstructured.NestedSlice(u.Object, "spec", "egress")
+	egrDeny, _, _ := unstructured.NestedSlice(u.Object, "spec", "egressDeny")
 	if ingFound {
 		if len(ing) == 0 {
-			f.add("ingress default-deny")
+			// An empty rule list only implies default-deny when default-deny is enabled.
+			if defaultDenyEnabled(u, "ingress") {
+				f.add("ingress default-deny")
+			}
 		} else {
 			f.add("ingress")
 		}
 	}
+	if len(ingDeny) > 0 {
+		f.add("ingress deny")
+	}
 	if egrFound {
 		if len(egr) == 0 {
-			f.add("egress default-deny")
+			if defaultDenyEnabled(u, "egress") {
+				f.add("egress default-deny")
+			}
 		} else {
 			f.add("egress")
 		}
+	}
+	if len(egrDeny) > 0 {
+		f.add("egress deny")
 	}
 
 	var entities, fqdns []string
@@ -224,11 +250,8 @@ func decodeCNP(u *unstructured.Unstructured) PolicyDecode {
 				}
 			}
 		}
-		for _, key := range []string{"toPorts", "fromPorts"} {
-			tps, ok, _ := unstructured.NestedSlice(rm, key)
-			if !ok {
-				continue
-			}
+		// In Cilium v2 both ingress and egress rules carry L7 under toPorts.
+		if tps, ok, _ := unstructured.NestedSlice(rm, "toPorts"); ok {
 			for _, tp := range tps {
 				tpm, _ := tp.(map[string]interface{})
 				if rl, ok := tpm["rules"].(map[string]interface{}); ok {

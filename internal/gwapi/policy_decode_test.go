@@ -110,7 +110,7 @@ func TestDecodeCTPConnectionLimitPresence(t *testing.T) {
 }
 
 func TestDecodeNeverPanicsOnMalformed(t *testing.T) {
-	for _, kind := range []string{"ClientTrafficPolicy", "BackendTrafficPolicy", "SecurityPolicy", "EnvoyExtensionPolicy", "BackendTLSPolicy"} {
+	for _, kind := range []string{"ClientTrafficPolicy", "BackendTrafficPolicy", "SecurityPolicy", "EnvoyExtensionPolicy", "BackendTLSPolicy", "CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy"} {
 		u := &unstructured.Unstructured{Object: map[string]interface{}{"kind": kind, "metadata": map[string]interface{}{"name": "x"}, "spec": "not-a-map"}}
 		_ = Decode(kind, u) // must not panic
 	}
@@ -168,5 +168,33 @@ func TestDecodeCNPDirectionalDefaultDeny(t *testing.T) {
 	// CCNP uses the same decoder.
 	if d := Decode("CiliumClusterwideNetworkPolicy", u); d.Summary != "ingress default-deny" {
 		t.Fatalf("ccnp summary: %q", d.Summary)
+	}
+}
+
+func TestDecodeCNPDefaultDenyDisabled(t *testing.T) {
+	// Empty ingress rule list BUT spec.enableDefaultDeny.ingress=false ->
+	// no-op (allow), NOT a default-deny. With no other feature, falls back to name.
+	u := specObj("CiliumNetworkPolicy", "no-deny", map[string]interface{}{
+		"ingress":           []interface{}{},
+		"enableDefaultDeny": map[string]interface{}{"ingress": false},
+	})
+	d := Decode("CiliumNetworkPolicy", u)
+	if strings.Contains(d.Summary, "default-deny") {
+		t.Fatalf("enableDefaultDeny.ingress=false must not claim default-deny: %q", d.Summary)
+	}
+	if d.Summary != "no-deny" {
+		t.Fatalf("summary should fall back to name: %q", d.Summary)
+	}
+}
+
+func TestDecodeCNPDenyRules(t *testing.T) {
+	u := specObj("CiliumNetworkPolicy", "explicit-deny", map[string]interface{}{
+		"ingressDeny": []interface{}{
+			map[string]interface{}{"fromEntities": []interface{}{"world"}},
+		},
+	})
+	d := Decode("CiliumNetworkPolicy", u)
+	if !strings.Contains(d.Summary, "ingress deny") {
+		t.Fatalf("ingressDeny should claim 'ingress deny': %q", d.Summary)
 	}
 }
