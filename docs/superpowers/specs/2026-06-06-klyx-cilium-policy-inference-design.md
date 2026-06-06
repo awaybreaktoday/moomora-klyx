@@ -37,13 +37,14 @@ additions:
 
 ```go
 // PolicyMatchKind describes HOW an inferred policy was matched (typed, not a free string).
+// These are the only three states a *recorded* PolicyRef can carry; an expressions-only policy
+// never produces a PolicyRef (it is warned + skipped), so there is no "matchExpressions" result.
 type PolicyMatchKind string
 
 const (
     MatchSelector      PolicyMatchKind = "selector"        // normalized matchLabels ⊆ Service selector
     MatchNamespaceWide PolicyMatchKind = "namespace-wide"  // empty CNP endpointSelector (whole namespace)
     MatchClusterWide   PolicyMatchKind = "cluster-wide"    // broad/empty CCNP (header context)
-    MatchExpressions   PolicyMatchKind = "matchExpressions"// reserved; see the matchExpressions rule
 )
 
 type PolicyRef struct {
@@ -91,21 +92,38 @@ our inference *bridge*. Putting it on the pods, not the Service, keeps the claim
 prefixes and drops known metadata keys; any other key passes through unchanged. No dialect
 translation.
 
-**`CNPMatch(endpointSelector map[string]interface{}, serviceSelector map[string]string) (matched bool, match PolicyMatchKind, exprNote bool)`**:
-- `endpointSelector` absent or `{}` (no matchLabels, no matchExpressions) → `(true, MatchNamespaceWide, false)`.
-- normalized `matchLabels` non-empty AND ⊆ `serviceSelector` → `(true, MatchSelector, exprNote)`, where
-  `exprNote=true` if `matchExpressions` is also present.
-- `matchExpressions` present but no usable `matchLabels` (or matchLabels not a subset) →
-  `(false, MatchExpressions, true)` — NOT attached (see the rule below).
-- otherwise → `(false, "", false)`.
+The matcher is split so the pure function never bakes in CNP-vs-CCNP (namespace vs cluster) semantics —
+that mapping belongs to the fleet layer, which knows the policy kind.
 
-**matchExpressions honesty rule:**
-- *matchLabels matches AND matchExpressions present* → attach with `Match=MatchSelector`, and append a
-  `Detail{"selector note", "matchExpressions present, not fully evaluated"}` so the chip never reads
+**`ClassifyCiliumSelector(endpointSelector map[string]interface{}) (class SelectorClass, labels map[string]string, hasExpr bool)`** — classifies a selector AFTER normalization:
+```go
+type SelectorClass int
+const (
+    SelectorEmpty           SelectorClass = iota // no usable matchLabels and no matchExpressions
+    SelectorLabels                               // usable normalized matchLabels present
+    SelectorExpressionsOnly                      // matchExpressions but no usable matchLabels
+)
+```
+- normalize `matchLabels` via `NormalizeCiliumLabels`; `labels` is the result.
+- `len(labels)==0 && no matchExpressions` → `SelectorEmpty` (this is the precise meaning of **"broad"**:
+  the selector is absent/empty, or became empty after normalization because only dropped metadata
+  labels remained).
+- `len(labels)>0` → `SelectorLabels` (`hasExpr` records whether matchExpressions is *also* present).
+- `len(labels)==0 && matchExpressions present` → `SelectorExpressionsOnly`.
+
+A non-empty normalized `matchLabels` selector is **never** treated as broad just because it might match
+many Services — if it has usable labels, it is tested.
+
+**`LabelsSubset(labels, serviceSelector map[string]string) bool`** — true when every key/value in
+`labels` is present in `serviceSelector` (the subset test for `SelectorLabels`).
+
+**matchExpressions honesty rule (applied in the fleet layer):**
+- *`SelectorLabels` with `hasExpr=true` that subset-matches a Service* → attach with `Match=MatchSelector`
+  + a `Detail{"selector note", "matchExpressions present, not fully evaluated"}` so the chip never reads
   as more confident than it is.
-- *matchExpressions only (no usable matchLabels)* → DO NOT attach a pod chip; the fleet layer emits a
-  `Warning` (`"CNP <ns>/<name>: matchExpressions-only selector not evaluated"`). Honesty over a
-  confident-but-wrong attachment.
+- *`SelectorExpressionsOnly`* → DO NOT attach a pod chip; emit one `Warning`
+  (`"CNP <ns>/<name>: matchExpressions-only selector not evaluated"`). Honesty over a confident-but-wrong
+  attachment.
 
 **CNP decoder** (presence-only, mirrors the M5-b-i decoders; `feat` helper keeps Summary value-free):
 - `ingress` present → feature `ingress`; empty ingress rule list → `ingress default-deny`.
@@ -123,27 +141,25 @@ A **separate** `attachCiliumPolicies(ctx, topo)` pass — independent of the pre
 reusing the same `servedResourceGVR` discovery + two-warning-class machinery (`cilium.io`:
 `ciliumnetworkpolicies` namespaced, `ciliumclusterwidenetworkpolicies` cluster, both `v2`).
 
-For each policy: decode once, then **classify its `endpointSelector` once** (the nature is a property
-of the policy, not of any one Service, so this avoids per-service warning spam):
-- **empty selector** → namespace-wide (CNP) / cluster-wide (CCNP) — no per-service subset test needed.
-- **matchLabels present** → per-Service subset test via `CNPMatch`.
-- **matchExpressions only (no usable matchLabels)** → emit **one** `Warning` for the policy and skip it
-  (no attachment).
+For each policy: decode once, then `ClassifyCiliumSelector` **once** (the class is a property of the
+policy, not of any one Service, so this avoids per-service warning spam). The fleet layer — which knows
+CNP vs CCNP — maps the kind-agnostic class to the recorded `PolicyMatchKind`:
 
-Then route by kind:
 - **CNP (namespaced):**
-  - empty selector → append to **every** Service `ServiceNode.CNPs` in the CNP's namespace
-    (`Inferred`, `Match=namespace-wide`).
-  - matchLabels → for each Service in the CNP's namespace, `CNPMatch` subset test; on `MatchSelector`
-    append to that `ServiceNode.CNPs` (`Match=selector`, + the "matchExpressions not fully evaluated"
-    detail when expressions are also present).
+  - `SelectorEmpty` → append to **every** Service `ServiceNode.CNPs` in the CNP's namespace
+    (`Inferred`, `Match=MatchNamespaceWide`).
+  - `SelectorLabels` → for each Service in the CNP's namespace, `LabelsSubset`; on a match append to that
+    `ServiceNode.CNPs` (`Match=MatchSelector`, + the "matchExpressions not fully evaluated" detail when
+    `hasExpr`).
+  - `SelectorExpressionsOnly` → one `Warning`, no attachment.
 - **CCNP (cluster):**
-  - matchLabels (narrow) → subset-test against every Service cluster-wide → `ServiceNode.CNPs`
-    (`Match=selector`, distinct `Kind="CiliumClusterwideNetworkPolicy"`).
-  - empty/broad selector → `Topology.ClusterPolicies` **once** (`Match=cluster-wide`) — **never sprayed
-    across lanes** (badge-rash is worse than the YAML). (A CCNP scoped only by a normalized-away meta
-    label such as `io.kubernetes.pod.namespace` collapses to broad → cluster-wide context; under-claiming
-    is the safe direction.)
+  - `SelectorLabels` (narrow) → `LabelsSubset` against every Service cluster-wide → `ServiceNode.CNPs`
+    (`Match=MatchSelector`, `Kind="CiliumClusterwideNetworkPolicy"`).
+  - `SelectorEmpty` (broad) → `Topology.ClusterPolicies` **once** (`Match=MatchClusterWide`) — **never
+    sprayed across lanes** (badge-rash is worse than the YAML). A CCNP scoped only by a normalized-away
+    meta label (e.g. `io.kubernetes.pod.namespace`) collapses to `SelectorEmpty` → cluster-wide context;
+    under-claiming is the safe direction.
+  - `SelectorExpressionsOnly` → one `Warning`, no attachment.
 
 Warning classes reused: group/CRD not served → informational (`"CiliumNetworkPolicy CRD not installed"`);
 served-but-list-failed → operational (`"could not list CiliumNetworkPolicy: <err>"`). `Inferred=true`
@@ -170,13 +186,19 @@ mapper fills it (it currently maps an always-empty slice). TS types mirror field
   endpointSelector, not attached to a specific Service."`
 - **Route detail "attached policies"** gets a separate **inferred** sub-group (visually divided from the
   precise policies), each CNP showing Kind/ns/name, `Inferred via: <match>`, the matchExpressions note
-  when present, and decoded rows.
+  when present, and decoded rows. The **pod-target wording is deliberately honest**: render
+  `Target: Pods selected via Service <ns>/<name>` — NOT `Target: Pods <ns>/<name>` — because there is no
+  pod literally named after the Service; the Service name is only the inference bridge.
+- **Cluster-wide CCNPs are header-only.** They are NOT duplicated into each route's detail panel; the
+  inferred sub-group carries a one-line hint `"cluster-wide policies are shown in the topology header"`
+  (mirroring the gateway-policies-header hint), so the panel stays readable.
 
 ## 6. Testing
 
 - `gwapi`: `NormalizeCiliumLabels` (prefix strip, meta-key drop, the never-invent invariant, passthrough);
-  `CNPMatch` (subset match, prefix-normalized match, empty→namespace-wide, matchExpressions+matchLabels →
-  selector+note, expressions-only → no match, non-match); the CNP decoder (ingress/egress, directional
+  `ClassifyCiliumSelector` (empty→`SelectorEmpty`, usable labels→`SelectorLabels` with `hasExpr`,
+  expressions-only→`SelectorExpressionsOnly`, meta-only-labels normalize to `SelectorEmpty`);
+  `LabelsSubset` (subset true/false, prefix-normalized match); the CNP decoder (ingress/egress, directional
   default-deny, L7, toEntities, toFQDNs, value-free Summary, fallbacks).
 - `fleet`: CNP selector attach; namespace-wide fan to all services in the namespace; CCNP narrow → chip
   vs broad → `ClusterPolicies` header; expressions-only → warning + no attach; CRD-not-installed vs
@@ -203,3 +225,6 @@ mapper fills it (it currently maps an always-empty slice). TS types mirror field
 | 27 | Conservative normalization invariant: strip known prefixes / drop known metadata, never invent | A label normalizer, not a dialect translator — keeps the inference trustworthy |
 | 28 | Directional `ingress/egress default-deny`, no generic `default-deny` | The chip claim must be exactly as specific as the data; both-direction deny isn't always knowable |
 | 29 | Distinct softer visual language for inferred chips (dashed, muted, `~`) | A precise and an inferred chip must be unmistakable at a glance — the UX expression of the seam |
+| 30 | Pure `ClassifyCiliumSelector` (kind-agnostic) vs fleet kind→`PolicyMatchKind` mapping | The pure matcher must not bake in namespace-vs-cluster semantics; empty means namespace-wide for a CNP but cluster-wide for a CCNP — only the fleet layer knows the kind |
+| 31 | "Broad" defined precisely = `SelectorEmpty` after normalization (absent/empty, or only dropped meta labels remained) | A non-empty normalized matchLabels selector is never "broad" just because it might match many Services — if it has usable labels, it is tested |
+| 32 | Pod-target wording `Pods selected via Service <ns>/<name>` | There is no pod literally named after the Service; the Service is the inference bridge — the wording must not imply otherwise |
