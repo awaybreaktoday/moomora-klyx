@@ -8,7 +8,7 @@ const btp: PolicyRefDTO = {
   targetKind: "HTTPRoute", targetNamespace: "apps", targetName: "share", targetSectionName: "",
   summary: "retries + timeout",
   details: [{ key: "retries", value: "3" }, { key: "request timeout", value: "30s" }],
-  inferred: false,
+  inferred: false, match: "",
 };
 
 describe("chipSummary", () => {
