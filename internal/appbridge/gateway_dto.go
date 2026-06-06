@@ -23,6 +23,7 @@ type PolicyRefDTO struct {
 	Summary           string            `json:"summary"`
 	Details           []PolicyDetailDTO `json:"details"`
 	Inferred          bool              `json:"inferred"`
+	Match             string            `json:"match"`
 }
 type GatewayNodeDTO struct {
 	Namespace  string         `json:"namespace"`
@@ -72,10 +73,11 @@ type RouteNodeDTO struct {
 	Policies     []PolicyRefDTO   `json:"policies"`
 }
 type TopologyDTO struct {
-	Gateway  GatewayNodeDTO `json:"gateway"`
-	Routes   []RouteNodeDTO `json:"routes"`
-	Warnings []string       `json:"warnings,omitempty"`
-	Error    string         `json:"error,omitempty"`
+	Gateway         GatewayNodeDTO `json:"gateway"`
+	Routes          []RouteNodeDTO `json:"routes"`
+	ClusterPolicies []PolicyRefDTO `json:"clusterPolicies,omitempty"`
+	Warnings        []string       `json:"warnings,omitempty"`
+	Error           string         `json:"error,omitempty"`
 }
 type GatewayRefDTO struct {
 	Namespace  string `json:"namespace"`
@@ -99,7 +101,7 @@ func policyDTOs(ps []gwapi.PolicyRef) []PolicyRefDTO {
 		out = append(out, PolicyRefDTO{
 			Kind: p.Kind, Namespace: p.Namespace, Name: p.Name,
 			TargetKind: p.TargetKind, TargetNamespace: p.TargetNamespace, TargetName: p.TargetName, TargetSectionName: p.TargetSectionName,
-			Summary: p.Summary, Details: details, Inferred: p.Inferred,
+			Summary: p.Summary, Details: details, Inferred: p.Inferred, Match: string(p.Match),
 		})
 	}
 	return out
@@ -111,7 +113,7 @@ func toTopologyDTO(t gwapi.Topology) TopologyDTO {
 	for _, l := range g.Listeners {
 		gd.Listeners = append(gd.Listeners, ListenerDTO{Name: l.Name, Protocol: l.Protocol, Hostname: l.Hostname, Port: l.Port})
 	}
-	out := TopologyDTO{Gateway: gd, Warnings: t.Warnings}
+	out := TopologyDTO{Gateway: gd, Warnings: t.Warnings, ClusterPolicies: policyDTOs(t.ClusterPolicies)}
 	for _, r := range t.Routes {
 		rd := RouteNodeDTO{Namespace: r.Namespace, Name: r.Name, Hostnames: r.Hostnames, Accepted: r.Accepted, ResolvedRefs: r.ResolvedRefs, Pods: PodCountDTO{Ready: r.Pods.Ready, Total: r.Pods.Total, Unknown: r.Pods.Unknown}, Policies: policyDTOs(r.Policies)}
 		for _, m := range r.Matches {
