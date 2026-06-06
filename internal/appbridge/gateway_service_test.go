@@ -91,3 +91,25 @@ func TestGatewayUnknownClusterEmpty(t *testing.T) {
 		t.Fatalf("want empty, got %+v", out)
 	}
 }
+
+func TestGatewayTopologyDTOCilium(t *testing.T) {
+	conn := &fakeGatewayConn{topo: gwapi.Topology{
+		Gateway: gwapi.GatewayNode{Namespace: "infra", Name: "eg"},
+		Routes: []gwapi.RouteNode{{
+			Namespace: "apps", Name: "share",
+			Services: []gwapi.ServiceNode{{Namespace: "apps", Name: "share-api", Resolved: true,
+				CNPs: []gwapi.PolicyRef{{Kind: "CiliumNetworkPolicy", Namespace: "apps", Name: "share-allow", TargetKind: "Pods", TargetNamespace: "apps", TargetName: "share-api", Summary: "ingress", Inferred: true, Match: gwapi.MatchSelector}}}},
+		}},
+		ClusterPolicies: []gwapi.PolicyRef{{Kind: "CiliumClusterwideNetworkPolicy", Name: "cluster-deny", Summary: "ingress default-deny", Inferred: true, Match: gwapi.MatchClusterWide}},
+	}}
+	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
+	d := svc.GetGatewayTopology("x", "infra", "eg")
+
+	cnps := d.Routes[0].Services[0].CNPs
+	if len(cnps) != 1 || cnps[0].Match != "selector" || cnps[0].TargetKind != "Pods" || !cnps[0].Inferred {
+		t.Fatalf("service cnps DTO: %+v", cnps)
+	}
+	if len(d.ClusterPolicies) != 1 || d.ClusterPolicies[0].Match != "cluster-wide" || d.ClusterPolicies[0].Kind != "CiliumClusterwideNetworkPolicy" {
+		t.Fatalf("cluster policies DTO: %+v", d.ClusterPolicies)
+	}
+}

@@ -17,6 +17,8 @@ const COLOUR: Record<string, { fg: string; bg: string }> = {
   SecurityPolicy: { fg: "#3fb950", bg: "rgba(46,160,67,.16)" },
   EnvoyExtensionPolicy: { fg: "#d29922", bg: "rgba(210,153,34,.16)" },
   BackendTLSPolicy: { fg: "#ec6547", bg: "rgba(236,101,71,.16)" },
+  CiliumNetworkPolicy: { fg: "#8b949e", bg: "rgba(139,148,158,.10)" },
+  CiliumClusterwideNetworkPolicy: { fg: "#8b949e", bg: "rgba(139,148,158,.10)" },
 };
 
 // The chip summary is feature names joined by " + " (the delimiter never appears
@@ -30,7 +32,7 @@ export function chipSummary(summary: string): string {
   return `${feats.slice(0, 2).join(" + ")} +${feats.length - 2}`;
 }
 
-export function PolicyChip({ p }: { p: PolicyRefDTO }) {
+export function PolicyChip({ p, align = "left" }: { p: PolicyRefDTO; align?: "left" | "right" }) {
   const abbr = ABBREV[p.kind] ?? p.kind;
   const c = COLOUR[p.kind] ?? { fg: "var(--color-text-secondary)", bg: "var(--color-background-secondary)" };
   const [hover, setHover] = useState(false);
@@ -51,6 +53,7 @@ export function PolicyChip({ p }: { p: PolicyRefDTO }) {
           fontFamily: "var(--font-mono)",
           color: c.fg,
           background: c.bg,
+          border: p.inferred ? `0.5px dashed ${c.fg}` : "0.5px solid transparent",
           cursor: "default",
           maxWidth: 160,
           overflow: "hidden",
@@ -68,7 +71,7 @@ export function PolicyChip({ p }: { p: PolicyRefDTO }) {
           style={{
             position: "absolute",
             bottom: "100%",
-            left: 0,
+            ...(align === "right" ? { right: 0 } : { left: 0 }),
             marginBottom: 4,
             zIndex: 50,
             minWidth: 260,
@@ -84,6 +87,11 @@ export function PolicyChip({ p }: { p: PolicyRefDTO }) {
             pointerEvents: "none",
           }}
         >
+          {p.inferred && (
+            <div style={{ color: "var(--color-text-tertiary)", marginBottom: 4, fontStyle: "italic" }}>
+              inferred: matched by Service selector, not a Gateway API attachment{p.match ? ` · via: ${p.match}` : ""}
+            </div>
+          )}
           <div style={{ fontWeight: 600, marginBottom: p.details.length ? 4 : 0 }}>
             {p.kind} {p.namespace}/{p.name}
           </div>

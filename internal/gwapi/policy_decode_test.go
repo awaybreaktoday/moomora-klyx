@@ -110,8 +110,91 @@ func TestDecodeCTPConnectionLimitPresence(t *testing.T) {
 }
 
 func TestDecodeNeverPanicsOnMalformed(t *testing.T) {
-	for _, kind := range []string{"ClientTrafficPolicy", "BackendTrafficPolicy", "SecurityPolicy", "EnvoyExtensionPolicy", "BackendTLSPolicy"} {
+	for _, kind := range []string{"ClientTrafficPolicy", "BackendTrafficPolicy", "SecurityPolicy", "EnvoyExtensionPolicy", "BackendTLSPolicy", "CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy"} {
 		u := &unstructured.Unstructured{Object: map[string]interface{}{"kind": kind, "metadata": map[string]interface{}{"name": "x"}, "spec": "not-a-map"}}
 		_ = Decode(kind, u) // must not panic
+	}
+}
+
+func TestDecodeCNPDirectionalAndL7(t *testing.T) {
+	u := specObj("CiliumNetworkPolicy", "api-allow", map[string]interface{}{
+		"ingress": []interface{}{
+			map[string]interface{}{
+				"toPorts": []interface{}{map[string]interface{}{
+					"rules": map[string]interface{}{"http": []interface{}{map[string]interface{}{"method": "GET"}}},
+				}},
+			},
+		},
+		"egress": []interface{}{
+			map[string]interface{}{"toEntities": []interface{}{"world", "cluster"}},
+			map[string]interface{}{"toFQDNs": []interface{}{map[string]interface{}{"matchName": "api.example.com"}}},
+		},
+	})
+	d := Decode("CiliumNetworkPolicy", u)
+	// presence-only summary, value-free
+	if !strings.Contains(d.Summary, "ingress") || !strings.Contains(d.Summary, "egress") || !strings.Contains(d.Summary, "L7") {
+		t.Fatalf("summary: %q", d.Summary)
+	}
+	// "L7" is a fixed feature label, not a decoded value; strip it before the
+	// digit-leak guard so the guard only catches leaked values (ports, counts).
+	if strings.ContainsAny(strings.ReplaceAll(d.Summary, "L7", "L"), "0123456789") {
+		t.Fatalf("summary leaked a value: %q", d.Summary)
+	}
+	// decoded details carry values
+	var hasL7, hasEntities, hasFQDN bool
+	for _, dt := range d.Details {
+		if dt.Key == "L7" && strings.Contains(dt.Value, "http") {
+			hasL7 = true
+		}
+		if dt.Key == "toEntities" && strings.Contains(dt.Value, "world") {
+			hasEntities = true
+		}
+		if dt.Key == "toFQDNs" && strings.Contains(dt.Value, "api.example.com") {
+			hasFQDN = true
+		}
+	}
+	if !hasL7 || !hasEntities || !hasFQDN {
+		t.Fatalf("details: %+v", d.Details)
+	}
+}
+
+func TestDecodeCNPDirectionalDefaultDeny(t *testing.T) {
+	u := specObj("CiliumNetworkPolicy", "deny", map[string]interface{}{
+		"ingress": []interface{}{}, // empty rule list = ingress default-deny
+	})
+	if d := Decode("CiliumNetworkPolicy", u); d.Summary != "ingress default-deny" {
+		t.Fatalf("summary: %q", d.Summary)
+	}
+	// CCNP uses the same decoder.
+	if d := Decode("CiliumClusterwideNetworkPolicy", u); d.Summary != "ingress default-deny" {
+		t.Fatalf("ccnp summary: %q", d.Summary)
+	}
+}
+
+func TestDecodeCNPDefaultDenyDisabled(t *testing.T) {
+	// Empty ingress rule list BUT spec.enableDefaultDeny.ingress=false ->
+	// no-op (allow), NOT a default-deny. With no other feature, falls back to name.
+	u := specObj("CiliumNetworkPolicy", "no-deny", map[string]interface{}{
+		"ingress":           []interface{}{},
+		"enableDefaultDeny": map[string]interface{}{"ingress": false},
+	})
+	d := Decode("CiliumNetworkPolicy", u)
+	if strings.Contains(d.Summary, "default-deny") {
+		t.Fatalf("enableDefaultDeny.ingress=false must not claim default-deny: %q", d.Summary)
+	}
+	if d.Summary != "no-deny" {
+		t.Fatalf("summary should fall back to name: %q", d.Summary)
+	}
+}
+
+func TestDecodeCNPDenyRules(t *testing.T) {
+	u := specObj("CiliumNetworkPolicy", "explicit-deny", map[string]interface{}{
+		"ingressDeny": []interface{}{
+			map[string]interface{}{"fromEntities": []interface{}{"world"}},
+		},
+	})
+	d := Decode("CiliumNetworkPolicy", u)
+	if !strings.Contains(d.Summary, "ingress deny") {
+		t.Fatalf("ingressDeny should claim 'ingress deny': %q", d.Summary)
 	}
 }

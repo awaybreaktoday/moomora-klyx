@@ -16,6 +16,9 @@ var policyDecoders = map[string]PolicyDecoder{
 	"SecurityPolicy":       decodeSP,
 	"EnvoyExtensionPolicy": decodeEEP,
 	"BackendTLSPolicy":     decodeBTLS,
+
+	"CiliumNetworkPolicy":            decodeCNP,
+	"CiliumClusterwideNetworkPolicy": decodeCNP,
 }
 
 // Decode runs the kind's decoder. Fallback ladder: a decoder that finds no
@@ -176,4 +179,120 @@ func decodeBTLS(u *unstructured.Unstructured) PolicyDecode {
 		f.add("ca")
 	}
 	return f.decode()
+}
+
+// defaultDenyEnabled reports whether an empty rule list in the given direction implies
+// default-deny. Cilium defaults to true; spec.enableDefaultDeny.<dir>=false disables it.
+func defaultDenyEnabled(u *unstructured.Unstructured, dir string) bool {
+	v, found, _ := unstructured.NestedBool(u.Object, "spec", "enableDefaultDeny", dir)
+	if found {
+		return v
+	}
+	return true
+}
+
+// decodeCNP decodes the inline spec.ingress/spec.egress (and ingressDeny/egressDeny)
+// rule-list form, the common case. The alternative spec.specs[] rule-list form is NOT
+// decoded - the policy still attaches and shows as a name-only chip (honest under-report).
+func decodeCNP(u *unstructured.Unstructured) PolicyDecode {
+	var f feat
+	ing, ingFound, _ := unstructured.NestedSlice(u.Object, "spec", "ingress")
+	ingDeny, _, _ := unstructured.NestedSlice(u.Object, "spec", "ingressDeny")
+	egr, egrFound, _ := unstructured.NestedSlice(u.Object, "spec", "egress")
+	egrDeny, _, _ := unstructured.NestedSlice(u.Object, "spec", "egressDeny")
+	if ingFound {
+		if len(ing) == 0 {
+			// An empty rule list only implies default-deny when default-deny is enabled.
+			if defaultDenyEnabled(u, "ingress") {
+				f.add("ingress default-deny")
+			}
+		} else {
+			f.add("ingress")
+		}
+	}
+	if len(ingDeny) > 0 {
+		f.add("ingress deny")
+	}
+	if egrFound {
+		if len(egr) == 0 {
+			if defaultDenyEnabled(u, "egress") {
+				f.add("egress default-deny")
+			}
+		} else {
+			f.add("egress")
+		}
+	}
+	if len(egrDeny) > 0 {
+		f.add("egress deny")
+	}
+
+	var entities, fqdns []string
+	l7 := map[string]bool{}
+	rules := append(append([]interface{}{}, ing...), egr...)
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"toEntities", "fromEntities"} {
+			if e, ok, _ := unstructured.NestedStringSlice(rm, key); ok {
+				entities = append(entities, e...)
+			}
+		}
+		if fq, ok, _ := unstructured.NestedSlice(rm, "toFQDNs"); ok {
+			for _, q := range fq {
+				qm, _ := q.(map[string]interface{})
+				if n, _ := qm["matchName"].(string); n != "" {
+					fqdns = append(fqdns, n)
+				}
+				if p, _ := qm["matchPattern"].(string); p != "" {
+					fqdns = append(fqdns, p)
+				}
+			}
+		}
+		// In Cilium v2 both ingress and egress rules carry L7 under toPorts.
+		if tps, ok, _ := unstructured.NestedSlice(rm, "toPorts"); ok {
+			for _, tp := range tps {
+				tpm, _ := tp.(map[string]interface{})
+				if rl, ok := tpm["rules"].(map[string]interface{}); ok {
+					for _, proto := range []string{"http", "dns", "kafka"} {
+						if _, has := rl[proto]; has {
+							l7[proto] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	if ents := dedupStrings(entities); len(ents) > 0 {
+		f.add("toEntities")
+		f.kv("toEntities", strings.Join(ents, ", "))
+	}
+	if fq := dedupStrings(fqdns); len(fq) > 0 {
+		f.add("toFQDNs")
+		f.kv("toFQDNs", strings.Join(fq, ", "))
+	}
+	if len(l7) > 0 {
+		f.add("L7")
+		var protos []string
+		for _, proto := range []string{"http", "dns", "kafka"} { // deterministic order
+			if l7[proto] {
+				protos = append(protos, proto)
+			}
+		}
+		f.kv("L7", strings.Join(protos, ", "))
+	}
+	return f.decode()
+}
+
+func dedupStrings(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -15,6 +15,8 @@ const gwGroup = "gateway.networking.k8s.io"
 
 const envoyGroup = "gateway.envoyproxy.io"
 
+const ciliumGroup = "cilium.io"
+
 // policyKinds is the M5-b-i precise policy set (display Kind + resource + group).
 var policyKinds = []struct{ Kind, Group, Resource string }{
 	{"ClientTrafficPolicy", envoyGroup, "clienttrafficpolicies"},
@@ -24,13 +26,24 @@ var policyKinds = []struct{ Kind, Group, Resource string }{
 	{"BackendTLSPolicy", gwGroup, "backendtlspolicies"},
 }
 
+// ciliumPolicyKinds is the M5-b-ii inferred Cilium policy set. Cluster marks the
+// cluster-scoped CCNP, which routes broad/empty selectors to header context.
+var ciliumPolicyKinds = []struct {
+	Kind, Resource string
+	Cluster        bool
+}{
+	{"CiliumNetworkPolicy", "ciliumnetworkpolicies", false},
+	{"CiliumClusterwideNetworkPolicy", "ciliumclusterwidenetworkpolicies", true},
+}
+
 // policyCandidateVersions lists the versions a policy resource may be served at,
 // preferred first. A resource's version is resolved per-resource (not via the
 // group's preferred version, since BackendTLSPolicy lives at v1alpha3 while the
 // gateway.networking.k8s.io group prefers v1).
 var policyCandidateVersions = map[string][]string{
-	envoyGroup: {"v1alpha1"},
-	gwGroup:    {"v1", "v1alpha3", "v1alpha2"},
+	envoyGroup:  {"v1alpha1"},
+	gwGroup:     {"v1", "v1alpha3", "v1alpha2"},
+	ciliumGroup: {"v2"},
 }
 
 // servedResourceGVR finds the served GVR for a (group, resource), probing the
@@ -72,6 +85,67 @@ func (c *ClusterConn) attachGatewayPolicies(ctx context.Context, topo *gwapi.Top
 			refs = append(refs, gwapi.BuildPolicyRefs(u, pk.Kind)...)
 		}
 		gwapi.AttachPolicies(topo, refs)
+	}
+}
+
+// attachCiliumPolicies lists CNP/CCNP and attaches them by the inferred label heuristic.
+// Reuses the served-resource discovery + two warning classes. Inferred=true throughout.
+func (c *ClusterConn) attachCiliumPolicies(ctx context.Context, topo *gwapi.Topology) {
+	for _, ck := range ciliumPolicyKinds {
+		gvr, ok := c.servedResourceGVR(ciliumGroup, ck.Resource)
+		if !ok {
+			topo.Warnings = append(topo.Warnings, ck.Kind+" CRD not installed")
+			continue
+		}
+		list, err := c.dyn.Resource(gvr).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			topo.Warnings = append(topo.Warnings, fmt.Sprintf("could not list %s: %v", ck.Kind, err))
+			continue
+		}
+		for i := range list.Items {
+			u := &unstructured.Unstructured{Object: list.Items[i].Object}
+			attachOneCiliumPolicy(u, ck.Kind, ck.Cluster, topo)
+		}
+	}
+}
+
+// attachOneCiliumPolicy classifies a policy's selector once, then maps class + kind to a
+// PolicyMatchKind and routes it to ServiceNode.CNPs / Topology.ClusterPolicies / a warning.
+func attachOneCiliumPolicy(u *unstructured.Unstructured, kind string, cluster bool, topo *gwapi.Topology) {
+	sel, _, _ := unstructured.NestedMap(u.Object, "spec", "endpointSelector")
+	class, labels, hasExpr := gwapi.ClassifyCiliumSelector(sel)
+	polNS := u.GetNamespace()
+
+	switch class {
+	case gwapi.SelectorExpressionsOnly:
+		topo.Warnings = append(topo.Warnings, fmt.Sprintf("%s %s/%s: matchExpressions-only selector not evaluated", kind, polNS, u.GetName()))
+		return
+	case gwapi.SelectorEmpty:
+		if cluster {
+			topo.ClusterPolicies = append(topo.ClusterPolicies, gwapi.CiliumPolicyRef(u, kind, gwapi.MatchClusterWide, "", "", false))
+			return
+		}
+		// namespace-wide CNP: every Service in the policy's namespace.
+		for ri := range topo.Routes {
+			for si := range topo.Routes[ri].Services {
+				s := &topo.Routes[ri].Services[si]
+				if s.Namespace == polNS {
+					s.CNPs = append(s.CNPs, gwapi.CiliumPolicyRef(u, kind, gwapi.MatchNamespaceWide, s.Namespace, s.Name, false))
+				}
+			}
+		}
+	case gwapi.SelectorLabels:
+		for ri := range topo.Routes {
+			for si := range topo.Routes[ri].Services {
+				s := &topo.Routes[ri].Services[si]
+				if !cluster && s.Namespace != polNS {
+					continue // a namespaced CNP only governs its own namespace
+				}
+				if gwapi.LabelsSubset(labels, s.Selector) {
+					s.CNPs = append(s.CNPs, gwapi.CiliumPolicyRef(u, kind, gwapi.MatchSelector, s.Namespace, s.Name, hasExpr))
+				}
+			}
+		}
 	}
 }
 
@@ -133,6 +207,7 @@ func (c *ClusterConn) GetGatewayTopology(ctx context.Context, namespace, name st
 		topo.Routes = append(topo.Routes, rn)
 	}
 	c.attachGatewayPolicies(ctx, &topo)
+	c.attachCiliumPolicies(ctx, &topo)
 	return topo, nil
 }
 
@@ -153,6 +228,7 @@ func (c *ClusterConn) resolveBackends(ctx context.Context, rn *gwapi.RouteNode, 
 		}
 		sn.Resolved = true
 		sn.Type = string(svc.Spec.Type)
+		sn.Selector = svc.Spec.Selector
 		if len(svc.Spec.Ports) > 0 && sn.Port == 0 {
 			sn.Port = svc.Spec.Ports[0].Port
 		}
