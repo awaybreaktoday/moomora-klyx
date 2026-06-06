@@ -70,3 +70,20 @@ func LabelsSubset(labels, serviceSelector map[string]string) bool {
 	}
 	return true
 }
+
+// CiliumPolicyRef builds an inferred PolicyRef for a CNP/CCNP matched against a Service's
+// pods. TargetKind is always "Pods" (Cilium selects endpoints; the Service is the bridge).
+// exprNote appends the "matchExpressions present, not fully evaluated" honesty detail.
+func CiliumPolicyRef(u *unstructured.Unstructured, kind string, match PolicyMatchKind, targetNS, targetName string, exprNote bool) PolicyRef {
+	dec := Decode(kind, u)
+	details := append([]PolicyDetail(nil), dec.Details...)
+	if exprNote {
+		details = append(details, PolicyDetail{Key: "selector note", Value: "matchExpressions present, not fully evaluated"})
+	}
+	return PolicyRef{
+		Kind: kind, Namespace: u.GetNamespace(), Name: u.GetName(),
+		TargetKind: "Pods", TargetNamespace: targetNS, TargetName: targetName,
+		Summary: dec.Summary, Details: details,
+		Inferred: true, Match: match,
+	}
+}

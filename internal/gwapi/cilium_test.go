@@ -2,7 +2,10 @@ package gwapi
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestNormalizeCiliumLabels(t *testing.T) {
@@ -86,5 +89,47 @@ func TestLabelsSubset(t *testing.T) {
 	}
 	if LabelsSubset(map[string]string{}, svc) {
 		t.Fatal("empty labels never match (use namespace-wide path instead)")
+	}
+}
+
+func cnpObj(ns, name string, spec map[string]interface{}) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"kind":     "CiliumNetworkPolicy",
+		"metadata": map[string]interface{}{"namespace": ns, "name": name},
+		"spec":     spec,
+	}}
+}
+
+func TestCiliumPolicyRefSelector(t *testing.T) {
+	u := cnpObj("monitoring", "grafana-allow", map[string]interface{}{
+		"ingress": []interface{}{map[string]interface{}{}},
+	})
+	ref := CiliumPolicyRef(u, "CiliumNetworkPolicy", MatchSelector, "monitoring", "grafana", true)
+	if ref.Kind != "CiliumNetworkPolicy" || ref.Namespace != "monitoring" || ref.Name != "grafana-allow" {
+		t.Fatalf("ids: %+v", ref)
+	}
+	if ref.TargetKind != "Pods" || ref.TargetNamespace != "monitoring" || ref.TargetName != "grafana" {
+		t.Fatalf("target: %+v", ref)
+	}
+	if !ref.Inferred || ref.Match != MatchSelector {
+		t.Fatalf("inferred/match: %+v", ref)
+	}
+	// exprNote=true appends the honesty detail.
+	var hasNote bool
+	for _, d := range ref.Details {
+		if d.Key == "selector note" && strings.Contains(d.Value, "matchExpressions present") {
+			hasNote = true
+		}
+	}
+	if !hasNote {
+		t.Fatalf("expected matchExpressions note: %+v", ref.Details)
+	}
+}
+
+func TestCiliumPolicyRefClusterWide(t *testing.T) {
+	u := cnpObj("", "deny-all", map[string]interface{}{"ingress": []interface{}{}})
+	ref := CiliumPolicyRef(u, "CiliumClusterwideNetworkPolicy", MatchClusterWide, "", "", false)
+	if ref.Match != MatchClusterWide || ref.TargetName != "" || !ref.Inferred {
+		t.Fatalf("cluster-wide: %+v", ref)
 	}
 }
