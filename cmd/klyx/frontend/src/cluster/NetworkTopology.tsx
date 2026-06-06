@@ -133,7 +133,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                   {svc && svc.policies.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
                       {svc.policies.map((p) => (
-                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
                       ))}
                     </div>
                   )}
@@ -145,7 +145,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                   {svc && svc.cnps.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
                       {svc.cnps.map((p) => (
-                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
                       ))}
                     </div>
                   )}

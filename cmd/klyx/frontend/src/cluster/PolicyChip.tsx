@@ -32,7 +32,7 @@ export function chipSummary(summary: string): string {
   return `${feats.slice(0, 2).join(" + ")} +${feats.length - 2}`;
 }
 
-export function PolicyChip({ p }: { p: PolicyRefDTO }) {
+export function PolicyChip({ p, align = "left" }: { p: PolicyRefDTO; align?: "left" | "right" }) {
   const abbr = ABBREV[p.kind] ?? p.kind;
   const c = COLOUR[p.kind] ?? { fg: "var(--color-text-secondary)", bg: "var(--color-background-secondary)" };
   const [hover, setHover] = useState(false);
@@ -71,7 +71,7 @@ export function PolicyChip({ p }: { p: PolicyRefDTO }) {
           style={{
             position: "absolute",
             bottom: "100%",
-            left: 0,
+            ...(align === "right" ? { right: 0 } : { left: 0 }),
             marginBottom: 4,
             zIndex: 50,
             minWidth: 260,
