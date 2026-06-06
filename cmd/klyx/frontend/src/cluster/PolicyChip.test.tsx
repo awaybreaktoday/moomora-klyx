@@ -52,3 +52,28 @@ describe("PolicyChip", () => {
     expect(queryByText(/retries: 3/)).toBeNull();
   });
 });
+
+const cnp: PolicyRefDTO = {
+  kind: "CiliumNetworkPolicy", namespace: "apps", name: "share-allow",
+  targetKind: "Pods", targetNamespace: "apps", targetName: "share-api", targetSectionName: "",
+  summary: "ingress + egress", details: [{ key: "L7", value: "http" }],
+  inferred: true, match: "selector",
+};
+
+describe("PolicyChip inferred (Cilium)", () => {
+  it("renders the CNP abbreviation, ~ marker, and a dashed border", () => {
+    const { getByText, container } = render(<PolicyChip p={cnp} />);
+    expect(getByText(/CNP/)).toBeTruthy();
+    expect(getByText("~")).toBeTruthy();
+    // the inner chip span carries a dashed border when inferred
+    const dashed = container.querySelector('span[style*="dashed"]');
+    expect(dashed).toBeTruthy();
+  });
+
+  it("tooltip leads with the inference honesty note + match basis", () => {
+    const { getByText } = render(<PolicyChip p={cnp} />);
+    fireEvent.mouseEnter(getByText(/CNP/));
+    expect(getByText(/inferred: matched by Service selector, not a Gateway API attachment/i)).toBeTruthy();
+    expect(getByText(/via: selector/i)).toBeTruthy();
+  });
+});
