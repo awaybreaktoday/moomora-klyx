@@ -59,6 +59,14 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
             ))}
           </div>
         )}
+        {t.clusterPolicies && t.clusterPolicies.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)" }}>cluster-wide policies</span>
+            {t.clusterPolicies.map((p) => (
+              <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+            ))}
+          </div>
+        )}
         <div style={{ flex: 1 }} />
         <button onClick={() => void getGatewayTopology(cluster, gateway)} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>Refresh</button>
       </div>
@@ -134,6 +142,13 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                 <div style={nb}>
                   <div style={lab}>pods</div>
                   <div style={nm}>{r.pods.unknown ? "unknown" : `${r.pods.ready} / ${r.pods.total}`}</div>
+                  {svc && svc.cnps.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                      {svc.cnps.map((p) => (
+                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -232,6 +247,27 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
               )}
             </div>
           ));
+        })()}
+        {(() => {
+          const cnps = route.services.flatMap((s) => s.cnps);
+          if (cnps.length === 0) return null;
+          return (
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px dashed var(--color-border-tertiary)" }}>
+              <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 6 }}>inferred network policies</div>
+              {cnps.map((p) => (
+                <div key={`${p.kind}/${p.namespace}/${p.name}`} style={{ marginBottom: 8 }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600 }}>{`${p.kind} ${p.namespace}/${p.name}`}</div>
+                  <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>{`Target: Pods selected via Service ${p.targetNamespace}/${p.targetName}`}</div>
+                  <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>{`Inferred via: ${p.match}`}</div>
+                  {p.summary && <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>{`Features: ${p.summary}`}</div>}
+                  {p.details.map((d, i) => (
+                    <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text-secondary)" }}>{d.key}: {d.value}</div>
+                  ))}
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>cluster-wide policies are shown in the topology header.</div>
+            </div>
+          );
         })()}
         <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>Gateway policies are shown in the topology header.</div>
       </div>

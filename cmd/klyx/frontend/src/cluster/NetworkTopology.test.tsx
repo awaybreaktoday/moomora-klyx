@@ -158,4 +158,35 @@ describe("NetworkTopology", () => {
     expect(getByText(/request timeout/)).toBeTruthy();
     expect(getByText(/Gateway policies are shown in the topology header/i)).toBeTruthy();
   });
+
+  it("renders inferred CNP chips on the pods box and cluster-wide CCNPs in the header", () => {
+    const cnp = { kind: "CiliumNetworkPolicy", namespace: "apps", name: "share-allow", targetKind: "Pods", targetNamespace: "apps", targetName: "share-api", targetSectionName: "", summary: "ingress", details: [], inferred: true, match: "selector" };
+    const ccnp = { kind: "CiliumClusterwideNetworkPolicy", namespace: "", name: "cluster-deny", targetKind: "Pods", targetNamespace: "", targetName: "", targetSectionName: "", summary: "ingress default-deny", details: [], inferred: true, match: "cluster-wide" };
+    const withCilium: TopologyDTO = {
+      gateway: topo.gateway,
+      routes: [{ ...topo.routes[0], services: [{ ...topo.routes[0].services[0], cnps: [cnp] }] }],
+      clusterPolicies: [ccnp],
+      warnings: [],
+    };
+    seed(withCilium);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText("CNP")).toBeTruthy();          // pods box (exact - avoids matching "CCNP")
+    expect(getByText(/cluster-wide policies/i)).toBeTruthy(); // header group label
+    expect(getByText("CCNP")).toBeTruthy();         // header chip (exact)
+  });
+
+  it("route detail shows inferred CNPs with honest pod-target wording", () => {
+    const cnp = { kind: "CiliumNetworkPolicy", namespace: "apps", name: "share-allow", targetKind: "Pods", targetNamespace: "apps", targetName: "share-api", targetSectionName: "", summary: "ingress", details: [{ key: "L7", value: "http" }], inferred: true, match: "selector" };
+    const withCilium: TopologyDTO = {
+      gateway: topo.gateway,
+      routes: [{ ...topo.routes[0], services: [{ ...topo.routes[0].services[0], cnps: [cnp] }] }],
+      warnings: [],
+    };
+    seed(withCilium);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    fireEvent.click(getByText("share"));
+    expect(getByText(/inferred network policies/i)).toBeTruthy();
+    expect(getByText(/Pods selected via Service apps\/share-api/)).toBeTruthy();
+    expect(getByText(/Inferred via: selector/)).toBeTruthy();
+  });
 });
