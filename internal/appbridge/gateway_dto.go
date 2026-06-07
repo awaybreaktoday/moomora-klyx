@@ -94,6 +94,26 @@ type GatewayListDTO struct {
 	Gateways         []GatewayRefDTO `json:"gateways"`
 }
 
+// RouteMetricDTO is a route's traffic readout. Nil fractions serialize as JSON
+// null (UI renders "—"), never 0. ErrRate is a fraction 0..1.
+type RouteMetricDTO struct {
+	RPS     *float64 `json:"rps"`
+	P50     *float64 `json:"p50"` // ms
+	P99     *float64 `json:"p99"` // ms
+	ErrRate *float64 `json:"errRate"`
+}
+
+type RouteMetricsStatusDTO struct {
+	Available bool   `json:"available"`
+	Message   string `json:"message"`
+	UpdatedAt string `json:"updatedAt"` // RFC3339; "" when never succeeded
+}
+
+type RouteMetricsResultDTO struct {
+	Status RouteMetricsStatusDTO     `json:"status"`
+	Routes map[string]RouteMetricDTO `json:"routes"`
+}
+
 func policyDTOs(ps []gwapi.PolicyRef) []PolicyRefDTO {
 	out := make([]PolicyRefDTO, 0, len(ps))
 	for _, p := range ps {

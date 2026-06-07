@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/routemetrics"
 )
 
 type fakeGatewayConn struct {
@@ -19,6 +20,9 @@ func (f *fakeGatewayConn) ListGateways(ctx context.Context) ([]gwapi.GatewayRef,
 }
 func (f *fakeGatewayConn) GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error) {
 	return f.topo, f.err
+}
+func (f *fakeGatewayConn) RouteMetrics(context.Context, []string) (map[string]routemetrics.RouteMetrics, routemetrics.Status) {
+	return nil, routemetrics.Status{}
 }
 
 func TestListGatewaysDTO(t *testing.T) {
