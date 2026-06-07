@@ -113,3 +113,41 @@ func TestGatewayTopologyDTOCilium(t *testing.T) {
 		t.Fatalf("cluster policies DTO: %+v", d.ClusterPolicies)
 	}
 }
+
+func TestGatewayTopologyGlobalReach(t *testing.T) {
+	conn := &fakeGatewayConn{topo: gwapi.Topology{
+		Gateway: gwapi.GatewayNode{Namespace: "infra", Name: "eg"},
+		Routes: []gwapi.RouteNode{{
+			Namespace: "apps", Name: "share",
+			Services: []gwapi.ServiceNode{{Namespace: "apps", Name: "share-api", Resolved: true, Global: true}},
+		}},
+	}}
+	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
+	// Inject a globalReach that confirms one peer + flags an off-fleet one.
+	svc.SetGlobalReach(func(cluster, ns, name string) ([]string, bool) {
+		if ns == "apps" && name == "share-api" {
+			return []string{"homelab-orange"}, true
+		}
+		return nil, false
+	})
+
+	d := svc.GetGatewayTopology("homelab-blue", "infra", "eg")
+	s := d.Routes[0].Services[0]
+	if !s.Global || len(s.MeshClusters) != 1 || s.MeshClusters[0] != "homelab-orange" || !s.MeshUnconfirmed {
+		t.Fatalf("global reach: %+v", s)
+	}
+}
+
+func TestGatewayTopologyNonGlobalNoReach(t *testing.T) {
+	conn := &fakeGatewayConn{topo: gwapi.Topology{
+		Gateway: gwapi.GatewayNode{Namespace: "infra", Name: "eg"},
+		Routes:  []gwapi.RouteNode{{Namespace: "apps", Name: "share", Services: []gwapi.ServiceNode{{Namespace: "apps", Name: "share-api", Resolved: true}}}},
+	}}
+	called := false
+	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
+	svc.SetGlobalReach(func(cluster, ns, name string) ([]string, bool) { called = true; return nil, false })
+	d := svc.GetGatewayTopology("x", "infra", "eg")
+	if d.Routes[0].Services[0].Global || called {
+		t.Fatalf("non-global service must not call globalReach: global=%v called=%v", d.Routes[0].Services[0].Global, called)
+	}
+}

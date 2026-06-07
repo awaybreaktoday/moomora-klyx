@@ -76,6 +76,47 @@ func main() {
 		}
 		return c, true
 	})
+	gatewaySvc.SetGlobalReach(func(cluster, ns, name string) ([]string, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		src, ok := reg.Conn(cluster)
+		if !ok {
+			return nil, false
+		}
+		srcMem, _ := src.MeshMember(ctx)
+		if len(srcMem.Peers) == 0 {
+			return nil, false
+		}
+		// Map every connected fleet cluster's Cilium name -> (fleet key, conn).
+		type entry struct {
+			fleetKey string
+			conn     fleet.Conn
+		}
+		byCilium := map[string]entry{}
+		for _, snap := range reg.Snapshots() {
+			c, ok := reg.Conn(snap.Name)
+			if !ok {
+				continue
+			}
+			m, _ := c.MeshMember(ctx)
+			if m.Identity.Name != "" {
+				byCilium[m.Identity.Name] = entry{fleetKey: snap.Name, conn: c}
+			}
+		}
+		var peers []string
+		unconfirmed := false
+		for _, peerCilium := range srcMem.Peers {
+			e, present := byCilium[peerCilium]
+			if !present {
+				unconfirmed = true // off-fleet: can't inspect
+				continue
+			}
+			if e.conn.HasGlobalService(ctx, ns, name) {
+				peers = append(peers, e.fleetKey)
+			}
+		}
+		return peers, unconfirmed
+	})
 
 	meshSvc := appbridge.NewMeshService(func() []clustermesh.Member {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
