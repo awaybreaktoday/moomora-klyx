@@ -138,6 +138,20 @@ func TestGatewayTopologyGlobalReach(t *testing.T) {
 	}
 }
 
+func TestGatewayTopologyGlobalReachEmptyIsNonNil(t *testing.T) {
+	conn := &fakeGatewayConn{topo: gwapi.Topology{
+		Gateway: gwapi.GatewayNode{Namespace: "infra", Name: "eg"},
+		Routes:  []gwapi.RouteNode{{Namespace: "apps", Name: "share", Services: []gwapi.ServiceNode{{Namespace: "apps", Name: "share-api", Resolved: true, Global: true}}}},
+	}}
+	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
+	svc.SetGlobalReach(func(cluster, ns, name string) ([]string, bool) { return nil, true })
+	d := svc.GetGatewayTopology("x", "infra", "eg")
+	s := d.Routes[0].Services[0]
+	if s.MeshClusters == nil || len(s.MeshClusters) != 0 || !s.MeshUnconfirmed {
+		t.Fatalf("meshClusters must be non-nil empty + unconfirmed: %+v", s)
+	}
+}
+
 func TestGatewayTopologyNonGlobalNoReach(t *testing.T) {
 	conn := &fakeGatewayConn{topo: gwapi.Topology{
 		Gateway: gwapi.GatewayNode{Namespace: "infra", Name: "eg"},

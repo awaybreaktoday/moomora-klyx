@@ -126,7 +126,7 @@ func toTopologyDTO(t gwapi.Topology) TopologyDTO {
 			rd.Backends = append(rd.Backends, BackendDTO{Kind: b.Kind, Name: b.Name, Namespace: b.Namespace, Port: b.Port, Weight: b.Weight})
 		}
 		for _, s := range r.Services {
-			rd.Services = append(rd.Services, ServiceNodeDTO{Namespace: s.Namespace, Name: s.Name, Type: s.Type, Port: s.Port, Resolved: s.Resolved, Global: s.Global, Policies: policyDTOs(s.Policies), CNPs: policyDTOs(s.CNPs)})
+			rd.Services = append(rd.Services, ServiceNodeDTO{Namespace: s.Namespace, Name: s.Name, Type: s.Type, Port: s.Port, Resolved: s.Resolved, Global: s.Global, MeshClusters: []string{}, Policies: policyDTOs(s.Policies), CNPs: policyDTOs(s.CNPs)})
 		}
 		out.Routes = append(out.Routes, rd)
 	}

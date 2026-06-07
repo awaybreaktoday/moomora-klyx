@@ -66,6 +66,9 @@ func (s *GatewayService) GetGatewayTopology(cluster, namespace, name string) Top
 				sn := &dto.Routes[ri].Services[si]
 				if sn.Global {
 					peers, unconfirmed := s.globalReach(cluster, sn.Namespace, sn.Name)
+					if peers == nil {
+						peers = []string{}
+					}
 					sn.MeshClusters = peers
 					sn.MeshUnconfirmed = unconfirmed
 				}
