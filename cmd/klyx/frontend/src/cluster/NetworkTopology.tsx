@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useFleet, GatewayRef, RouteNodeDTO } from "../store/fleet";
-import { getGatewayTopology } from "../bridge/gateway";
+import { useFleet, GatewayRef, RouteNodeDTO, RouteMetricDTO } from "../store/fleet";
+import { getGatewayTopology, getRouteMetrics } from "../bridge/gateway";
 import { PolicyChip } from "./PolicyChip";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
@@ -20,6 +20,9 @@ const NS_CHIP_LIMIT = 8;
 export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway: GatewayRef }) {
   const net = useFleet((s) => s.network);
   const selectRoute = useFleet((s) => s.selectRoute);
+  const routeMetrics = useFleet((s) => s.network.routeMetrics);
+  const rmStatus = useFleet((s) => s.network.routeMetricsStatus);
+  const rmStale = useFleet((s) => s.network.routeMetricsStale);
   const [nsFilter, setNsFilter] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,6 +32,24 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
 
   const isCurrent = net.selected && net.selected.namespace === gateway.namespace && net.selected.name === gateway.name;
   const t = isCurrent ? net.topology : null;
+
+  // Poll the live route metrics (~20s) while a topology is open. The structural
+  // topology is static (fetched on gateway-select); only these numbers poll.
+  const routeKeysJoined = (t?.routes ?? []).map(routeKey).join(",");
+  useEffect(() => {
+    if (!cluster || !routeKeysJoined) return;
+    const keys = routeKeysJoined.split(",");
+    let alive = true;
+    const tick = () => {
+      if (alive) void getRouteMetrics(cluster, keys);
+    };
+    tick();
+    const id = setInterval(tick, 20000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [cluster, routeKeysJoined]);
 
   if (net.topologyLoading && !t) return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>Loading topology…</div>;
   if (!t) return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>Could not load the topology.</div>;
@@ -124,6 +145,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                       ))}
                     </div>
                   )}
+                  <RouteMetricsLine m={routeMetrics[routeKey(r)]} />
                 </div>
                 <div style={chev}>›</div>
                 <div style={nb}>
@@ -159,6 +181,15 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
             );
           })}
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px dashed var(--color-border-secondary)", fontSize: 10, color: "var(--color-text-tertiary)" }}>⇄ global services show their fleet-confirmed mesh peers on the pods box · cluster peering is on the Fleet view</div>
+          {rmStatus && (
+            <div style={{ marginTop: 6, fontSize: 10, color: rmStatus.available ? "var(--color-text-tertiary)" : "var(--color-text-warning)" }}>
+              {rmStatus.available
+                ? rmStatus.message
+                  ? `route metrics · ${rmStatus.message}`
+                  : `route metrics · updated ${ago(rmStatus.updatedAt)}${rmStale ? " · stale" : ""}`
+                : `route metrics unavailable: ${rmStatus.message}`}
+            </div>
+          )}
         </div>
       )}
 
@@ -170,7 +201,45 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         </div>
       )}
 
-      {selected && <RouteDetail route={selected} />}
+      {selected && <RouteDetail route={selected} metric={routeMetrics[routeKey(selected)]} />}
+    </div>
+  );
+}
+
+function fmtMs(v: number | null): string {
+  if (v == null) return "—";
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`;
+}
+function fmtRps(v: number | null): string {
+  if (v == null) return "—";
+  if (v >= 10) return `${Math.round(v)}`;
+  // keep one decimal for sub-10 rates, but render whole numbers cleanly (0, 3)
+  return Number.isInteger(v) ? `${v}` : v.toFixed(1);
+}
+function fmtErr(v: number | null): string {
+  if (v == null) return "—";
+  const pct = v * 100;
+  return pct > 0 && pct < 0.1 ? "<0.1%" : `${pct < 1 ? pct.toFixed(1) : Math.round(pct)}%`;
+}
+function ago(iso: string): string {
+  if (!iso) return "never";
+  const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  return secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`;
+}
+function errColor(v: number | null): string {
+  return v == null ? "var(--color-text-tertiary)" : v >= 0.05 ? "var(--color-text-danger)" : v >= 0.01 ? "var(--color-text-warning)" : "var(--color-text-success)";
+}
+function RouteMetricsLine({ m }: { m: RouteMetricDTO | undefined }) {
+  const rps = m?.rps ?? null,
+    p50 = m?.p50 ?? null,
+    p99 = m?.p99 ?? null,
+    err = m?.errRate ?? null;
+  return (
+    <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)", marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <span>{fmtRps(rps)} rps</span>
+      <span>p50 {fmtMs(p50)}</span>
+      <span>p99 {fmtMs(p99)}</span>
+      <span style={{ color: errColor(err) }}>err {fmtErr(err)}</span>
     </div>
   );
 }
@@ -199,7 +268,7 @@ function Chip({ label, count, active, onClick }: { label: string; count?: number
   );
 }
 
-function RouteDetail({ route }: { route: RouteNodeDTO }) {
+function RouteDetail({ route, metric }: { route: RouteNodeDTO; metric: RouteMetricDTO | undefined }) {
   return (
     <div style={{ marginTop: 12, background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "10px 12px" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
@@ -218,6 +287,16 @@ function RouteDetail({ route }: { route: RouteNodeDTO }) {
           <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 5 }}>backends</div>
           {route.backends.map((b, i) => (<div key={i}>{b.name}:{b.port}{b.weight ? ` · weight ${b.weight}` : ""}</div>))}
         </div>
+      </div>
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 6 }}>traffic</div>
+        <div style={{ display: "flex", gap: 14, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+          <span>{fmtRps(metric?.rps ?? null)} rps</span>
+          <span>p50 {fmtMs(metric?.p50 ?? null)}</span>
+          <span>p99 {fmtMs(metric?.p99 ?? null)}</span>
+          <span style={{ color: errColor(metric?.errRate ?? null) }}>err {fmtErr(metric?.errRate ?? null)}</span>
+        </div>
+        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>p50/p99 are worst-rule values</div>
       </div>
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px solid var(--color-border-tertiary)" }}>
         <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 6 }}>attached policies</div>

@@ -109,6 +109,10 @@ export type RouteNodeDTO = { namespace: string; name: string; hostnames: string[
 export type TopologyDTO = { gateway: GatewayNodeDTO; routes: RouteNodeDTO[]; clusterPolicies?: PolicyRefDTO[]; warnings?: string[]; error?: string };
 export type GatewayRef = { namespace: string; name: string };
 
+export type RouteMetricDTO = { rps: number | null; p50: number | null; p99: number | null; errRate: number | null };
+export type RouteMetricsStatusDTO = { available: boolean; message: string; updatedAt: string };
+export type RouteMetricsResultDTO = { status: RouteMetricsStatusDTO; routes: Record<string, RouteMetricDTO> };
+
 export type NetworkSlice = {
   served: boolean;
   gateways: GatewayRefDTO[];
@@ -117,6 +121,9 @@ export type NetworkSlice = {
   topology: TopologyDTO | null;
   topologyLoading: boolean;
   selectedRoute: string | null; // "<ns>/<name>"
+  routeMetrics: Record<string, RouteMetricDTO>;
+  routeMetricsStatus: RouteMetricsStatusDTO | null;
+  routeMetricsStale: boolean;
 };
 
 export type MeshNodeDTO = { cluster: string; name: string; clusterId: number | null; state: string; present: boolean };
@@ -176,6 +183,7 @@ type FleetState = {
   setTopology: (t: TopologyDTO) => void;
   selectRoute: (key: string | null) => void;
   clearNetwork: () => void;
+  setRouteMetrics: (result: RouteMetricsResultDTO) => void;
   mesh: MeshGraphDTO | null;
   setMesh: (m: MeshGraphDTO) => void;
   metrics: MetricsSlice;
@@ -250,18 +258,34 @@ export const useFleet = create<FleetState>((set) => ({
       s.route.name === "cluster"
         ? {
             route: { name: "cluster", cluster: s.route.cluster, section: "network", gateway: { namespace, name } },
-            network: { ...s.network, selected: { namespace, name }, topology: null, topologyLoading: true, selectedRoute: null },
+            network: { ...s.network, selected: { namespace, name }, topology: null, topologyLoading: true, selectedRoute: null, routeMetrics: {}, routeMetricsStatus: null, routeMetricsStale: false },
           }
         : {}),
   closeGateway: () =>
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section: "network" } } : {})),
-  network: { served: false, gateways: [], listLoading: false, selected: null, topology: null, topologyLoading: false, selectedRoute: null },
+  network: { served: false, gateways: [], listLoading: false, selected: null, topology: null, topologyLoading: false, selectedRoute: null, routeMetrics: {}, routeMetricsStatus: null, routeMetricsStale: false },
   setGatewaysLoading: () => set((s) => ({ network: { ...s.network, listLoading: true } })),
   setGateways: (l) => set((s) => ({ network: { ...s.network, served: l.gatewayAPIServed, gateways: l.gateways ?? [], listLoading: false } })),
-  setTopologyLoading: (ref) => set((s) => ({ network: { ...s.network, selected: ref, topology: null, topologyLoading: true, selectedRoute: null } })),
+  setTopologyLoading: (ref) => set((s) => ({ network: { ...s.network, selected: ref, topology: null, topologyLoading: true, selectedRoute: null, routeMetrics: {}, routeMetricsStatus: null, routeMetricsStale: false } })),
   setTopology: (topology) => set((s) => ({ network: { ...s.network, topology, topologyLoading: false } })),
   selectRoute: (selectedRoute) => set((s) => ({ network: { ...s.network, selectedRoute } })),
-  clearNetwork: () => set((s) => ({ network: { ...s.network, selected: null, topology: null, topologyLoading: false, selectedRoute: null } })),
+  clearNetwork: () => set((s) => ({ network: { ...s.network, selected: null, topology: null, topologyLoading: false, selectedRoute: null, routeMetrics: {}, routeMetricsStatus: null, routeMetricsStale: false } })),
+  setRouteMetrics: (result) =>
+    set((s) => {
+      if (result.status.available) {
+        return { network: { ...s.network, routeMetrics: result.routes ?? {}, routeMetricsStatus: result.status, routeMetricsStale: false } };
+      }
+      // transient failure: keep last-good numbers + last-good updatedAt, mark stale
+      const keptUpdatedAt = s.network.routeMetricsStatus?.updatedAt ?? "";
+      return {
+        network: {
+          ...s.network,
+          // keep s.network.routeMetrics as-is (do NOT blank)
+          routeMetricsStatus: { ...result.status, updatedAt: keptUpdatedAt },
+          routeMetricsStale: Object.keys(s.network.routeMetrics).length > 0,
+        },
+      };
+    }),
   mesh: null,
   setMesh: (mesh) => set({ mesh }),
   metrics: { cluster: null, dto: null, loading: false },
