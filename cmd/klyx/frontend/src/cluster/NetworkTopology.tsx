@@ -149,11 +149,16 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                       ))}
                     </div>
                   )}
+                  {svc && svc.global && (
+                    <div style={{ marginTop: 4, fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-text-info)" }} title={svc.meshUnconfirmed ? "global service: some mesh peers could not be fleet-verified (off-fleet or not connected). Live dataplane health is not checked." : "global service: also present on these fleet mesh peers. Live dataplane health is not checked."}>
+                      ⇄ global{svc.meshClusters.length > 0 ? ` → ${svc.meshClusters.join(", ")}` : ""}{svc.meshUnconfirmed && svc.meshClusters.length === 0 ? " (peers unverified)" : svc.meshUnconfirmed ? " (+unverified)" : ""}
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px dashed var(--color-border-secondary)", fontSize: 10, color: "var(--color-text-tertiary)" }}>⬡ ClusterMesh: not shown yet (arrives in a later slice)</div>
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px dashed var(--color-border-secondary)", fontSize: 10, color: "var(--color-text-tertiary)" }}>⇄ global services show their fleet-confirmed mesh peers on the pods box · cluster peering is on the Fleet view</div>
         </div>
       )}
 
