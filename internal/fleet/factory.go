@@ -8,8 +8,8 @@ import (
 	"k8s.io/client-go/metadata"
 
 	"github.com/moomora/klyx/internal/capability"
-	"github.com/moomora/klyx/internal/cluster"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/cluster"
 	"github.com/moomora/klyx/internal/config"
 )
 
