@@ -14,7 +14,9 @@ type fakeRMConn struct {
 	st routemetrics.Status
 }
 
-func (f fakeRMConn) ListGateways(context.Context) ([]gwapi.GatewayRef, bool, error) { return nil, false, nil }
+func (f fakeRMConn) ListGateways(context.Context) ([]gwapi.GatewayRef, bool, error) {
+	return nil, false, nil
+}
 func (f fakeRMConn) GetGatewayTopology(context.Context, string, string) (gwapi.Topology, error) {
 	return gwapi.Topology{}, nil
 }
