@@ -17,6 +17,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
@@ -40,6 +41,7 @@ type Conn interface {
 	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)
 	ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, error)
 	GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error)
+	MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

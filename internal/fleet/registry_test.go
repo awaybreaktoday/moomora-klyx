@@ -6,6 +6,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
@@ -53,6 +54,9 @@ func (f *fakeConn) ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, 
 }
 func (f *fakeConn) GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error) {
 	return gwapi.Topology{}, nil
+}
+func (f *fakeConn) MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus) {
+	return clustermesh.Member{Cluster: f.name, Present: true}, MeshReadStatus{}
 }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
