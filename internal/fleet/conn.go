@@ -42,6 +42,7 @@ type Conn interface {
 	ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, error)
 	GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error)
 	MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus)
+	HasGlobalService(ctx context.Context, ns, name string) bool
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
