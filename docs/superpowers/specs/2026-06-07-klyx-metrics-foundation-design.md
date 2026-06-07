@@ -56,6 +56,30 @@ being wrong — that is worse than failure. So:
    discovered · svc monitoring/prometheus-operated" or "monitoring
    unavailable: <real reason>".
 
+`Warning` and `Reason` stay strictly distinct and must not blur:
+- `Warning` = non-fatal context on an otherwise-working connection (e.g.
+  `serviceRef ignored because endpoint is set`).
+- `Reason` = why the connection is unavailable (e.g. `multiple candidate
+  Services found, set metrics.serviceRef`).
+
+UI examples:
+```
+available + warning:
+  monitoring: endpoint https://prom.example ⚠ serviceRef ignored because endpoint is set
+unavailable + reason:
+  monitoring unavailable: multiple candidate Services found, set metrics.serviceRef
+```
+
+### Single-backend assumption (multi-cluster scoping deferred)
+
+M7-a assumes the Prometheus backend selected for a cluster represents **that
+cluster only**. The proof-of-life queries are unscoped aggregates; if the
+backend is shared / federated / multi-cluster, they would aggregate across
+everything. This is fine for the homelab (one Prometheus per cluster) and is an
+explicit M7-a limitation. Multi-cluster label scoping is deferred: a later slice
+adds optional `clusterLabel` / `clusterValue` to `MetricsConfig` and injects a
+`{<label>="<value>"}` matcher into every query. Not built in M7-a.
+
 ## Architecture
 
 ```
@@ -106,8 +130,10 @@ func NewClient(q Querier) *Client
 func (c *Client) InstantScalar(ctx context.Context, promql string) (Sample, error)
 
 // Liveness runs `vector(1)` and returns nil only on HTTP 200 + a valid
-// Prometheus success body whose result is the scalar/vector 1. Non-200,
+// Prometheus success body whose single value parses to float64 1.0. Non-200,
 // status:"error", or an unparseable/non-Prometheus body → a descriptive error.
+// Prometheus encodes sample values as JSON strings inside [ts, "1"]; compare
+// the PARSED float (1.0), never the raw string.
 func (c *Client) Liveness(ctx context.Context) error
 ```
 
@@ -123,7 +149,7 @@ isn't Prometheus).
 // directTransport hits an external Prometheus/Mimir query URL over HTTPS.
 // Adds `Authorization: Bearer <token>` when token != "". Honors tlsSkipVerify.
 type directTransport struct {
-    base   string // e.g. https://host/prometheus  (no trailing /api/v1)
+    base   string // the Prometheus BASE URL, e.g. https://host/prometheus
     token  string
     client *http.Client
 }
@@ -143,6 +169,13 @@ func (t proxyTransport) InstantQuery(ctx, promql) (int, []byte, error)
 Both append `/api/v1/query?query=<promql>` (URL-encoded). Instant query only;
 no `time` param (server uses "now").
 
+**Endpoint URL format (strict).** `endpoint` MUST be the Prometheus base URL
+**without** a trailing `/api/v1` (e.g. `https://host/prometheus`, not
+`https://host/prometheus/api/v1`). The transport appends `/api/v1/query`
+exactly once. Config validation rejects an `endpoint` ending in `/api/v1`
+(or `/api/v1/`) with a clear message, so a misconfigured
+`/api/v1/api/v1/query` can never happen. A single trailing `/` is trimmed.
+
 `resolve.go`:
 
 ```go
@@ -161,18 +194,27 @@ type Resolution struct {
     Warning   string  // non-fatal note (e.g. endpoint+serviceRef both set)
 }
 
-// Resolve applies the 4-tier priority. `disco` lists candidate Services found
-// in-cluster (caller supplies; see discovery below).
-//   1. endpoint set            → ModeExplicitEndpoint (direct transport)
-//   2. serviceRef set          → ModeExplicitService  (proxy transport)
-//   3. exactly one disco match → ModeDiscovered       (proxy transport)
-//   4. zero matches            → ModeUnavailable "no Prometheus Service found…"
-//      multiple matches        → ModeUnavailable "multiple candidate Services
-//                                 found, set metrics.serviceRef" + Warning
-func Resolve(cfg config.MetricsConfig, disco []ServiceCandidate, mk TransportFactory) Resolution
+// Resolve applies the 4-tier priority. `disco` is the SINGLE discovery outcome
+// the fleet layer already reduced (see discovery rules below): at most one
+// chosen candidate, or a multi-match signal.
+//   1. endpoint set      → ModeExplicitEndpoint (direct transport)
+//   2. serviceRef set    → ModeExplicitService  (proxy transport)
+//   3. disco chose one   → ModeDiscovered        (proxy transport)
+//   4. disco found none  → ModeUnavailable "no Prometheus Service found…"
+//      disco multi-match  → ModeUnavailable "multiple candidate Services found,
+//                           set metrics.serviceRef" (+ Reason)
+func Resolve(cfg config.MetricsConfig, disco DiscoveryResult, mk TransportFactory) Resolution
 ```
 
-Discovery candidate ranking (ordered named-Service probe, first tier first):
+**Discovery (fleet-layer; produces a single `DiscoveryResult`).** Discovery is
+a two-stage process, and the multiple-match rule applies **within a stage**, not
+across the whole ranked list — otherwise a cluster running both Prometheus and
+Mimir would be "too honest to work."
+
+Stage 1 — **ranked named-Service probe.** Check the ordered candidates in turn
+and use the **first existing Service**. Ranking is the tiebreak by design; a
+cluster with both `prometheus-operated` and `mimir-query-frontend` resolves to
+`prometheus-operated` (first listed), never "multiple matches":
 
 ```
 monitoring/prometheus-operated:9090
@@ -182,13 +224,16 @@ monitoring/mimir-query-frontend:8080
 monitoring/mimir-nginx:80
 ```
 
-Label fallback (only if a single candidate matches AND its port is
-unambiguous): `app.kubernetes.io/name=prometheus,component=server` and
-`app.kubernetes.io/name=mimir,component=query-frontend`. If the label query
-returns multiple Services, do not pick — that becomes the "multiple matches"
-unavailable case. Discovery is a `fleet`-layer concern (needs the live client);
-it produces `[]ServiceCandidate{Namespace,Name,Port,Scheme}` handed to
-`Resolve`.
+Stage 2 — **label fallback, only if NO named candidate exists.** Query
+`app.kubernetes.io/name=prometheus,component=server`, then
+`app.kubernetes.io/name=mimir,component=query-frontend`. Use a hit only if it
+yields exactly one Service with an unambiguous single port. If a label query
+returns multiple Services → `DiscoveryResult` multi-match (unavailable, set
+serviceRef). This is the only path that produces multi-match.
+
+`DiscoveryResult` is `{Chosen *ServiceCandidate; MultiMatch bool}` where
+`ServiceCandidate` is `{Namespace,Name,Port,Scheme}`. The fleet layer (live
+client) computes it and hands it to `Resolve`.
 
 `capability.go`:
 
@@ -226,6 +271,9 @@ type MetricsServiceRef struct {
 Validation (extends `Config.validate`):
 - `serviceRef`, when present, requires `namespace`, `name`, and `port`;
   `scheme` defaults to `http` and must be `http`/`https` if set.
+- `endpoint`, when present, must be the Prometheus base URL and must NOT end in
+  `/api/v1` or `/api/v1/` (rejected with a clear message); a single trailing
+  `/` is trimmed.
 - `endpoint` and `serviceRef` both set is not an error — `endpoint` wins, and a
   startup `Warning()` notes the ignored `serviceRef`.
 
@@ -238,9 +286,9 @@ Validation (extends `Config.validate`):
 ```go
 // ClusterMetrics returns the proof-of-life metrics and the connection
 // capability. Lazy: on first call it discovers candidates (if needed),
-// resolves, and probes; the capability is cached for the conn's lifetime and
-// the sample values are cached with a short TTL (~15s). Safe for concurrent use.
-func (c *ClusterConn) ClusterMetrics(ctx context.Context) (ClusterMetrics, metrics.MetricsCapability)
+// resolves, and probes. Caching is asymmetric (see below). `forceReprobe`
+// discards any cached capability and re-resolves+re-probes. Concurrency-safe.
+func (c *ClusterConn) ClusterMetrics(ctx context.Context, forceReprobe bool) (ClusterMetrics, metrics.MetricsCapability)
 
 type ClusterMetrics struct {
     CPUFraction *float64 // 0..1; nil = no data / unavailable
@@ -250,9 +298,23 @@ type ClusterMetrics struct {
 
 Added to the `Conn` interface so the registry/appbridge can call it.
 
-Proof-of-life queries (node-exporter; kube-prometheus-stack ships these):
-- CPU%: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`
-- Mem%: `1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)`
+**Asymmetric capability caching** (so a probe during a Prometheus restart does
+not stick like tar):
+- **Available** capability is cached for the conn lifetime (the backend is
+  proven; re-resolving every call is wasted work).
+- **Unavailable** capability is cached for a short TTL (~45s) and re-probed on
+  the next call after it expires — a backend that was down at first load
+  self-heals without an app restart.
+- A manual UI refresh calls with `forceReprobe=true`, which re-probes
+  regardless of cache state (the explicit "it's back, check now" escape hatch).
+- Metric **sample values** (the CPU/mem queries) are cached with a short TTL
+  (~15s) independent of the capability cache.
+
+Proof-of-life queries (node-exporter observed host usage; kube-prometheus-stack
+ships these). These are observed **CPU/memory used**, not Kubernetes
+requested/allocatable saturation — the UI wording reflects that (see below):
+- CPU used: `1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))`
+- Mem used: `1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)`
 
 Each query degrades independently: an `Absent` sample → nil fraction → "—".
 A transport error on an individual query (after the capability already probed
@@ -295,19 +357,24 @@ Registered in `cmd/klyx/main.go` like the other services. On-demand only — no
 push loop.
 
 Store: a `metrics` slice keyed by cluster name, populated by a
-`bridge.getClusterMetrics(name)` call fired when the Overview mounts (and on its
-existing refresh). Standard loading/error handling.
+`bridge.getClusterMetrics(name, forceReprobe)` call fired when the Overview
+mounts (`forceReprobe=false`) and on an explicit refresh affordance
+(`forceReprobe=true`). Standard loading/error handling.
 
 ### UI — cluster Overview
 
 The Overview (cluster drilldown) gains, alongside the existing nodes/pods line:
-- A compact **cpu / mem** readout: percent + a thin utilization bar, colour
-  from CSS status vars. Null fraction → "—" (no bar).
+- A compact **cpu used / mem used** readout: percent + a thin usage bar, colour
+  from CSS status vars. The labels are "cpu used" / "mem used" — these are
+  observed host usage (node-exporter), NOT Kubernetes requested/allocatable
+  saturation, and the wording must not imply capacity/request pressure. Null
+  fraction → "—" (no bar).
 - A **monitoring status line** that states the mode honestly:
   - available: `monitoring: discovered · svc monitoring/prometheus-operated`
     (or `· endpoint <host>` / `· svc <ns/name:port>` per mode)
   - warning present: append `⚠ <warning>`
   - unavailable: `monitoring unavailable: <reason>`
+- A manual refresh affordance that triggers a `forceReprobe` re-probe.
 - Loading and error states.
 
 No fleet-card metrics in M7-a.
@@ -319,13 +386,22 @@ No fleet-card metrics in M7-a.
     success empty vector (→ Absent), `status:"error"`, non-Prometheus body,
     multi-element vector (→ error).
   - `Liveness`: 200+valid → nil; 401/503 → error with status; non-prom body →
-    "not a Prometheus API".
-  - `Resolve`: each of the 4 tiers; discovery ranking picks the first listed;
-    multiple candidates → unavailable + warning; endpoint+serviceRef → endpoint
-    wins + warning.
+    "not a Prometheus API"; value encoded as `[ts,"1"]` string parses to 1.0.
+  - `Resolve`: each of the 4 tiers; endpoint+serviceRef → endpoint wins +
+    warning; `disco` chose-one → discovered; `disco` multi-match → unavailable
+    + reason; `disco` none → unavailable.
+  - Discovery reduction (the fleet-layer stage): **both** prometheus and mimir
+    named Services present → picks `prometheus-operated` (first listed), NOT
+    multi-match (the "too honest to work" regression guard); no named Service +
+    one label hit → chosen; no named Service + multiple label hits →
+    multi-match.
   - Transports use a fake `http.RoundTripper` / fake REST client; no live calls.
 - `internal/config`: serviceRef validation (missing fields, bad scheme),
-  endpoint+serviceRef precedence warning.
+  endpoint+serviceRef precedence warning, and `endpoint` ending in `/api/v1`
+  rejected.
+- `internal/fleet` (or `internal/metrics`) caching: unavailable capability
+  re-probes after its short TTL; available capability stays cached;
+  `forceReprobe=true` re-probes regardless.
 - `internal/appbridge`: `GetClusterMetrics` DTO mapping via a fake `Conn` —
   available with fractions, available with nil fractions, unavailable with
   reason.
@@ -345,6 +421,9 @@ No fleet-card metrics in M7-a.
    Prometheus Service found`, cpu/mem "—".
 4. (If reachable) set an explicit `endpoint` for one cluster → mode shows
    `explicit-endpoint`, values render.
+5. Restart-recovery: with the wrong-serviceRef cluster showing unavailable,
+   correct the config (or the backend recovers) and hit the manual refresh →
+   it re-probes and flips to available, without restarting the app.
 
 ## File structure
 
@@ -371,4 +450,19 @@ No fleet-card metrics in M7-a.
    sample TTL; no fleet-card polling in M7-a.
 6. Nil fractions (`*float64`) distinguish "no data" from `0`; UI renders "—".
 7. Static bearer + tlsSkipVerify auth now; Azure Monitor AAD deferred.
-8. Proof-of-life metrics are node-exporter cluster CPU% and memory%.
+8. Proof-of-life metrics are node-exporter observed cluster **CPU used** and
+   **memory used** (host usage, not allocatable/requested). UI wording reflects
+   "used", not capacity saturation.
+9. Discovery multi-match is a within-stage rule: ranked named Services use
+   first-listed (ranking IS the tiebreak); only label fallback can produce
+   multi-match. Prevents "too honest to work" on prometheus+mimir clusters.
+10. `endpoint` is strictly the base URL without `/api/v1` (validation-enforced);
+    transports append `/api/v1/query` exactly once.
+11. Asymmetric capability caching: available cached for conn lifetime,
+    unavailable short-TTL + re-probe, manual refresh forces re-probe — so a
+    probe during a Prometheus restart never sticks.
+12. `Warning` (non-fatal context on a working connection) and `Reason` (why
+    unavailable) stay strictly distinct.
+13. Single-backend assumption: M7-a treats the selected Prometheus as
+    representing only that cluster; multi-cluster `clusterLabel`/`clusterValue`
+    scoping is deferred.
