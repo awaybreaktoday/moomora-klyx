@@ -229,6 +229,7 @@ func (c *ClusterConn) resolveBackends(ctx context.Context, rn *gwapi.RouteNode, 
 		sn.Resolved = true
 		sn.Type = string(svc.Spec.Type)
 		sn.Selector = svc.Spec.Selector
+		sn.Global = svc.Annotations["service.cilium.io/global"] == "true"
 		if len(svc.Spec.Ports) > 0 && sn.Port == 0 {
 			sn.Port = svc.Spec.Ports[0].Port
 		}

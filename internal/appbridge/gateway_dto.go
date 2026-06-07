@@ -52,13 +52,16 @@ type PodCountDTO struct {
 	Unknown bool `json:"unknown"`
 }
 type ServiceNodeDTO struct {
-	Namespace string         `json:"namespace"`
-	Name      string         `json:"name"`
-	Type      string         `json:"type"`
-	Port      int32          `json:"port"`
-	Resolved  bool           `json:"resolved"`
-	Policies  []PolicyRefDTO `json:"policies"`
-	CNPs      []PolicyRefDTO `json:"cnps"`
+	Namespace       string         `json:"namespace"`
+	Name            string         `json:"name"`
+	Type            string         `json:"type"`
+	Port            int32          `json:"port"`
+	Resolved        bool           `json:"resolved"`
+	Global          bool           `json:"global"`
+	MeshClusters    []string       `json:"meshClusters"`
+	MeshUnconfirmed bool           `json:"meshUnconfirmed"`
+	Policies        []PolicyRefDTO `json:"policies"`
+	CNPs            []PolicyRefDTO `json:"cnps"`
 }
 type RouteNodeDTO struct {
 	Namespace    string           `json:"namespace"`
@@ -123,7 +126,7 @@ func toTopologyDTO(t gwapi.Topology) TopologyDTO {
 			rd.Backends = append(rd.Backends, BackendDTO{Kind: b.Kind, Name: b.Name, Namespace: b.Namespace, Port: b.Port, Weight: b.Weight})
 		}
 		for _, s := range r.Services {
-			rd.Services = append(rd.Services, ServiceNodeDTO{Namespace: s.Namespace, Name: s.Name, Type: s.Type, Port: s.Port, Resolved: s.Resolved, Policies: policyDTOs(s.Policies), CNPs: policyDTOs(s.CNPs)})
+			rd.Services = append(rd.Services, ServiceNodeDTO{Namespace: s.Namespace, Name: s.Name, Type: s.Type, Port: s.Port, Resolved: s.Resolved, Global: s.Global, MeshClusters: []string{}, Policies: policyDTOs(s.Policies), CNPs: policyDTOs(s.CNPs)})
 		}
 		out.Routes = append(out.Routes, rd)
 	}

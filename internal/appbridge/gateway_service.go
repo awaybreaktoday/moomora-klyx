@@ -15,11 +15,19 @@ type GatewayConn interface {
 const gatewayTimeout = 30 * time.Second
 
 type GatewayService struct {
-	lookup func(string) (GatewayConn, bool)
+	lookup      func(string) (GatewayConn, bool)
+	globalReach func(cluster, ns, name string) (peers []string, unconfirmed bool)
 }
 
 func NewGatewayService(lookup func(string) (GatewayConn, bool)) *GatewayService {
 	return &GatewayService{lookup: lookup}
+}
+
+// SetGlobalReach wires the fleet cross-reference used to fill global services'
+// meshClusters / meshUnconfirmed. Optional - without it, global services still
+// render (just without the confirmed-peer list).
+func (s *GatewayService) SetGlobalReach(f func(cluster, ns, name string) ([]string, bool)) {
+	s.globalReach = f
 }
 
 func (s *GatewayService) ListGateways(cluster string) GatewayListDTO {
@@ -51,5 +59,21 @@ func (s *GatewayService) GetGatewayTopology(cluster, namespace, name string) Top
 	if err != nil {
 		return TopologyDTO{Error: err.Error()}
 	}
-	return toTopologyDTO(topo)
+	dto := toTopologyDTO(topo)
+	if s.globalReach != nil {
+		for ri := range dto.Routes {
+			for si := range dto.Routes[ri].Services {
+				sn := &dto.Routes[ri].Services[si]
+				if sn.Global {
+					peers, unconfirmed := s.globalReach(cluster, sn.Namespace, sn.Name)
+					if peers == nil {
+						peers = []string{}
+					}
+					sn.MeshClusters = peers
+					sn.MeshUnconfirmed = unconfirmed
+				}
+			}
+		}
+	}
+	return dto
 }

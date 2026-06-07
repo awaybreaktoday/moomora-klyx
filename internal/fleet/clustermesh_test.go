@@ -47,3 +47,20 @@ func TestMeshMemberStandalone(t *testing.T) {
 		t.Fatalf("status installed should be false: %+v", st)
 	}
 }
+
+func TestHasGlobalService(t *testing.T) {
+	gsvc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "share-api", Namespace: "apps", Annotations: map[string]string{"service.cilium.io/global": "true"}}}
+	plain := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "local-only", Namespace: "apps"}}
+	typed := typedfake.NewSimpleClientset(gsvc, plain)
+	c := NewClusterConn("ctx-orange", typed, nil, nil, nil, clock.Real{})
+
+	if !c.HasGlobalService(context.Background(), "apps", "share-api") {
+		t.Fatal("share-api is global")
+	}
+	if c.HasGlobalService(context.Background(), "apps", "local-only") {
+		t.Fatal("local-only is not global")
+	}
+	if c.HasGlobalService(context.Background(), "apps", "absent") {
+		t.Fatal("absent service is not global")
+	}
+}

@@ -25,10 +25,10 @@ func (f *fakeConn) Start(ctx context.Context) {
 		f.start()
 	}
 }
-func (f *fakeConn) Snapshot() Snapshot                  { return f.snap }
-func (f *fakeConn) OpenGitOps()                         {}
-func (f *fakeConn) CloseGitOps()                        {}
-func (f *fakeConn) GitOpsResources() []flux.Resource    { return nil }
+func (f *fakeConn) Snapshot() Snapshot               { return f.snap }
+func (f *fakeConn) OpenGitOps()                      {}
+func (f *fakeConn) CloseGitOps()                     {}
+func (f *fakeConn) GitOpsResources() []flux.Resource { return nil }
 func (f *fakeConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
 	return nil, false
 }
@@ -58,6 +58,7 @@ func (f *fakeConn) GetGatewayTopology(ctx context.Context, namespace, name strin
 func (f *fakeConn) MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus) {
 	return clustermesh.Member{Cluster: f.name, Present: true}, MeshReadStatus{}
 }
+func (f *fakeConn) HasGlobalService(ctx context.Context, ns, name string) bool { return false }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{

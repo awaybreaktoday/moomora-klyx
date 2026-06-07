@@ -9,14 +9,14 @@ const gateway: GatewayRef = { namespace: "infra", name: "eg" };
 const topo: TopologyDTO = {
   gateway: { namespace: "infra", name: "eg", className: "envoy-gateway", accepted: true, programmed: true, listeners: [{ name: "https", protocol: "HTTPS", hostname: "", port: 443 }], policies: [] },
   routes: [
-    { namespace: "apps", name: "share", hostnames: ["share.example.com"], matches: [{ pathType: "PathPrefix", pathValue: "/api/share", method: "GET" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: "share-api", namespace: "apps", port: 8080, weight: 100 }], services: [{ namespace: "apps", name: "share-api", type: "ClusterIP", port: 8080, resolved: true, policies: [], cnps: [] }], pods: { ready: 3, total: 3, unknown: false }, policies: [] },
+    { namespace: "apps", name: "share", hostnames: ["share.example.com"], matches: [{ pathType: "PathPrefix", pathValue: "/api/share", method: "GET" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: "share-api", namespace: "apps", port: 8080, weight: 100 }], services: [{ namespace: "apps", name: "share-api", type: "ClusterIP", port: 8080, resolved: true, global: false, meshClusters: [], meshUnconfirmed: false, policies: [], cnps: [] }], pods: { ready: 3, total: 3, unknown: false }, policies: [] },
   ],
   warnings: ["route apps/share has 2 backends; the lane shows the primary"],
 };
 
 function route(namespace: string, name: string, path: string): TopologyDTO["routes"][number] {
   const svc = `${name}-svc`;
-  return { namespace, name, hostnames: [], matches: [{ pathType: "PathPrefix", pathValue: path, method: "" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: svc, namespace, port: 80, weight: 0 }], services: [{ namespace, name: svc, type: "ClusterIP", port: 80, resolved: true, policies: [], cnps: [] }], pods: { ready: 1, total: 1, unknown: false }, policies: [] };
+  return { namespace, name, hostnames: [], matches: [{ pathType: "PathPrefix", pathValue: path, method: "" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: svc, namespace, port: 80, weight: 0 }], services: [{ namespace, name: svc, type: "ClusterIP", port: 80, resolved: true, global: false, meshClusters: [], meshUnconfirmed: false, policies: [], cnps: [] }], pods: { ready: 1, total: 1, unknown: false }, policies: [] };
 }
 
 const multiTopo: TopologyDTO = {
@@ -188,5 +188,38 @@ describe("NetworkTopology", () => {
     expect(getByText(/inferred network policies/i)).toBeTruthy();
     expect(getByText(/Pods selected via Service apps\/share-api/)).toBeTruthy();
     expect(getByText(/Inferred via: selector/)).toBeTruthy();
+  });
+
+  it("renders a ⇄ global cross-cluster edge on the pods box for a global service", () => {
+    const withGlobal: TopologyDTO = {
+      gateway: topo.gateway,
+      routes: [{ ...topo.routes[0], services: [{ ...topo.routes[0].services[0], global: true, meshClusters: ["homelab-orange"], meshUnconfirmed: false }] }],
+      warnings: [],
+    };
+    seed(withGlobal);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    // Tightened from /global/i: the retired-placeholder caption also contains
+    // "⇄ global …", so match the edge's distinctive peer arrow instead.
+    expect(getByText(/⇄ global → homelab-orange/)).toBeTruthy();
+    expect(getByText(/homelab-orange/)).toBeTruthy();
+  });
+
+  it("shows '(peers unverified)' when meshUnconfirmed and no confirmed peers", () => {
+    const withGlobal: TopologyDTO = {
+      gateway: topo.gateway,
+      routes: [{ ...topo.routes[0], services: [{ ...topo.routes[0].services[0], global: true, meshClusters: [], meshUnconfirmed: true }] }],
+      warnings: [],
+    };
+    seed(withGlobal);
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText(/peers unverified/i)).toBeTruthy();
+  });
+
+  it("no global edge for a non-global service", () => {
+    seed(topo); // share-api global:false
+    const { queryByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    // Tightened from /⇄ global/: the caption legitimately contains "⇄ global
+    // services …"; match only the edge forms ("⇄ global →" / "⇄ global (").
+    expect(queryByText(/⇄ global(?: →| \()/)).toBeNull();
   });
 });

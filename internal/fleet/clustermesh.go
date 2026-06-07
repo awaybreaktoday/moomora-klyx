@@ -39,3 +39,14 @@ func (c *ClusterConn) MeshMember(ctx context.Context) (clustermesh.Member, MeshR
 	m.Installed = st.ClusterMeshInstalled
 	return m, st
 }
+
+// HasGlobalService reports whether ns/name is a Cilium global service in this
+// cluster (annotation service.cilium.io/global=true). Used to fleet-confirm a
+// global service's reachable peers.
+func (c *ClusterConn) HasGlobalService(ctx context.Context, ns, name string) bool {
+	svc, err := c.typed.CoreV1().Services(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	return svc.Annotations["service.cilium.io/global"] == "true"
+}

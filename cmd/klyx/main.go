@@ -76,6 +76,54 @@ func main() {
 		}
 		return c, true
 	})
+	// globalReach is invoked once per global service and rebuilds the cilium-name -> fleet
+	// map each call (a MeshMember read per connected cluster). Fine at fleet scale (a few
+	// clusters, rare global services); if global services or cluster count grow, hoist the
+	// per-source resolution into a per-topology factory to collapse K*N reads to N.
+	gatewaySvc.SetGlobalReach(func(cluster, ns, name string) ([]string, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		src, ok := reg.Conn(cluster)
+		if !ok {
+			return nil, false
+		}
+		srcMem, _ := src.MeshMember(ctx)
+		if len(srcMem.Peers) == 0 {
+			return nil, false
+		}
+		// Map every connected fleet cluster's Cilium name -> (fleet key, conn).
+		type entry struct {
+			fleetKey string
+			conn     fleet.Conn
+		}
+		byCilium := map[string]entry{}
+		for _, snap := range reg.Snapshots() {
+			c, ok := reg.Conn(snap.Name)
+			if !ok {
+				continue
+			}
+			m, _ := c.MeshMember(ctx)
+			if m.Identity.Name != "" {
+				byCilium[m.Identity.Name] = entry{fleetKey: snap.Name, conn: c}
+			}
+		}
+		var peers []string
+		unconfirmed := false
+		for _, peerCilium := range srcMem.Peers {
+			e, present := byCilium[peerCilium]
+			if !present {
+				unconfirmed = true // off-fleet: can't inspect
+				continue
+			}
+			if e.fleetKey == cluster {
+				continue // never count the source cluster as its own peer
+			}
+			if e.conn.HasGlobalService(ctx, ns, name) {
+				peers = append(peers, e.fleetKey)
+			}
+		}
+		return peers, unconfirmed
+	})
 
 	meshSvc := appbridge.NewMeshService(func() []clustermesh.Member {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
