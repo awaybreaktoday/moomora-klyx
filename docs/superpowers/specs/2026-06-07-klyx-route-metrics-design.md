@@ -159,7 +159,10 @@ type RouteMetrics struct {
 
 type Status struct {
 	Available bool
-	Reason    string
+	// Message is the unavailable reason when Available is false, OR an
+	// informational note when Available is true (e.g. "no route series matched
+	// this topology" — the source works, these routes just have no series yet).
+	Message   string
 	UpdatedAt time.Time
 }
 
@@ -199,26 +202,33 @@ cluster name to its routeKey and aggregates the rules of a route:
 
 | Condition | Status | Per-route render |
 |-----------|--------|------------------|
-| M7-a metrics unavailable | `Available:false`, reason `metrics unavailable: <M7-a reason>` | all `—` + caption |
-| Envoy not detected (`!HasEnvoyProxy`) | `Available:false`, reason `Envoy Gateway not detected` | all `—` + caption |
-| No `envoy_cluster_*` series exist at all | `Available:false`, reason `no envoy_cluster_* series found` (scrape/PodMonitor likely missing) | all `—` + caption |
-| Series exist but none match these route keys | `Available:true`, reason `no route series matched this topology` (unmeasured / naming mismatch / no traffic yet) | all `—`, no alarm |
-| Some routes match | `Available:true` | matched routes show numbers; unmatched render `—` |
+| M7-a metrics unavailable | `Available:false`, message `metrics unavailable: <M7-a reason>` | all `—` + caption |
+| Envoy not detected (`!HasEnvoyProxy`) | `Available:false`, message `Envoy Gateway not detected` | all `—` + caption |
+| No `envoy_cluster_*` series exist at all | `Available:false`, message `no envoy_cluster_* series found` (scrape/PodMonitor likely missing) | all `—` + caption |
+| Series exist but none match these route keys | `Available:true`, message `no route series matched this topology` (unmeasured / naming mismatch / no traffic yet) | all `—`, no alarm |
+| Some routes match | `Available:true`, empty message | matched routes show numbers; unmatched render `—` |
 
-The "no `envoy_cluster_*` series at all" probe is a cheap existence query
-(`count(envoy_cluster_upstream_rq_total)` or the rps query with no selector
-returning empty) run when the scoped query returns zero series, to distinguish
-"scrape missing" from "these routes are just idle".
+`Message` is informational when `Available:true` (the "no route series matched"
+case) and the failure reason when `Available:false`; one field, both uses.
+
+The "no `envoy_cluster_*` series at all" probe is a cheap existence query that
+**reuses the verified request-total metric constant** — i.e. `count(<rqTotal>)`
+where `<rqTotal>` is the exact metric name confirmed at the native-verification
+gate (the same constant the `rps` query uses), so a relabeled metric changes the
+probe and the query together. It runs when the scoped query returns zero series,
+to distinguish "scrape missing" from "these routes are just idle".
 
 ## Lifecycle
 
 - **Fleet:** `(*ClusterConn).RouteMetrics(ctx, routeKeys)`:
   1. If `len(routeKeys)==0` → empty map, `Status{Available:true, UpdatedAt:now}`.
-  2. If `!caps.Network.HasEnvoyProxy` → `Status{Available:false, Reason:"Envoy Gateway not detected"}`.
+  2. If `!caps.Network.HasEnvoyProxy` → `Status{Available:false, Message:"Envoy Gateway not detected"}`.
   3. Resolve/reuse the M7-a metrics transport (same lazy cache as `ClusterMetrics`).
-     If metrics capability is unavailable → `Status{Available:false, Reason:"metrics unavailable: "+capReason}`.
+     If metrics capability is unavailable → `Status{Available:false, Message:"metrics unavailable: "+capReason}`.
   4. Build `EnvoyClusterSource` on a `metrics.Client` over that transport; run it.
-  5. Distinguish the no-series cases per the table; set `UpdatedAt = clk.Now()` on success.
+  5. Distinguish the no-series cases per the table (reusing the verified
+     request-total constant for the existence probe); set `UpdatedAt = clk.Now()`
+     on success.
 - **Appbridge:** `GatewayService.GetRouteMetrics(cluster string, routeKeys []string) RouteMetricsResultDTO`.
   On-demand only, no push loop. 30s ctx timeout.
 - **Frontend:** a polling effect tied to the selected gateway: fire immediately on
@@ -235,7 +245,7 @@ type RouteMetricDTO struct {
 }
 type RouteMetricsStatusDTO struct {
 	Available bool   `json:"available"`
-	Reason    string `json:"reason"`
+	Message   string `json:"message"` // unavailable reason, or info note when available
 	UpdatedAt string `json:"updatedAt"` // RFC3339; "" when never succeeded
 }
 type RouteMetricsResultDTO struct {
@@ -248,7 +258,7 @@ Nil `*float64` → JSON `null` → UI `—`. Never 0 for "no data".
 ### Frontend store + freshness/staleness
 
 Network slice gains `routeMetrics: Record<routeKey, RouteMetricDTO>`,
-`routeMetricsStatus: { available, reason, updatedAt } | null`, and a derived
+`routeMetricsStatus: { available, message, updatedAt } | null`, and a derived
 `routeMetricsStale: boolean`.
 
 **Transient-failure behavior (preserve last good):** on a poll whose result is
@@ -269,8 +279,14 @@ numbers and `—` during transient Prometheus hiccups.
 - **RouteDetail panel:** a "traffic" section with the same four, slightly larger,
   plus the freshness line.
 - **Topology caption:** when `status.available` is false → `route metrics
-  unavailable: <reason>`; when available → a subtle `route metrics · updated
-  <Ns> ago` (and `· stale` when `routeMetricsStale`). Freshness is always visible.
+  unavailable: <message>`; when available with a message → that note (e.g. `route
+  metrics · no route series matched this topology`); when available with numbers →
+  a subtle `route metrics · updated <Ns> ago` (and `· stale` when
+  `routeMetricsStale`). Freshness/message always visible.
+- **p50/p99 are worst-rule values, not merged quantiles.** For a multi-rule route
+  they are the max across the route's rules (you cannot meaningfully merge
+  precomputed quantiles). The RouteDetail "traffic" section notes this so the
+  numbers aren't misread as a single merged distribution.
 
 ## Testing
 
