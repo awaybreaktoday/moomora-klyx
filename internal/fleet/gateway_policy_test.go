@@ -16,6 +16,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 )
 
 func ctpGVR() schema.GroupVersionResource {
@@ -98,7 +99,7 @@ func TestGatewayTopologyAttachesEnvoyPolicies(t *testing.T) {
 	typed := typedfake.NewSimpleClientset(svc)
 	typed.Resources = policyDiscovery()
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if err != nil {
 		t.Fatalf("topology: %v", err)
@@ -145,7 +146,7 @@ func TestGatewayTopologyPolicyWarnings(t *testing.T) {
 		}},
 	}
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if err != nil {
 		t.Fatalf("topology: %v", err)

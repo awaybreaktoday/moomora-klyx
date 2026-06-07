@@ -38,8 +38,8 @@ func TestRecoveryTransitions(t *testing.T) {
 		want ConnState
 		ok   bool
 	}{
-		{Failed, EvSynced, Synced, true},  // recovery from never-synced/connect-timeout
-		{Stale, EvSynced, Synced, true},   // recovery from a dropped watch
+		{Failed, EvSynced, Synced, true}, // recovery from never-synced/connect-timeout
+		{Stale, EvSynced, Synced, true},  // recovery from a dropped watch
 	}
 	for _, tc := range cases {
 		got, ok := Transition(tc.from, tc.ev)

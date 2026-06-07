@@ -18,6 +18,7 @@ import (
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
 	"github.com/moomora/klyx/internal/clustermesh"
+	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
@@ -68,15 +69,17 @@ type ClusterConn struct {
 	snapPods       int
 	snapVersion    string
 	connectTimeout time.Duration
+	metricsCfg     config.MetricsConfig
 	refresh        chan struct{}   // buffered(1); coalesces informer events
 	ctx            context.Context // captured in Start; scopes lazy watches
 	gitops         *gitopsWatch    // lazy; nil until OpenGitOps
 }
 
 func NewClusterConn(name string, typed kubernetes.Interface, meta metadata.Interface,
-	dyn dynamic.Interface, detector *capability.Detector, clk clock.Clock) *ClusterConn {
+	dyn dynamic.Interface, detector *capability.Detector, clk clock.Clock, metricsCfg config.MetricsConfig) *ClusterConn {
 	return &ClusterConn{
 		name: name, typed: typed, meta: meta, dyn: dyn, detector: detector, clk: clk,
+		metricsCfg:     metricsCfg,
 		state:          Unconnected,
 		connectTimeout: defaultConnectTimeout,
 		refresh:        make(chan struct{}, 1),

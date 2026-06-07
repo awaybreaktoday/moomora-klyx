@@ -14,6 +14,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 )
 
 func i32(v int32) *int32 { return &v }
@@ -45,7 +46,7 @@ func TestCapHealthReactsToControllerHealth(t *testing.T) {
 	mclient := metadatafake.NewSimpleMetadataClient(mscheme, podMeta("p1", "default"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, mclient, nil, det, clock.Real{})
+	c := NewClusterConn("x", typed, mclient, nil, det, clock.Real{}, config.MetricsConfig{})
 	c.Start(ctx)
 
 	waitFor(t, 3*time.Second, func() bool {

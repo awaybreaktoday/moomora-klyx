@@ -14,6 +14,7 @@ import (
 	typedfake "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 )
 
 func gwGVR() schema.GroupVersionResource {
@@ -81,7 +82,7 @@ func TestGetGatewayTopology(t *testing.T) {
 	}
 	typed := typedfake.NewSimpleClientset(svc, eps)
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if err != nil {
@@ -109,7 +110,7 @@ func TestGetGatewayTopologyUnresolvedBackendWarns(t *testing.T) {
 	})
 	typed := typedfake.NewSimpleClientset() // no service
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if err != nil {
 		t.Fatalf("topology must still render: %v", err)
@@ -127,7 +128,7 @@ func TestListGatewaysServedFlag(t *testing.T) {
 		gwGVR(): {gw("eg", "infra")},
 	})
 	typed := typedfake.NewSimpleClientset()
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	refs, served, err := c.ListGateways(context.Background())
 	if err != nil {
@@ -150,7 +151,7 @@ func TestGetGatewayTopologyGlobalService(t *testing.T) {
 		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP, Ports: []corev1.ServicePort{{Port: 80}}},
 	}
 	typed := typedfake.NewSimpleClientset(svc)
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if err != nil {

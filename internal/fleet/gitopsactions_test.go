@@ -15,6 +15,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
@@ -25,7 +26,7 @@ func ksGVR() schema.GroupVersionResource {
 func newActionConn(dyn *fake.FakeDynamicClient) *ClusterConn {
 	typed := typedfake.NewSimpleClientset()
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{}, config.MetricsConfig{})
 	c.ctx = context.Background()
 	return c
 }

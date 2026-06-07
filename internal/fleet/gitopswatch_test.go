@@ -13,6 +13,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/gitops/flux"
 )
 
@@ -43,7 +44,7 @@ func TestOpenGitOpsListsKustomizations(t *testing.T) {
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, ksObj("flux-system"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{}, config.MetricsConfig{})
 	c.ctx = ctx
 
 	c.OpenGitOps()
@@ -69,7 +70,7 @@ func TestGitOpsObjectReturnsWatchedObject(t *testing.T) {
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, ksObj("flux-system"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{}, config.MetricsConfig{})
 	c.ctx = ctx
 	c.OpenGitOps()
 	defer c.CloseGitOps()
@@ -99,7 +100,7 @@ func TestGitOpsResourcesAreStablySorted(t *testing.T) {
 		ksObj("z-app"), ksObj("a-app"), ksObj("m-app"))
 
 	det := capability.NewDetector(typed)
-	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, det, clock.Real{}, config.MetricsConfig{})
 	c.ctx = ctx
 	c.OpenGitOps()
 	defer c.CloseGitOps()
