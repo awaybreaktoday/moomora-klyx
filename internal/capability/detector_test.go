@@ -7,8 +7,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes/fake"
 	discoveryfake "k8s.io/client-go/discovery/fake"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func newFake(groups []*metav1.APIResourceList, objs ...runtime.Object) *fake.Clientset {
@@ -106,6 +106,21 @@ func TestDetectGatewayPresentWithoutEnvoyProxyIsDegraded(t *testing.T) {
 	}
 	if set.Network.GatewayAPIVersion != "v1" {
 		t.Fatalf("want pinned version v1, got %q", set.Network.GatewayAPIVersion)
+	}
+}
+
+func TestDetectClusterMeshInstalled(t *testing.T) {
+	// clustermesh-apiserver Deployment present -> ClusterMesh true.
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "clustermesh-apiserver", Namespace: "kube-system"},
+	})
+	d := NewDetector(cs)
+	if !d.clusterMeshInstalled(context.Background()) {
+		t.Fatal("clustermesh-apiserver deployment should mark ClusterMesh installed")
+	}
+	// Nothing present -> false.
+	if NewDetector(fake.NewSimpleClientset()).clusterMeshInstalled(context.Background()) {
+		t.Fatal("no apiserver/secret -> not installed")
 	}
 }
 
