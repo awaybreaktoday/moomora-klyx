@@ -46,7 +46,7 @@ func BuildGraph(members []Member) Graph {
 				endpoint = peer // off-fleet endpoint keyed by Cilium name
 				if !offFleet[peer] {
 					offFleet[peer] = true
-					g.Nodes = append(g.Nodes, MeshNode{Name: peer, State: MeshPeered, Present: false})
+					g.Nodes = append(g.Nodes, MeshNode{Name: peer, State: "", Present: false})
 				}
 			}
 			a, b := m.Cluster, endpoint

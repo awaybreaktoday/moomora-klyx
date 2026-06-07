@@ -81,6 +81,12 @@ func TestBuildGraphOffFleetPeerSelfDupUninstalled(t *testing.T) {
 	if len(offFleet) != 2 || offFleet[0].Name != "aks-prd-we" {
 		t.Fatalf("off-fleet node: %+v", offFleet)
 	}
+	// Off-fleet nodes must not assert a mesh state - Klyx never read their config.
+	for _, n := range offFleet {
+		if n.State != "" {
+			t.Fatalf("off-fleet node must claim no state: %+v", n)
+		}
+	}
 	// one edge to the off-fleet peer; no self edge.
 	if e, ok := findEdge(g, "ctx-blue", "aks-prd-we"); !ok || e.Mutual {
 		t.Fatalf("off-fleet edge (non-mutual): %+v", g.Edges)

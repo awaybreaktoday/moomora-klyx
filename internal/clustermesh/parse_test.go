@@ -41,6 +41,18 @@ func TestParsePeersFixture(t *testing.T) {
 	}
 }
 
+func TestParsePeersEndpointsSpacing(t *testing.T) {
+	sec := &corev1.Secret{Data: map[string][]byte{
+		"orange": []byte("endpoints :\n- https://x:2379\n"),                             // space before colon
+		"green":  []byte("endpoints: [https://y:2379]"),                                 // flow form
+		"bogus":  []byte("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"), // no endpoints
+	}}
+	peers := ParsePeers(sec)
+	if len(peers) != 2 || peers[0] != "green" || peers[1] != "orange" {
+		t.Fatalf("peers: %+v (want green+orange; bogus filtered)", peers)
+	}
+}
+
 func TestParsePeersFiltersAndNil(t *testing.T) {
 	if ParsePeers(nil) != nil {
 		t.Fatal("nil secret -> nil")
