@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import { useFleet, TopologyDTO, GatewayRef } from "../store/fleet";
+import { useFleet, TopologyDTO, GatewayRef, RouteMetricDTO, RouteMetricsStatusDTO } from "../store/fleet";
 import { NetworkTopology } from "./NetworkTopology";
 
-vi.mock("../bridge/gateway", () => ({ getGatewayTopology: vi.fn(async () => {}), listGateways: vi.fn(async () => {}) }));
+vi.mock("../bridge/gateway", () => ({ getGatewayTopology: vi.fn(async () => {}), listGateways: vi.fn(async () => {}), getRouteMetrics: vi.fn(async () => {}) }));
 
 const gateway: GatewayRef = { namespace: "infra", name: "eg" };
 const topo: TopologyDTO = {
@@ -25,8 +25,8 @@ const multiTopo: TopologyDTO = {
   warnings: [],
 };
 
-function seed(t: TopologyDTO | null, loading = false) {
-  useFleet.setState({ network: { served: true, gateways: [], listLoading: false, selected: gateway, topology: t, topologyLoading: loading, selectedRoute: null } });
+function seed(t: TopologyDTO | null, loading = false, metrics?: { routeMetrics?: Record<string, RouteMetricDTO>; routeMetricsStatus?: RouteMetricsStatusDTO | null; routeMetricsStale?: boolean }) {
+  useFleet.setState({ network: { served: true, gateways: [], listLoading: false, selected: gateway, topology: t, topologyLoading: loading, selectedRoute: null, routeMetrics: metrics?.routeMetrics ?? {}, routeMetricsStatus: metrics?.routeMetricsStatus ?? null, routeMetricsStale: metrics?.routeMetricsStale ?? false } });
 }
 
 beforeEach(() => { vi.clearAllMocks(); seed(topo); });
@@ -213,6 +213,35 @@ describe("NetworkTopology", () => {
     seed(withGlobal);
     const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
     expect(getByText(/peers unverified/i)).toBeTruthy();
+  });
+
+  it("renders populated route metrics on the lane", () => {
+    seed(topo, false, {
+      routeMetrics: { "apps/share": { rps: 12.4, p50: 8, p99: 42, errRate: 0.003 } },
+      routeMetricsStatus: { available: true, message: "", updatedAt: new Date().toISOString() },
+    });
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText("12 rps")).toBeTruthy(); // fmtRps rounds >=10
+    expect(getByText("p99 42ms")).toBeTruthy();
+    expect(getByText("err 0.3%")).toBeTruthy();
+  });
+
+  it("shows labels with — for an idle route (no fake zeros)", () => {
+    seed(topo, false, {
+      routeMetrics: { "apps/share": { rps: 0, p50: null, p99: null, errRate: null } },
+      routeMetricsStatus: { available: true, message: "", updatedAt: new Date().toISOString() },
+    });
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText("0 rps")).toBeTruthy();
+    expect(getByText("p50 —")).toBeTruthy(); // label shown even when nil
+  });
+
+  it("shows the unavailable caption when route metrics are unavailable", () => {
+    seed(topo, false, {
+      routeMetricsStatus: { available: false, message: "Envoy Gateway not detected", updatedAt: "" },
+    });
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText(/route metrics unavailable: Envoy Gateway not detected/)).toBeTruthy();
   });
 
   it("no global edge for a non-global service", () => {

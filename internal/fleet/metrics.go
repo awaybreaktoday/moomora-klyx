@@ -94,6 +94,40 @@ func (c *ClusterConn) discover(ctx context.Context) metrics.DiscoveryResult {
 	return metrics.DiscoveryResult{}
 }
 
+// ensureMetricsLocked resolves+probes the metrics endpoint into c.metricsState
+// when the cached capability is invalid. Available is cached for the conn
+// lifetime, unavailable is short-TTL re-probed, forceReprobe bypasses the cache.
+// Caller MUST hold c.metricsMu.
+func (c *ClusterConn) ensureMetricsLocked(ctx context.Context, forceReprobe bool, now time.Time) {
+	capValid := c.metricsState.capSet && !forceReprobe &&
+		(c.metricsState.cap.Available || now.Before(c.metricsState.capExpiry))
+	if capValid {
+		return
+	}
+	var tf metrics.TransportFactory = transportFactory{rest: c.typed.CoreV1().RESTClient()}
+	if c.metricsTF != nil {
+		tf = c.metricsTF
+	}
+	disco := metrics.DiscoveryResult{}
+	if c.metricsCfg.Endpoint == "" && c.metricsCfg.ServiceRef == nil {
+		disco = c.discover(ctx)
+	}
+	res := metrics.Resolve(c.metricsCfg, disco, tf)
+	cap := metrics.Probe(ctx, res)
+
+	c.metricsState.capSet = true
+	c.metricsState.cap = cap
+	c.metricsState.transport = res.Transport
+	if cap.Available {
+		c.metricsState.capExpiry = time.Time{}
+	} else {
+		c.metricsState.capExpiry = now.Add(metricsUnavailableTTL)
+	}
+	// re-probe invalidates any cached samples
+	c.metricsState.samples = metrics.ClusterMetrics{}
+	c.metricsState.samplesExp = time.Time{}
+}
+
 // ClusterMetrics returns the proof-of-life metrics and probe-confirmed
 // capability. Lazy resolve+probe on first call; available is cached for the
 // conn lifetime, unavailable is short-TTL re-probed, forceReprobe bypasses the
@@ -107,33 +141,7 @@ func (c *ClusterConn) ClusterMetrics(ctx context.Context, forceReprobe bool) (me
 		clk = clock.Real{}
 	}
 	now := clk.Now()
-	capValid := c.metricsState.capSet && !forceReprobe &&
-		(c.metricsState.cap.Available || now.Before(c.metricsState.capExpiry))
-
-	if !capValid {
-		var tf metrics.TransportFactory = transportFactory{rest: c.typed.CoreV1().RESTClient()}
-		if c.metricsTF != nil {
-			tf = c.metricsTF
-		}
-		disco := metrics.DiscoveryResult{}
-		if c.metricsCfg.Endpoint == "" && c.metricsCfg.ServiceRef == nil {
-			disco = c.discover(ctx)
-		}
-		res := metrics.Resolve(c.metricsCfg, disco, tf)
-		cap := metrics.Probe(ctx, res)
-
-		c.metricsState.capSet = true
-		c.metricsState.cap = cap
-		c.metricsState.transport = res.Transport
-		if cap.Available {
-			c.metricsState.capExpiry = time.Time{}
-		} else {
-			c.metricsState.capExpiry = now.Add(metricsUnavailableTTL)
-		}
-		// re-probe invalidates any cached samples
-		c.metricsState.samples = metrics.ClusterMetrics{}
-		c.metricsState.samplesExp = time.Time{}
-	}
+	c.ensureMetricsLocked(ctx, forceReprobe, now)
 
 	cap := c.metricsState.cap
 	if !cap.Available {

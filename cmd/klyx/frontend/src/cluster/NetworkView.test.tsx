@@ -6,7 +6,7 @@ import { NetworkView } from "./NetworkView";
 vi.mock("../bridge/gateway", () => ({ listGateways: vi.fn(async () => {}), getGatewayTopology: vi.fn(async () => {}) }));
 
 function net(over: Partial<ReturnType<typeof useFleet.getState>["network"]> = {}) {
-  useFleet.setState({ route: { name: "cluster", cluster: "x", section: "network" }, network: { served: true, gateways: [], listLoading: false, selected: null, topology: null, topologyLoading: false, selectedRoute: null, ...over } });
+  useFleet.setState({ route: { name: "cluster", cluster: "x", section: "network" }, network: { served: true, gateways: [], listLoading: false, selected: null, topology: null, topologyLoading: false, selectedRoute: null, routeMetrics: {}, routeMetricsStatus: null, routeMetricsStale: false, ...over } });
 }
 
 beforeEach(() => vi.clearAllMocks());

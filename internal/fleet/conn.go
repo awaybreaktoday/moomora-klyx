@@ -23,6 +23,7 @@ import (
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
 	"github.com/moomora/klyx/internal/metrics"
+	"github.com/moomora/klyx/internal/routemetrics"
 )
 
 // Conn is the interface the registry drives. ClusterConn is the production impl.
@@ -46,6 +47,7 @@ type Conn interface {
 	MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus)
 	HasGlobalService(ctx context.Context, ns, name string) bool
 	ClusterMetrics(ctx context.Context, forceReprobe bool) (metrics.ClusterMetrics, metrics.MetricsCapability)
+	RouteMetrics(ctx context.Context, routeKeys []string) (map[string]routemetrics.RouteMetrics, routemetrics.Status)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

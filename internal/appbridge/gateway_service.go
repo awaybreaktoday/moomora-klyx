@@ -5,11 +5,13 @@ import (
 	"time"
 
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/routemetrics"
 )
 
 type GatewayConn interface {
 	ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, error)
 	GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error)
+	RouteMetrics(ctx context.Context, routeKeys []string) (map[string]routemetrics.RouteMetrics, routemetrics.Status)
 }
 
 const gatewayTimeout = 30 * time.Second
@@ -76,4 +78,30 @@ func (s *GatewayService) GetGatewayTopology(cluster, namespace, name string) Top
 		}
 	}
 	return dto
+}
+
+// GetRouteMetrics returns per-route traffic metrics + an Envoy-route status for
+// the given route keys ("<ns>/<name>"). On-demand; the frontend polls it.
+func (s *GatewayService) GetRouteMetrics(cluster string, routeKeys []string) RouteMetricsResultDTO {
+	empty := RouteMetricsResultDTO{Routes: map[string]RouteMetricDTO{}}
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		empty.Status = RouteMetricsStatusDTO{Available: false, Message: "cluster not connected"}
+		return empty
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gatewayTimeout)
+	defer cancel()
+	m, st := conn.RouteMetrics(ctx, routeKeys)
+	routes := make(map[string]RouteMetricDTO, len(m))
+	for k, rm := range m {
+		routes[k] = RouteMetricDTO{RPS: rm.RPS, P50: rm.P50, P99: rm.P99, ErrRate: rm.ErrRate}
+	}
+	updatedAt := ""
+	if !st.UpdatedAt.IsZero() {
+		updatedAt = st.UpdatedAt.Format(time.RFC3339)
+	}
+	return RouteMetricsResultDTO{
+		Status: RouteMetricsStatusDTO{Available: st.Available, Message: st.Message, UpdatedAt: updatedAt},
+		Routes: routes,
+	}
 }
