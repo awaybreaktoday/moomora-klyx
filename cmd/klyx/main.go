@@ -9,6 +9,7 @@ import (
 
 	"github.com/moomora/klyx/internal/appbridge"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/fleet"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -76,6 +77,21 @@ func main() {
 		return c, true
 	})
 
+	meshSvc := appbridge.NewMeshService(func() []clustermesh.Member {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var members []clustermesh.Member
+		for _, snap := range reg.Snapshots() {
+			c, ok := reg.Conn(snap.Name)
+			if !ok {
+				continue
+			}
+			m, _ := c.MeshMember(ctx)
+			members = append(members, m)
+		}
+		return members
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -84,6 +100,7 @@ func main() {
 			application.NewService(gitopsSvc),
 			application.NewService(crdSvc),
 			application.NewService(gatewaySvc),
+			application.NewService(meshSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

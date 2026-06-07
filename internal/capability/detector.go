@@ -13,10 +13,10 @@ import (
 // Official install-default namespaces and controller names.
 // Non-default install paths (e.g. renamed namespaces) are not yet supported.
 const (
-	fluxNamespace          = "flux-system"
+	fluxNamespace           = "flux-system"
 	fluxKustomizeController = "kustomize-controller"
-	argoNamespace          = "argocd"
-	argoAppController      = "argocd-application-controller"
+	argoNamespace           = "argocd"
+	argoAppController       = "argocd-application-controller"
 )
 
 // workloadKind distinguishes the two workload types the health probe supports.
@@ -136,6 +136,9 @@ func (d *Detector) detectGitOps(ctx context.Context, served map[string]bool) Git
 func (d *Detector) detectNetwork(ctx context.Context, served map[string]bool) NetworkCapability {
 	out := NetworkCapability{}
 	out.CiliumPresent = served["cilium.io"]
+	if out.CiliumPresent {
+		out.ClusterMesh = d.clusterMeshInstalled(ctx)
+	}
 
 	gwVersion := ""
 	switch {
@@ -164,6 +167,18 @@ func (d *Detector) detectNetwork(ctx context.Context, served map[string]bool) Ne
 		}
 	}
 	return out
+}
+
+// clusterMeshInstalled reports whether Cilium ClusterMesh is installed: the
+// clustermesh-apiserver Deployment OR the cilium-clustermesh Secret in kube-system.
+func (d *Detector) clusterMeshInstalled(ctx context.Context) bool {
+	if _, err := d.cs.AppsV1().Deployments("kube-system").Get(ctx, "clustermesh-apiserver", metav1.GetOptions{}); err == nil {
+		return true
+	}
+	if _, err := d.cs.CoreV1().Secrets("kube-system").Get(ctx, "cilium-clustermesh", metav1.GetOptions{}); err == nil {
+		return true
+	}
+	return false
 }
 
 // controllerReady reports whether a controller workload has its desired replicas

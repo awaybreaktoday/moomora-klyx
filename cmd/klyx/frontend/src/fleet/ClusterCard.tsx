@@ -1,10 +1,35 @@
 import { IconLock } from "@tabler/icons-react";
 import type { ClusterDTO } from "../store/fleet";
-import { useFleet } from "../store/fleet";
+import { useFleet, MeshGraphDTO } from "../store/fleet";
 import { stateColor } from "../cluster/stateColors";
+
+function meshRow(graph: MeshGraphDTO | null, cluster: string): string | null {
+  if (!graph) return null;
+  const node = graph.nodes.find((n) => n.cluster === cluster);
+  if (!node || node.state === "unavailable") return "⬡ no ClusterMesh";
+  if (node.state === "enabled") return "⬡ mesh enabled, no peers";
+  // peered: collect peers from edges touching this cluster.
+  const peers: string[] = [];
+  let asym = false;
+  let offFleet = 0;
+  for (const e of graph.edges) {
+    const other = e.a === cluster ? e.b : e.b === cluster ? e.a : null;
+    if (!other) continue;
+    const on = graph.nodes.find((n) => (n.cluster || n.name) === other);
+    if (on && !on.present) { offFleet++; continue; }
+    peers.push(other);
+    if (!e.mutual) asym = true;
+  }
+  let row = `⇄ mesh: ${peers.join(", ") || "—"}`;
+  if (asym) row += " (asymmetric)";
+  if (offFleet > 0) row += ` (+${offFleet} off-fleet)`;
+  return row;
+}
 
 export function ClusterCard({ c }: { c: ClusterDTO }) {
   const openCluster = useFleet((s) => s.openCluster);
+  const mesh = useFleet((s) => s.mesh);
+  const row = meshRow(mesh, c.name);
   return (
     <div
       onClick={() => openCluster(c.name)}
@@ -38,6 +63,7 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
         <Stat label="gitops" value={c.gitopsTier} />
         <Stat label="network" value={c.networkTier} />
       </div>
+      {row && <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 6 }}>{row}</div>}
       <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: 6, fontSize: 10, color: stateColor[c.state] }}>
         {c.state}{c.reason ? ` — ${c.reason}` : ""}
       </div>
