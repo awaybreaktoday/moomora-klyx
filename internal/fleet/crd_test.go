@@ -17,6 +17,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
 )
 
@@ -34,7 +35,7 @@ func TestGetInstanceDetailEventsErrorDegrades(t *testing.T) {
 	typed.PrependReactor("list", "events", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "events"}, "", nil)
 	})
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
 	if err != nil {
@@ -61,7 +62,7 @@ func TestGetInstanceDetailNoUIDSkipsEvents(t *testing.T) {
 	// without the empty-uid guard this would leak into the result.
 	ev := &corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "x.evt", Namespace: "team-a"}, Type: "Normal", Reason: "X"}
 	typed := typedfake.NewSimpleClientset(ev)
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
 	if err != nil {
@@ -78,9 +79,9 @@ func crdUnstructured(group, kind, plural, scope string) *unstructured.Unstructur
 		"kind":       "CustomResourceDefinition",
 		"metadata":   map[string]interface{}{"name": plural + "." + group},
 		"spec": map[string]interface{}{
-			"group": group,
-			"names": map[string]interface{}{"kind": kind, "plural": plural},
-			"scope": scope,
+			"group":    group,
+			"names":    map[string]interface{}{"kind": kind, "plural": plural},
+			"scope":    scope,
 			"versions": []interface{}{map[string]interface{}{"name": "v1", "served": true, "storage": true}},
 		},
 	}}
@@ -93,7 +94,7 @@ func TestListCRDs(t *testing.T) {
 		crdUnstructured("cilium.io", "CiliumEndpoint", "ciliumendpoints", "Namespaced"),
 		crdUnstructured("cert-manager.io", "Certificate", "certificates", "Namespaced"),
 	)
-	c := NewClusterConn("x", nil, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", nil, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	infos, err := c.ListCRDs(context.Background())
 	if err != nil {
@@ -119,7 +120,7 @@ func TestCountResourceUncapped(t *testing.T) {
 		partialMeta("example.com", "v1", "Widget", "b", "w2"),
 		partialMeta("example.com", "v1", "Widget", "b", "w3"),
 	)
-	c := NewClusterConn("x", nil, mc, nil, nil, clock.Real{})
+	c := NewClusterConn("x", nil, mc, nil, nil, clock.Real{}, config.MetricsConfig{})
 
 	n, capped, err := c.CountResource(context.Background(), "example.com", "v1", "widgets")
 	if err != nil {
@@ -137,7 +138,7 @@ func TestListInstances(t *testing.T) {
 		partialMeta("example.com", "v1", "Widget", "team-a", "w1"),
 		partialMeta("example.com", "v1", "Widget", "team-b", "w2"),
 	)
-	c := NewClusterConn("x", nil, mc, nil, nil, clock.Real{})
+	c := NewClusterConn("x", nil, mc, nil, nil, clock.Real{}, config.MetricsConfig{})
 
 	items, next, err := c.ListInstances(context.Background(), "example.com", "v1", "widgets", 100, "")
 	if err != nil {
@@ -174,11 +175,11 @@ func TestGetInstanceDetail(t *testing.T) {
 		ObjectMeta:     metav1.ObjectMeta{Name: "w1.evt", Namespace: "team-a"},
 		InvolvedObject: corev1.ObjectReference{Kind: "Widget", Name: "w1", Namespace: "team-a", UID: "uid-1"},
 		Type:           "Warning", Reason: "Failed", Message: "could not reconcile", Count: 3,
-		LastTimestamp:  metav1.Now(),
+		LastTimestamp: metav1.Now(),
 	}
 	typed := typedfake.NewSimpleClientset(ev)
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
 	if err != nil {
@@ -211,7 +212,7 @@ func TestGetInstanceDetailClusterScoped(t *testing.T) {
 		"metadata":   map[string]interface{}{"name": "node-1", "uid": "uid-n1"},
 	}}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
-	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 
 	d, err := c.GetInstanceDetail(context.Background(), "cilium.io", "v2", "ciliumnodes", "", "node-1")
 	if err != nil {

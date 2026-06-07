@@ -13,6 +13,7 @@ import (
 	typedfake "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/config"
 )
 
 func cnpGVR() schema.GroupVersionResource {
@@ -76,7 +77,7 @@ func TestAttachCiliumPolicies(t *testing.T) {
 	typed := typedfake.NewSimpleClientset(svc)
 	typed.Resources = ciliumDiscovery()
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if err != nil {
 		t.Fatalf("topology: %v", err)
@@ -125,7 +126,7 @@ func TestAttachCiliumExpressionsOnlyWarns(t *testing.T) {
 		{Name: "ciliumnetworkpolicies", Namespaced: true, Kind: "CiliumNetworkPolicy"},
 	}}}
 
-	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
 	topo, _ := c.GetGatewayTopology(context.Background(), "infra", "eg")
 	if len(topo.Routes[0].Services[0].CNPs) != 0 {
 		t.Fatalf("expressions-only must not attach: %+v", topo.Routes[0].Services[0].CNPs)

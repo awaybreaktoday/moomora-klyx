@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,5 +95,84 @@ func TestValidateRejectsNoClusters(t *testing.T) {
 	c := &Config{}
 	if err := c.validate(); err == nil {
 		t.Fatal("expected no-clusters error")
+	}
+}
+
+func TestServiceRefValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name:    "serviceRef missing port",
+			yaml:    "clusters:\n  - name: a\n    metrics:\n      serviceRef:\n        namespace: monitoring\n        name: prometheus-operated\n",
+			wantErr: "serviceRef",
+		},
+		{
+			name:    "endpoint ending in /api/v1 rejected",
+			yaml:    "clusters:\n  - name: a\n    metrics:\n      endpoint: https://host/prometheus/api/v1\n",
+			wantErr: "/api/v1",
+		},
+		{
+			name:    "bad scheme",
+			yaml:    "clusters:\n  - name: a\n    metrics:\n      serviceRef:\n        namespace: monitoring\n        name: p\n        port: \"9090\"\n        scheme: ftp\n",
+			wantErr: "scheme",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "f.yaml")
+			if err := os.WriteFile(p, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(p)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestLoadParsesServiceRef(t *testing.T) {
+	yaml := "clusters:\n" +
+		"  - name: a\n" +
+		"    metrics:\n" +
+		"      serviceRef:\n" +
+		"        namespace: monitoring\n" +
+		"        name: prometheus-operated\n" +
+		"        port: \"9090\"\n" +
+		"        scheme: https\n" +
+		"  - name: b\n" +
+		"    metrics:\n" +
+		"      endpoint: https://prom.example/prometheus\n"
+	p := filepath.Join(t.TempDir(), "f.yaml")
+	if err := os.WriteFile(p, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	sr := cfg.Clusters[0].Metrics.ServiceRef
+	if sr == nil {
+		t.Fatal("serviceRef is nil")
+	}
+	if sr.Namespace != "monitoring" || sr.Name != "prometheus-operated" || sr.Port != "9090" || sr.Scheme != "https" {
+		t.Fatalf("serviceRef fields wrong: %+v", sr)
+	}
+	if cfg.Clusters[1].Metrics.Endpoint != "https://prom.example/prometheus" {
+		t.Fatalf("endpoint wrong: %q", cfg.Clusters[1].Metrics.Endpoint)
+	}
+}
+
+func TestEndpointAndServiceRefWarning(t *testing.T) {
+	c := &Config{Clusters: []ClusterConfig{{
+		Name:    "a",
+		Metrics: &MetricsConfig{Endpoint: "https://host", ServiceRef: &MetricsServiceRef{Namespace: "m", Name: "p", Port: "9090"}},
+	}}}
+	got := strings.Join(c.Warnings(), "|")
+	if !strings.Contains(got, "serviceRef") || !strings.Contains(got, "endpoint") {
+		t.Fatalf("want endpoint/serviceRef warning, got %q", got)
 	}
 }

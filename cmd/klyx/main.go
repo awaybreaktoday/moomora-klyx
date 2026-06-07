@@ -140,6 +140,14 @@ func main() {
 		return members
 	})
 
+	metricsSvc := appbridge.NewMetricsService(func(name string) (appbridge.MetricsConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -149,6 +157,7 @@ func main() {
 			application.NewService(crdSvc),
 			application.NewService(gatewaySvc),
 			application.NewService(meshSvc),
+			application.NewService(metricsSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

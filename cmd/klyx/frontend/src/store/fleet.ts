@@ -123,6 +123,9 @@ export type MeshNodeDTO = { cluster: string; name: string; clusterId: number | n
 export type MeshEdgeDTO = { a: string; b: string; mutual: boolean };
 export type MeshGraphDTO = { nodes: MeshNodeDTO[]; edges: MeshEdgeDTO[] };
 
+export type MetricsDTO = { available: boolean; mode: string; source: string; warning: string; reason: string; cpuFraction: number | null; memFraction: number | null };
+export type MetricsSlice = { cluster: string | null; dto: MetricsDTO | null; loading: boolean };
+
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
 type FleetState = {
@@ -175,6 +178,10 @@ type FleetState = {
   clearNetwork: () => void;
   mesh: MeshGraphDTO | null;
   setMesh: (m: MeshGraphDTO) => void;
+  metrics: MetricsSlice;
+  setMetricsLoading: (cluster: string) => void;
+  setMetrics: (cluster: string, dto: MetricsDTO) => void;
+  clearMetrics: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -257,4 +264,8 @@ export const useFleet = create<FleetState>((set) => ({
   clearNetwork: () => set((s) => ({ network: { ...s.network, selected: null, topology: null, topologyLoading: false, selectedRoute: null } })),
   mesh: null,
   setMesh: (mesh) => set({ mesh }),
+  metrics: { cluster: null, dto: null, loading: false },
+  setMetricsLoading: (cluster) => set((s) => ({ metrics: { cluster, dto: s.metrics.cluster === cluster ? s.metrics.dto : null, loading: true } })),
+  setMetrics: (cluster, dto) => set({ metrics: { cluster, dto, loading: false } }),
+  clearMetrics: () => set({ metrics: { cluster: null, dto: null, loading: false } }),
 }));

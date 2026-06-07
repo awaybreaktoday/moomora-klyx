@@ -18,9 +18,11 @@ import (
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
 	"github.com/moomora/klyx/internal/clustermesh"
+	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/metrics"
 )
 
 // Conn is the interface the registry drives. ClusterConn is the production impl.
@@ -43,6 +45,7 @@ type Conn interface {
 	GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error)
 	MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus)
 	HasGlobalService(ctx context.Context, ns, name string) bool
+	ClusterMetrics(ctx context.Context, forceReprobe bool) (metrics.ClusterMetrics, metrics.MetricsCapability)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
@@ -68,15 +71,27 @@ type ClusterConn struct {
 	snapPods       int
 	snapVersion    string
 	connectTimeout time.Duration
+	metricsCfg     config.MetricsConfig
 	refresh        chan struct{}   // buffered(1); coalesces informer events
 	ctx            context.Context // captured in Start; scopes lazy watches
 	gitops         *gitopsWatch    // lazy; nil until OpenGitOps
+
+	// metricsMu guards the metrics cache. Note: ClusterMetrics holds it across
+	// the probe + sample network I/O (up to a few seconds). This serializes
+	// concurrent callers on the same conn, which also single-flights duplicate
+	// probes of the same backend. Acceptable: UI calls are infrequent and the
+	// appbridge bounds them with a 30s ctx. Revisit if many callers ever fan at
+	// one conn (e.g. klyx serve).
+	metricsMu    sync.Mutex
+	metricsState metricsCache
+	metricsTF    metrics.TransportFactory // nil in production; tests inject a fake
 }
 
 func NewClusterConn(name string, typed kubernetes.Interface, meta metadata.Interface,
-	dyn dynamic.Interface, detector *capability.Detector, clk clock.Clock) *ClusterConn {
+	dyn dynamic.Interface, detector *capability.Detector, clk clock.Clock, metricsCfg config.MetricsConfig) *ClusterConn {
 	return &ClusterConn{
 		name: name, typed: typed, meta: meta, dyn: dyn, detector: detector, clk: clk,
+		metricsCfg:     metricsCfg,
 		state:          Unconnected,
 		connectTimeout: defaultConnectTimeout,
 		refresh:        make(chan struct{}, 1),

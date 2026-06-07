@@ -1,0 +1,126 @@
+package metrics
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
+)
+
+// Client runs queries through a Querier and parses Prometheus responses.
+type Client struct{ q Querier }
+
+func NewClient(q Querier) *Client { return &Client{q: q} }
+
+type promEnvelope struct {
+	Status string `json:"status"`
+	Data   struct {
+		ResultType string          `json:"resultType"`
+		Result     json.RawMessage `json:"result"`
+	} `json:"data"`
+	Error string `json:"error"`
+}
+
+type vectorSample struct {
+	Value json.RawMessage `json:"value"` // [ts, "val"]
+}
+
+// errNonFinite signals a NaN/Inf sample value. It is no-data, not a malformed
+// response, so callers map it to Sample{Absent:true}.
+var errNonFinite = errors.New("non-finite sample value")
+
+// parseValueTuple reads a Prometheus [ts, "val"] pair and returns the float.
+// Values are JSON strings; we compare the PARSED float, never the raw string.
+// Non-finite values (NaN/Inf) return errNonFinite so callers treat them as
+// no-data rather than leaking them as real measurements.
+func parseValueTuple(raw json.RawMessage) (float64, error) {
+	var pair []json.RawMessage
+	if err := json.Unmarshal(raw, &pair); err != nil {
+		return 0, err
+	}
+	if len(pair) != 2 {
+		return 0, fmt.Errorf("expected [timestamp, value] tuple, got %d elements", len(pair))
+	}
+	var vs string
+	if err := json.Unmarshal(pair[1], &vs); err != nil {
+		return 0, err
+	}
+	f, err := strconv.ParseFloat(vs, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, errNonFinite
+	}
+	return f, nil
+}
+
+// InstantScalar runs an instant query expecting a scalar or single-element
+// vector. Empty vector or a non-finite (NaN/Inf) value → Sample{Absent:true}.
+// Multi-element vector → error.
+func (c *Client) InstantScalar(ctx context.Context, promql string) (Sample, error) {
+	status, body, err := c.q.InstantQuery(ctx, promql)
+	if err != nil {
+		return Sample{}, err
+	}
+	if status != 200 {
+		return Sample{}, fmt.Errorf("prometheus returned HTTP %d", status)
+	}
+	var env promEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return Sample{}, fmt.Errorf("not a Prometheus API response: %w", err)
+	}
+	if env.Status == "" {
+		return Sample{}, fmt.Errorf("not a Prometheus API response (empty status field)")
+	}
+	if env.Status != "success" {
+		return Sample{}, fmt.Errorf("prometheus error: %s", env.Error)
+	}
+	switch env.Data.ResultType {
+	case "scalar":
+		v, err := parseValueTuple(env.Data.Result)
+		if errors.Is(err, errNonFinite) {
+			return Sample{Absent: true}, nil
+		}
+		if err != nil {
+			return Sample{}, fmt.Errorf("parse scalar: %w", err)
+		}
+		return Sample{Value: v}, nil
+	case "vector":
+		var vec []vectorSample
+		if err := json.Unmarshal(env.Data.Result, &vec); err != nil {
+			return Sample{}, fmt.Errorf("parse vector: %w", err)
+		}
+		if len(vec) == 0 {
+			return Sample{Absent: true}, nil
+		}
+		if len(vec) > 1 {
+			return Sample{}, fmt.Errorf("expected single-element vector, got %d", len(vec))
+		}
+		v, err := parseValueTuple(vec[0].Value)
+		if errors.Is(err, errNonFinite) {
+			return Sample{Absent: true}, nil
+		}
+		if err != nil {
+			return Sample{}, fmt.Errorf("parse vector value: %w", err)
+		}
+		return Sample{Value: v}, nil
+	default:
+		return Sample{}, fmt.Errorf("unexpected resultType %q", env.Data.ResultType)
+	}
+}
+
+// Liveness runs vector(1) and returns nil only on a valid Prometheus 200 whose
+// single value parses to 1.0.
+func (c *Client) Liveness(ctx context.Context) error {
+	s, err := c.InstantScalar(ctx, "vector(1)")
+	if err != nil {
+		return err
+	}
+	if s.Absent || s.Value != 1 {
+		return fmt.Errorf("liveness query did not return 1 (absent=%v value=%v)", s.Absent, s.Value)
+	}
+	return nil
+}

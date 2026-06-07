@@ -28,9 +28,17 @@ type ClusterConfig struct {
 }
 
 type MetricsConfig struct {
-	Endpoint      string `yaml:"endpoint"`
-	Token         string `yaml:"token"`
-	TLSSkipVerify bool   `yaml:"tlsSkipVerify"`
+	Endpoint      string             `yaml:"endpoint"`
+	Token         string             `yaml:"token"`
+	TLSSkipVerify bool               `yaml:"tlsSkipVerify"`
+	ServiceRef    *MetricsServiceRef `yaml:"serviceRef"`
+}
+
+type MetricsServiceRef struct {
+	Namespace string `yaml:"namespace"`
+	Name      string `yaml:"name"`
+	Port      string `yaml:"port"`
+	Scheme    string `yaml:"scheme"` // http|https; default http
 }
 
 // Env returns the environment tag, or "" if unset.
@@ -59,6 +67,11 @@ func (c *Config) Warnings() []string {
 		sort.Strings(shadowed)
 		for _, k := range shadowed {
 			w = append(w, fmt.Sprintf("cluster %q: tag %q shadows a cluster field and is ignored; move it out of `tags:` to a top-level key", cl.Name, k))
+		}
+	}
+	for _, cl := range c.Clusters {
+		if m := cl.Metrics; m != nil && m.Endpoint != "" && m.ServiceRef != nil {
+			w = append(w, fmt.Sprintf("cluster %q: metrics.serviceRef is ignored because metrics.endpoint is set", cl.Name))
 		}
 	}
 	return w
@@ -119,6 +132,22 @@ func (c *Config) validate() error {
 			return fmt.Errorf("duplicate cluster name %q", cl.Name)
 		}
 		seen[cl.Name] = true
+		if m := cl.Metrics; m != nil {
+			if m.Endpoint != "" {
+				endpoint := strings.TrimRight(m.Endpoint, "/")
+				if strings.HasSuffix(endpoint, "/api/v1") {
+					return fmt.Errorf("cluster %q: metrics.endpoint must be the Prometheus base URL without a trailing /api/v1", cl.Name)
+				}
+			}
+			if sr := m.ServiceRef; sr != nil {
+				if sr.Namespace == "" || sr.Name == "" || sr.Port == "" {
+					return fmt.Errorf("cluster %q: metrics.serviceRef requires namespace, name, and port", cl.Name)
+				}
+				if sr.Scheme != "" && sr.Scheme != "http" && sr.Scheme != "https" {
+					return fmt.Errorf("cluster %q: metrics.serviceRef.scheme must be http or https", cl.Name)
+				}
+			}
+		}
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/metrics"
 )
 
 type fakeConn struct {
@@ -59,6 +60,9 @@ func (f *fakeConn) MeshMember(ctx context.Context) (clustermesh.Member, MeshRead
 	return clustermesh.Member{Cluster: f.name, Present: true}, MeshReadStatus{}
 }
 func (f *fakeConn) HasGlobalService(ctx context.Context, ns, name string) bool { return false }
+func (f *fakeConn) ClusterMetrics(ctx context.Context, forceReprobe bool) (metrics.ClusterMetrics, metrics.MetricsCapability) {
+	return metrics.ClusterMetrics{}, metrics.MetricsCapability{}
+}
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{

@@ -8,8 +8,8 @@ import (
 	"k8s.io/client-go/metadata"
 
 	"github.com/moomora/klyx/internal/capability"
-	"github.com/moomora/klyx/internal/cluster"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/cluster"
 	"github.com/moomora/klyx/internal/config"
 )
 
@@ -32,7 +32,11 @@ func DefaultConnFactory(clk clock.Clock) ConnFactory {
 		if err != nil {
 			return nil, fmt.Errorf("dynamic client for %q: %w", cc.Name, err)
 		}
+		var mc config.MetricsConfig
+		if cc.Metrics != nil {
+			mc = *cc.Metrics
+		}
 		det := capability.NewDetector(typed)
-		return NewClusterConn(cc.Name, typed, mclient, dyn, det, clk), nil
+		return NewClusterConn(cc.Name, typed, mclient, dyn, det, clk, mc), nil
 	}
 }
