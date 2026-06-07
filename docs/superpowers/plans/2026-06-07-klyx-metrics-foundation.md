@@ -122,9 +122,9 @@ In `validate()`:
 
 ```go
 		if m := cl.Metrics; m != nil {
-			if e := m.Endpoint; e != "" {
-				trimmed := strings.TrimSuffix(strings.TrimRight(e, "/"), "/api/v1")
-				if trimmed != strings.TrimRight(e, "/") {
+			if m.Endpoint != "" {
+				endpoint := strings.TrimRight(m.Endpoint, "/")
+				if strings.HasSuffix(endpoint, "/api/v1") {
 					return fmt.Errorf("cluster %q: metrics.endpoint must be the Prometheus base URL without a trailing /api/v1", cl.Name)
 				}
 			}
@@ -757,7 +757,7 @@ func (t *proxyTransport) InstantQuery(ctx context.Context, promql string) (int, 
 	if status != 0 {
 		return status, body, nil // let the Client interpret non-200
 	}
-	return 0, nil, err
+	return status, body, err // genuine transport error (no status); keep any body for diagnostics
 }
 ```
 
@@ -1009,6 +1009,8 @@ func TestClusterMetricsUnavailableCachesShort(t *testing.T) {
 
 Clock API: `clock.NewFake(t)` returns a `*clock.Fake` whose `Now()` is fixed and which can be advanced with `.Advance(d)` (see `internal/clock/clock.go`).
 
+Note (fake-client label selectors): client-go's fake clientset honours `LabelSelector` via its object tracker, so `TestDiscoverLabelMultiMatch` should pass as written. If it behaves oddly, don't rabbit-hole — the labels on the seeded Services are the only thing that matters; verify they exactly match the selector strings in `labelSelectors` and move on.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/fleet/ -run 'Discover|ClusterMetrics' -v`
@@ -1045,6 +1047,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/moomora/klyx/internal/clock"
 	"github.com/moomora/klyx/internal/metrics"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -1056,7 +1059,7 @@ const (
 
 	metricsSampleTTL      = 15 * time.Second
 	metricsUnavailableTTL = 45 * time.Second
-	metricsHTTPTimeout    = 10 * time.Second
+	metricsHTTPTimeout    = 3 * time.Second // UI status line must fail fast
 )
 
 // namedCandidates is the ranked named-Service probe list. First existing wins;
@@ -1139,7 +1142,11 @@ func (c *ClusterConn) ClusterMetrics(ctx context.Context, forceReprobe bool) (me
 	c.metricsMu.Lock()
 	defer c.metricsMu.Unlock()
 
-	now := c.clk.Now()
+	clk := c.clk
+	if clk == nil { // defensive: manual struct construction in tests
+		clk = clock.Real{}
+	}
+	now := clk.Now()
 	capValid := c.metricsState.capSet && !forceReprobe &&
 		(c.metricsState.cap.Available || now.Before(c.metricsState.capExpiry))
 
@@ -1423,7 +1430,7 @@ Add to the store body (after `setMesh`):
 
 - [ ] **Step 2: Add the bridge module**
 
-`cmd/klyx/frontend/src/bridge/metrics.ts`:
+`cmd/klyx/frontend/src/bridge/metrics.ts` — **copy the binding import path verbatim from the existing `bridge/mesh.ts` / `bridge/gateway.ts`** (do not hand-type the path; only the service name `MetricsService` differs):
 
 ```ts
 import { useFleet, MetricsDTO } from "../store/fleet";
@@ -1495,7 +1502,7 @@ Expected: FAIL — Overview renders no metrics yet.
 
 - [ ] **Step 5: Implement the Overview changes**
 
-Rewrite `cmd/klyx/frontend/src/cluster/Overview.tsx` to fetch on mount and render the new section. Keep the existing `Badge`/`Section`/`Row` helpers:
+Modify `cmd/klyx/frontend/src/cluster/Overview.tsx` to add the `useEffect` fetch, the new "Resources" section, and the monitoring line — **preserving the existing layout and the `Badge`/`Section`/`Row` helpers**. Do not restructure unrelated markup. The full file below is the target end state (the only additions vs. the current file are the imports, the `useFleet`/`useEffect` hooks, the `Resources` section, and the `Usage`/`MonitoringLine` helpers):
 
 ```tsx
 import { useEffect } from "react";
