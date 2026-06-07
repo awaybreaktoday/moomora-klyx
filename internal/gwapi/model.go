@@ -34,6 +34,7 @@ type ServiceNode struct {
 	Namespace, Name, Type string
 	Port                  int32
 	Selector              map[string]string // svc spec.selector; internal, for CNP label matching
+	Global                bool              // Cilium global service (service.cilium.io/global=true)
 	Policies              []PolicyRef       // M5-b-i: precise (BackendTLSPolicy)
 	CNPs                  []PolicyRef       // M5-b-ii: inferred Cilium; empty here
 	Resolved              bool              // false when the Service could not be read

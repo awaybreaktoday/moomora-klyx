@@ -139,3 +139,24 @@ func TestListGatewaysServedFlag(t *testing.T) {
 		t.Fatalf("refs: %+v", refs)
 	}
 }
+
+func TestGetGatewayTopologyGlobalService(t *testing.T) {
+	dyn := seedGW(t, map[schema.GroupVersionResource][]*unstructured.Unstructured{
+		gwGVR(): {gw("eg", "infra")},
+		hrGVR(): {hr("share", "apps", "eg", "infra", "share-api")},
+	})
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "share-api", Namespace: "apps", Annotations: map[string]string{"service.cilium.io/global": "true"}},
+		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP, Ports: []corev1.ServicePort{{Port: 80}}},
+	}
+	typed := typedfake.NewSimpleClientset(svc)
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{})
+
+	topo, err := c.GetGatewayTopology(context.Background(), "infra", "eg")
+	if err != nil {
+		t.Fatalf("topology: %v", err)
+	}
+	if len(topo.Routes) != 1 || len(topo.Routes[0].Services) != 1 || !topo.Routes[0].Services[0].Global {
+		t.Fatalf("service should be marked global: %+v", topo.Routes[0].Services)
+	}
+}
