@@ -29,4 +29,23 @@ describe("MeshStrip", () => {
     expect(getByText("homelab-blue")).toBeTruthy();
     expect(getByText("aks-prd-we")).toBeTruthy(); // off-fleet node shown
   });
+
+  it("mutes a non-peered cluster (unavailable = no ClusterMesh) with the ⬡ marker", () => {
+    const g: MeshGraphDTO = {
+      nodes: [
+        { cluster: "ctx-blue", name: "homelab-blue", clusterId: 1, state: "peered", present: true },
+        { cluster: "ctx-orange", name: "homelab-orange", clusterId: 2, state: "peered", present: true },
+        { cluster: "ctx-nelli", name: "homelab-nelli", clusterId: null, state: "unavailable", present: true },
+      ],
+      edges: [{ a: "ctx-blue", b: "ctx-orange", mutual: true }],
+    };
+    const { getByTitle, getAllByTitle } = render(<MeshStrip graph={g} />);
+    // nelli (no ClusterMesh) is muted with the "no ClusterMesh" title and a ⬡ marker.
+    const nelli = getByTitle("no ClusterMesh");
+    expect(nelli.textContent).toContain("⬡");
+    // the two peered clusters are NOT muted (no ⬡).
+    const meshed = getAllByTitle("meshed");
+    expect(meshed.length).toBe(2);
+    expect(meshed[0].textContent).not.toContain("⬡");
+  });
 });

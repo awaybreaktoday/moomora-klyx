@@ -18,8 +18,18 @@ export function MeshStrip({ graph }: { graph: MeshGraphDTO }) {
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 8, padding: "12px 14px" }}>
         {graph.nodes.map((n) => {
-          const standalone = n.state === "enabled";
           const off = !n.present;
+          // Any present cluster that isn't actively peered is "standalone" - muted with
+          // a ⬡ marker. This covers both "enabled" (installed, no peers) and "unavailable"
+          // (no ClusterMesh at all) so a non-mesh cluster never looks like a peer.
+          const standalone = !off && n.state !== "peered";
+          const title = off
+            ? "off-fleet peer (not connected to Klyx)"
+            : n.state === "unavailable"
+              ? "no ClusterMesh"
+              : standalone
+                ? "mesh enabled, no peers"
+                : "meshed";
           return (
             <span
               key={n.cluster || n.name}
@@ -27,9 +37,9 @@ export function MeshStrip({ graph }: { graph: MeshGraphDTO }) {
                 ...node,
                 borderColor: off || standalone ? "var(--color-border-tertiary)" : "var(--color-border-info)",
                 color: off ? "var(--color-text-tertiary)" : standalone ? "var(--color-text-secondary)" : "var(--color-text-primary)",
-                opacity: off ? 0.6 : 1,
+                opacity: off ? 0.6 : standalone ? 0.85 : 1,
               }}
-              title={off ? "off-fleet peer (not connected to Klyx)" : standalone ? "mesh enabled, no peers" : "meshed"}
+              title={title}
             >
               <span>{n.name}</span>{standalone ? " ⬡" : ""}{off ? " (off-fleet)" : ""}
             </span>
