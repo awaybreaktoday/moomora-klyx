@@ -119,6 +119,10 @@ export type NetworkSlice = {
   selectedRoute: string | null; // "<ns>/<name>"
 };
 
+export type MeshNodeDTO = { cluster: string; name: string; clusterId: number | null; state: string; present: boolean };
+export type MeshEdgeDTO = { a: string; b: string; mutual: boolean };
+export type MeshGraphDTO = { nodes: MeshNodeDTO[]; edges: MeshEdgeDTO[] };
+
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
 type FleetState = {
@@ -169,6 +173,8 @@ type FleetState = {
   setTopology: (t: TopologyDTO) => void;
   selectRoute: (key: string | null) => void;
   clearNetwork: () => void;
+  mesh: MeshGraphDTO | null;
+  setMesh: (m: MeshGraphDTO) => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -249,4 +255,6 @@ export const useFleet = create<FleetState>((set) => ({
   setTopology: (topology) => set((s) => ({ network: { ...s.network, topology, topologyLoading: false } })),
   selectRoute: (selectedRoute) => set((s) => ({ network: { ...s.network, selectedRoute } })),
   clearNetwork: () => set((s) => ({ network: { ...s.network, selected: null, topology: null, topologyLoading: false, selectedRoute: null } })),
+  mesh: null,
+  setMesh: (mesh) => set({ mesh }),
 }));
