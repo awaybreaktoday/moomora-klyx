@@ -44,3 +44,28 @@ it("drills into the cluster on click", () => {
   getByText("plt-sea-prd-we-aks-01").click();
   expect(useFleet.getState().route).toMatchObject({ name: "cluster", cluster: "plt-sea-prd-we-aks-01" });
 });
+
+it("shows the mesh row from the graph: peered / asymmetric / standalone / off-fleet", () => {
+  useFleet.setState({ mesh: {
+    nodes: [
+      { cluster: "ctx-blue", name: "homelab-blue", clusterId: 1, state: "peered", present: true },
+      { cluster: "ctx-nelli", name: "homelab-nelli", clusterId: null, state: "enabled", present: true },
+    ],
+    edges: [{ a: "ctx-blue", b: "ctx-orange", mutual: true }],
+  }});
+  // a peered cluster shows its peer
+  const blue = { name: "ctx-blue", state: "Ready", networkTier: "Healthy" } as any;
+  const { getByText } = render(<ClusterCard c={blue} />);
+  expect(getByText(/mesh:/i)).toBeTruthy();
+  expect(getByText(/ctx-orange/)).toBeTruthy();
+});
+
+it("shows 'mesh enabled, no peers' for an installed-but-peerless cluster", () => {
+  useFleet.setState({ mesh: {
+    nodes: [{ cluster: "ctx-nelli", name: "homelab-nelli", clusterId: null, state: "enabled", present: true }],
+    edges: [],
+  }});
+  const nelli = { name: "ctx-nelli", state: "Ready", networkTier: "Healthy" } as any;
+  const { getByText } = render(<ClusterCard c={nelli} />);
+  expect(getByText(/mesh enabled, no peers/i)).toBeTruthy();
+});
