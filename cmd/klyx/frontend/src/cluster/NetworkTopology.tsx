@@ -41,7 +41,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
     const keys = routeKeysJoined.split(",");
     let alive = true;
     const tick = () => {
-      if (alive) void getRouteMetrics(cluster, keys);
+      if (alive && t) void getRouteMetrics(cluster, t.gateway.namespace, t.gateway.name, keys);
     };
     tick();
     const id = setInterval(tick, 20000);
