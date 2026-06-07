@@ -1,6 +1,9 @@
 package routemetrics
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // parseClusterName extracts "<ns>/<name>" from an Envoy cluster name of the
 // exact form httproute/<ns>/<name>/rule/<number>. Any other shape returns
@@ -18,6 +21,20 @@ func parseClusterName(name string) (routeKey string, ok bool) {
 		return "", false
 	}
 	return parts[1] + "/" + parts[2], true
+}
+
+// buildSelector builds the anchored, regex-escaped envoy_cluster_name matcher
+// for a set of route keys ("<ns>/<name>"). Returns "" for empty input (the
+// caller must guard and not query with an empty alternation).
+func buildSelector(routeKeys []string) string {
+	if len(routeKeys) == 0 {
+		return ""
+	}
+	alts := make([]string, 0, len(routeKeys))
+	for _, k := range routeKeys {
+		alts = append(alts, regexp.QuoteMeta(k))
+	}
+	return `envoy_cluster_name=~"^httproute/(` + strings.Join(alts, "|") + `)/rule/[0-9]+$"`
 }
 
 func isAllDigits(s string) bool {
