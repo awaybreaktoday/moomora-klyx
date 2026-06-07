@@ -9,6 +9,8 @@ vi.mock("../bridge/gitops", () => ({
   closeGitOps: async () => {},
 }));
 
+vi.mock("../bridge/metrics", () => ({ getClusterMetrics: vi.fn() }));
+
 const dto = (over: Partial<ClusterDTO>): ClusterDTO => ({
   name: "x", state: "Synced", reason: "", nodesReady: 1, nodesTotal: 1, pods: 1, version: "v9",
   gitopsTier: "Healthy", gitopsReason: "", networkTier: "Healthy", networkReason: "",
