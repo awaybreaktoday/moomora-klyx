@@ -41,84 +41,152 @@ A new pure package parses two per-cluster sources (read by the fleet layer via c
 `kube-system`), no client-go dependency beyond the typed objects passed in:
 
 - **`ParseIdentity(cm *corev1.ConfigMap) Identity`** — from `cilium-config`: `cluster-name`,
-  `cluster-id` (string keys in `.data`). `Identity{Name string, ID int}`.
-- **`ParsePeers(sec *corev1.Secret) []string`** — from the `cilium-clustermesh` Secret: each
-  `.data` key that is a remote-cluster config entry is a configured peer name. Filter out non-cluster
-  keys (e.g. `common-etcd-client-ca.crt`, keys ending in `.crt`/`.key`/`.etcd-client-*`); a peer key
-  is one whose value parses as an etcd/clustermesh endpoint config. Conservative: only count keys that
-  look like a cluster name (no dot-extension), to avoid inventing peers.
-- **`BuildGraph(members []Member) Graph`** — pure fleet-level assembly. `Member{Cluster string,
-  Identity Identity, Peers []string, Present bool}` (`Present` = Klyx is connected to it). Produces
-  `Graph{Nodes []MeshNode, Edges []MeshEdge}`:
-  - one `MeshNode` per fleet cluster: `{Cluster, ClusterID, Meshed bool}` (`Meshed` = has ≥1 peer or
-    is named by a peer).
-  - one `MeshEdge` per unordered cluster pair where either lists the other:
-    `{A, B string, Mutual bool}` (`Mutual` = both list each other; else asymmetric/one-way).
-  - a peer named by a cluster but **not in the fleet** (Klyx not connected to it) becomes a node with
-    `Present=false` so the strip can show "off-fleet" peers honestly.
+  `cluster-id`. `cluster-id` is **optional display metadata, not graph identity** — represent it as
+  optional so a missing/malformed id still yields a usable identity:
+  ```go
+  type Identity struct {
+      Name string // Cilium cluster-name (the graph identity)
+      ID   *int   // optional; nil when cluster-id is absent/unparseable
+  }
+  ```
+- **`ParsePeers(sec *corev1.Secret) []string`** — from the `cilium-clustermesh` Secret. Cilium stores
+  **one file per remote cluster**, filename = the remote Cilium cluster-name; the Secret also carries
+  internal material (CA/cert/key). A key counts as a peer ONLY when **all** hold: (a) no dot-extension;
+  (b) not known-internal material (`common-*`, `*-etcd-client-*`, anything `.crt`/`.key`/`.pem`/`.ca`);
+  (c) its **value parses as a remote-cluster config** (a kubeconfig/etcd-client config exposing
+  server/endpoints). Rule (c) is the real guard — "no dot-extension" alone is a first filter, not the
+  decision, so a future non-cert internal key can't become a phantom peer. Parser shape + filters are
+  pinned by **real-Secret fixtures** captured from homelab-blue/orange (see Testing).
+- **`BuildGraph(members []Member) Graph`** — pure fleet-level assembly.
+  `Member{Cluster string, Identity Identity, Peers []string, Present bool}` where `Cluster` is the
+  **fleet key** (kubeconfig context, e.g. `kubernetes-admin@homelab-blue`) and `Identity.Name` is the
+  **Cilium cluster-name** (e.g. `homelab-blue`) — these can differ. **Peer matching is by Cilium
+  cluster-name** (peer strings from the Secret are Cilium names): a peer `p` resolves to the fleet
+  member whose `Identity.Name == p` (falling back to `Member.Cluster` when identity is absent).
+  Produces `Graph{Nodes []MeshNode, Edges []MeshEdge}`:
+  - one `MeshNode` per fleet member: `{Cluster (fleet key), Name (Cilium), ClusterID *int, State MeshState, Present:true}`.
+  - one `MeshEdge` per unordered pair where either side names the other (by Cilium name), keyed by fleet
+    member: `{A, B string (fleet keys), Mutual bool}`. Duplicate peer entries collapse to one edge; a
+    self-peer (a cluster naming itself) is ignored.
+  - a peer named by a member but **not present in the fleet** becomes a node with `Present=false` and
+    its display label is the peer (Cilium) name — so the strip can show off-fleet peers, dimmed.
 
-`clustermesh` is given already-fetched ConfigMaps/Secrets + the fleet member list; it does the parsing
-and graph logic. Pure and unit-testable.
+```go
+type MeshState string
+const (
+    MeshUnavailable MeshState = "unavailable" // Cilium ClusterMesh not detected on the cluster
+    MeshEnabled     MeshState = "enabled"     // clustermesh installed, no configured peers
+    MeshPeered      MeshState = "peered"      // ≥1 configured peer, or named by another peer
+)
+```
+
+`clustermesh` is given already-fetched ConfigMaps/Secrets + the fleet member list (each member's
+`ClusterMeshInstalled` flag from capability); it does the parsing and graph logic. Pure and
+unit-testable.
 
 ## 2. Capability detection (`internal/capability`)
 
-The dormant `NetworkCapability.ClusterMesh bool` is finally **populated**: true when the cluster serves
-ClusterMesh — detected by the presence of the `clustermesh-apiserver` Deployment/Service OR the
-`cilium-clustermesh` Secret in `kube-system`. Gates all mesh UI (no mesh → no strip, no card row, no
-topology edge), consistent with "render only what's installed".
+Two subtly different facts, not one bool — so the UI never lies that a peerless-but-installed cluster
+is "not meshed":
+- **`ClusterMeshInstalled`** — `clustermesh-apiserver` Deployment/Service OR the `cilium-clustermesh`
+  Secret present in `kube-system`. Populates the dormant `NetworkCapability.ClusterMesh` (kept as the
+  coarse gate for "show mesh UI at all").
+- **`ClusterMeshPeered`** — derived later (in `BuildGraph`): the member has ≥1 configured peer or is
+  named by another. This drives the `MeshState` (enabled vs peered).
+
+`ClusterMeshInstalled=false` → `MeshUnavailable` (no strip node, no card row, no topology edge —
+"render only what's installed"). Installed-but-peerless → `MeshEnabled` (the card row says "mesh
+enabled, no peers", NOT "not meshed").
 
 ## 3. Data layer (`internal/fleet`)
 
 The fleet already connects to and aggregates every cluster. It gains a mesh pass:
-- per `ClusterConn`: `MeshMember(ctx) (clustermesh.Member, bool)` — read `cilium-config` +
+- per `ClusterConn`: `MeshMember(ctx) (clustermesh.Member, MeshReadStatus)` — read `cilium-config` +
   `cilium-clustermesh` (typed `CoreV1().ConfigMaps/Secrets("kube-system").Get`), parse via the pure
-  package; `ok=false` (+ a soft note) when ClusterMesh isn't served.
-- fleet aggregation: collect each connected cluster's `Member`, call `clustermesh.BuildGraph` →
+  package. It **always returns a `Member`** for the cluster (with `Present=true`), even when the Secret
+  is absent — so a standalone cluster (nelli) still becomes a fleet node and isn't dropped. Nuance
+  lives in the status, not a bool:
+  ```go
+  type MeshReadStatus struct {
+      ClusterMeshInstalled bool
+      IdentityRead         bool
+      PeersRead            bool
+      Note                 string
+  }
+  ```
+- fleet aggregation: collect **every** connected cluster's `Member`, call `clustermesh.BuildGraph` →
   a fleet-level `Graph` exposed on the fleet snapshot. Snapshot, no watch (consistent with M5).
-- For **M5-c-ii**: `GetGatewayTopology` marks a backend `ServiceNode` as global when the Service
-  carries `service.cilium.io/global: "true"`, and (cross-referencing the fleet graph + the connected
-  peers) lists the **confirmed reachable** peer clusters — those meshed peers that also host a
-  same-`namespace/name` global Service. A meshed peer Klyx isn't connected to → counted as
-  "unconfirmed" (global, but reach not verifiable).
+- For **M5-c-ii**: `GetGatewayTopology` marks a backend `ServiceNode` as `Global` when the Service
+  carries `service.cilium.io/global: "true"`, and lists `MeshClusters` — the **fleet-confirmed global
+  peers**: meshed peers that (a) are present in the fleet AND (b) host a Service with the *same
+  namespace + name* that is *also* annotated global, AND (c) share a mesh edge. **Off-fleet peers are
+  never added to `MeshClusters`** (Klyx can't inspect them) — they only set `MeshUnconfirmed=true`.
+  This is *fleet-confirmed global-service presence*, NOT live dataplane reachability — the naming and
+  UI copy say so (decision #2).
 
 ## 4. appbridge DTOs
 
-- Fleet: `MeshGraphDTO{ nodes []MeshNodeDTO{cluster,clusterID,meshed,present}, edges []MeshEdgeDTO{a,b,mutual} }`,
-  added to the fleet snapshot DTO (or a sibling `GetMeshGraph(...)`), all json-tagged camelCase.
-- Topology: `ServiceNodeDTO` gains `global bool` + `meshClusters []string` (confirmed reachable peers)
-  + `meshUnconfirmed bool`. TS types mirror.
+- Fleet: `MeshGraphDTO{ nodes []MeshNodeDTO{cluster,name,clusterID,state,present}, edges []MeshEdgeDTO{a,b,mutual} }`,
+  added to the fleet snapshot DTO (or a sibling `GetMeshGraph(...)`), all json-tagged camelCase
+  (`clusterID` → `clusterId`; `state` is the `MeshState` string).
+- Topology: `ServiceNodeDTO` gains `global bool` + `meshClusters []string` (**fleet-confirmed global
+  peers** — fleet-present peers with a same-`ns/name` global Service; never off-fleet) + `meshUnconfirmed
+  bool` (a configured/off-fleet peer could not be fleet-verified). TS types mirror.
 
 ## 5. Fleet peering UI (M5-c-i)
 
-- **Mesh strip** above the cluster-card grid (rendered only when the fleet graph has ≥1 mesh node):
-  clusters as nodes, peers as edges — **solid** for mutual, **dashed** for asymmetric (+ a small
-  "asymmetric" caption), unmeshed/off-fleet nodes muted (`nelli ⬡`, off-fleet peers dimmed). A header
-  caption clarifies "configured peering (not live connectivity)". Clicking a node opens that cluster.
-- **Per-card mesh row** on each cluster card: `⇄ mesh: orange` (peers) or `⬡ not meshed`. Always
-  visible; the strip is the at-a-glance graph, the row is the per-cluster fact.
+- **Mesh strip** above the cluster-card grid (rendered only when ≥1 fleet cluster is
+  `ClusterMeshInstalled`): clusters as nodes, peers as edges — **solid** for mutual, **dashed** for
+  asymmetric (+ a small "asymmetric" caption), standalone nodes muted (`nelli ⬡`), off-fleet peers
+  shown as a **dimmed, second-class** node. Header caption exactly: *"configured peering (not live
+  connectivity)"*. Clicking a fleet node opens that cluster (off-fleet nodes aren't clickable).
+- **Per-card mesh row** — precise states (this is a topology debugger; the distinctions are the point):
+  `⇄ mesh: orange` (peered/mutual); `⇄ mesh: orange (asymmetric)` (one-way configured);
+  `⇄ mesh: orange (+1 off-fleet)` (a peer Klyx isn't connected to); `⬡ mesh enabled, no peers`
+  (installed, zero peers); `⬡ no ClusterMesh` (not installed). The strip is the at-a-glance graph;
+  the row is the per-cluster fact.
 
 ## 6. Topology arrows (M5-c-ii)
 
+- **Detection is strict service-level** (no selector/backend-pod matching — too clever for this slice):
+  a peer counts in `MeshClusters` only when same namespace, same Service name, the peer's Service is
+  *also* annotated `service.cilium.io/global: "true"`, the peer is **present in the fleet**, and a mesh
+  edge exists between the two.
 - The pods box (which already hosts inferred CNP chips) gains a **cross-cluster edge chip** when the
-  primary backend is a global service: `⇄ global → orange` (confirmed reachable peers), or
-  `⇄ global (reach unconfirmed)` when peers aren't all connected to Klyx. Distinct styling from policy
-  chips (it's a *reach* edge, not a policy) — e.g. an arrow glyph + the info colour.
+  primary backend is global: `⇄ global → orange` (fleet-confirmed global peers), or
+  `⇄ global (peers unverified)` when `meshUnconfirmed`. Distinct styling from policy chips (it's a
+  *reach* edge, not a policy) — an arrow glyph + the info colour.
+- **Tooltip/detail copy is truth-serum**: *"Global service also found on configured mesh peer `orange`.
+  Live dataplane health is not checked."* Never "reachable"/"confirmed reachable" — Klyx confirms
+  configured global-service presence across the fleet, not packet reach (that waits for M7 agent
+  metrics).
 - Replaces the literal "ClusterMesh: not shown yet (arrives in a later slice)" placeholder line.
-- The route detail panel notes the global service + its confirmed/unconfirmed reachable clusters.
 
 ## 7. Testing + native handoff
 
-- `clustermesh` unit tests: `ParseIdentity` (name/id, missing keys), `ParsePeers` (peer keys vs cert
-  keys filtered, empty secret), `BuildGraph` (mutual edge, asymmetric one-way edge, unmeshed node,
-  off-fleet peer `Present=false`).
-- capability test: ClusterMesh true on apiserver/secret present, false otherwise.
-- fleet test: `MeshMember` parse via fakes; graph assembly over a fake 3-cluster fleet
-  (blue⇄orange mutual, nelli standalone); global-service marking + confirmed-peer cross-reference.
-- appbridge mapping; frontend strip (solid/dashed/muted) + per-card row + topology edge chip.
+- **Fixtures:** capture the *real* Secret shape from the homelab into `testdata/` before coding
+  `ParsePeers` — `kubectl --context kubernetes-admin@homelab-blue -n kube-system get secret
+  cilium-clustermesh -o yaml > testdata/blue-cilium-clustermesh.yaml` (and orange). Redact endpoint
+  values if needed but keep the real key shape; pin the parser against them.
+- `clustermesh` unit tests: `ParseIdentity` (name+id, **missing/malformed cluster-id still yields a
+  usable identity by name**); `ParsePeers` (peer keys vs filtered cert/internal keys, value-must-parse
+  guard, empty secret); `BuildGraph` — mutual edge; asymmetric one-way edge; standalone node;
+  off-fleet peer `Present=false`; **Cilium identity-name differs from fleet cluster key, peer resolves
+  to the right fleet member** (the under-the-floorboards case); duplicate peer entries collapse to one
+  edge; self-peer ignored; malformed cluster-id still renders a node; Secret missing but apiserver
+  present → `MeshEnabled` (no peers).
+- capability test: `ClusterMeshInstalled` true on apiserver/secret present, false otherwise.
+- fleet test: `MeshMember` parse via fakes (always returns a member); graph assembly over a fake
+  3-cluster fleet (blue⇄orange mutual, nelli standalone). Topology: local global + peer same-`ns/name`
+  global, peer in fleet → `MeshClusters` includes peer; peer Service absent / not global → not
+  included; off-fleet peer → `MeshUnconfirmed=true`, peer NOT in `MeshClusters`; local not global → no
+  chip; same name different namespace → no match.
+- appbridge mapping; frontend strip (solid mutual / dashed asymmetric / muted standalone / dim
+  off-fleet) + per-card row (all five states) + topology edge chip + truth-serum tooltip.
 - **Native handoff (i):** on the homelab fleet, the mesh strip shows `blue ⇄ orange` (solid mutual)
   with `nelli` muted, and each card's mesh row is correct. **(ii):** deploy a test global service
   (`service.cilium.io/global: "true"`) on blue+orange, route to it, confirm the pods-box `⇄ global →`
-  edge lists the confirmed peer; remove after.
+  edge lists the fleet-confirmed peer; remove after.
 
 ---
 
@@ -131,6 +199,8 @@ The fleet already connects to and aggregates every cluster. It gains a mesh pass
 | 3 | Surface **mutual vs asymmetric** edges | Klyx reads every cluster, so it can show one-way misconfig that single-cluster `cilium clustermesh status` can't |
 | 4 | Pure `internal/clustermesh` (parse + graph) separate from fleet I/O | Same pattern as `gwapi`/`crd` — the parsing + graph logic is real, deserves unit tests; fleet does the client-go reads |
 | 5 | Fleet UI = mesh strip (focused graph) + per-card mesh row | Drawn edges between grid cards tangle at 9-cluster scale; a strip scales and the row keeps the fact always-visible (visual-companion choice) |
-| 6 | Topology edge reuses the pods-box chip area; confirmed vs unconfirmed reach | Cilium global services select endpoints across clusters; Klyx confirms reach only for fleet-connected peers, and says so when it can't |
-| 7 | Populate the dormant `ClusterMesh` capability; gate all mesh UI | The field existed but was never set; capability-gating keeps non-meshed clusters (nelli, kind) free of phantom mesh UI |
-| 8 | Off-fleet peers shown as `Present=false` nodes | A cluster can mesh with a cluster Klyx isn't connected to; hiding it would misrepresent the mesh — show it dimmed |
+| 6 | Topology edge = **fleet-confirmed global-service presence**, never "reachable" | Cilium global services share endpoints across clusters, but Klyx only confirms a same-`ns/name` global Service exists on a fleet peer — not packet reach. "Reachable" would over-claim until M7 metrics |
+| 7 | Two capability facts: `ClusterMeshInstalled` (gate) vs `ClusterMeshPeered` (state) | A peerless-but-installed cluster must read "mesh enabled, no peers", not "not meshed" — one bool would lie |
+| 8 | Off-fleet peers are dimmed nodes + a card `(+N off-fleet)`, but **never** in topology `MeshClusters` | Showing them honours the real mesh, but Klyx can't inspect them, so they must not imply a verifiable cross-cluster route |
+| 9 | Match peers by **Cilium cluster-name** (Identity.Name), not the kubeconfig/fleet key | The `cilium-clustermesh` Secret keys are Cilium cluster-names; the fleet display key (kubeconfig context) may differ — matching on the wrong one is a silent missing-edge bug |
+| 10 | `cluster-id` is optional display metadata; graph identity is the cluster-name | A missing/malformed `cluster-id` must still yield a usable node and edges |
