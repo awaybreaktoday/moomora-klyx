@@ -78,13 +78,13 @@ function PodTable({ pods }: { pods: PodDTO[] }) {
   return (
     <div style={{ padding: "4px 8px 8px 32px", background: "var(--color-background-secondary)" }}>
       {pods.map((p) => (
-        <div key={p.name} style={{ display: "grid", gridTemplateColumns: "1fr 60px 56px 1fr 120px 50px", gap: 10, fontSize: 11, padding: "3px 0", color: "var(--color-text-secondary)" }}>
-          <span>{p.name}</span>
+        <div key={p.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) 64px 50px minmax(0,1.2fr) minmax(0,1.1fr) 48px", gap: 10, fontSize: 11, padding: "3px 0", color: "var(--color-text-secondary)" }}>
+          <span style={ellipsis} title={p.name}>{p.name}</span>
           <span style={{ color: p.ready ? "var(--color-text-success)" : "var(--color-text-danger)" }}>{p.ready ? "ready" : "not ready"}</span>
           <span>{p.restarts}</span>
-          <span style={{ color: p.reason ? "var(--color-text-danger)" : "var(--color-text-tertiary)" }}>{p.reason || "—"}</span>
-          <span style={{ color: "var(--color-text-tertiary)" }}>{p.node}</span>
-          <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
+          <span style={{ ...ellipsis, color: p.reason ? "var(--color-text-danger)" : "var(--color-text-tertiary)" }} title={p.reason || undefined}>{p.reason || "—"}</span>
+          <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
+          <span style={{ color: "var(--color-text-tertiary)", textAlign: "right" }}>{ago(p.ageSeconds)}</span>
         </div>
       ))}
     </div>
@@ -101,3 +101,4 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 }
 
 const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" };
+const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
