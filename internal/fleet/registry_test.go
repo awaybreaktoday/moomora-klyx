@@ -13,6 +13,7 @@ import (
 	"github.com/moomora/klyx/internal/gwapi"
 	"github.com/moomora/klyx/internal/metrics"
 	"github.com/moomora/klyx/internal/routemetrics"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 type fakeConn struct {
@@ -42,6 +43,9 @@ func (f *fakeConn) SourceURL(ctx context.Context, kind, ns, name string) (string
 	return "", false
 }
 func (f *fakeConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return nil, nil }
+func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
+	return nil, false, nil
+}
 func (f *fakeConn) CountResource(ctx context.Context, group, version, plural string) (int, bool, error) {
 	return 0, false, nil
 }

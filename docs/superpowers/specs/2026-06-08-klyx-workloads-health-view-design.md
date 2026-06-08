@@ -84,8 +84,8 @@ type HealthRank int // sort order: lower = worse = nearer the top
 const (
 	Unhealthy HealthRank = iota // ready==0 (desired>0) OR a hard failure reason
 	Degraded                    // ready<desired, rolling out / benign, no hard failure
-	Restarts                    // ready==desired, but containers have restarted (info)
-	Healthy                     // ready==desired, no restarts (incl. desired==0 "Scaled to 0")
+	Restarts                    // ready==desired, but a container terminated recently (<1h) (info)
+	Healthy                     // ready==desired, no recent termination (incl. desired==0 "Scaled to 0")
 )
 
 type Owner struct {
@@ -166,8 +166,14 @@ than one distinct hard failure. The plan pins this order in a table test.
 **RankOf:**
 - `Unhealthy` if `desired>0 && ready==0`, OR a hard-failure WorstPodReason is present.
 - else `Degraded` if `ready < desired` (rolling out, benign, or simply not-yet-available).
-- else `Restarts` if `desired>0 && ready==desired && totalRestarts>0`.
-- else `Healthy` (`ready==desired`, no restarts). `desired==0` lands here.
+- else `Restarts` if `desired>0 && ready==desired` AND a container (init or main)
+  terminated within the last hour (`recentlyTerminated`, reading
+  `lastState.terminated.finishedAt` / `state.terminated.finishedAt`). The info tier
+  is recency-gated so a long-lived cluster does not show a wall of blue from
+  restarts that happened weeks ago. The restart COUNT stays in its own column
+  regardless. A stale historical reason (old OOMKill/Error) is suppressed from the
+  row status text so a grey/healthy row never reads "OOMKilled".
+- else `Healthy` (`ready==desired`, no recent termination). `desired==0` lands here.
 
 **Reason (display string)**, in order — the `desired==0` rule dominates so a
 scaled-down workload with a stale condition never shows something noisier:
@@ -371,7 +377,9 @@ The cluster is healthy, so verification deploys deliberate failures in a
    OOMKilled-from-lastState ranks high.
 8. Deployment condition priority: ReplicaFailure → Available=False →
    Progressing=False → rollout; healthy Progressing is not surfaced.
-9. Health-rank `Restarts` is an info state (total restarts; aging deferred).
+9. Health-rank `Restarts` is a recency-gated info state: only a container
+   termination within the last hour lights it; the total restart count stays
+   visible in its own column regardless.
 10. GitOps owner = Flux ownership label, surfaced only when Flux present;
     compact in row, full in tooltip; never claims verified owner health.
 11. `desired==0` → Healthy "Scaled to 0" (no false red).

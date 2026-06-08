@@ -24,6 +24,7 @@ import (
 	"github.com/moomora/klyx/internal/gwapi"
 	"github.com/moomora/klyx/internal/metrics"
 	"github.com/moomora/klyx/internal/routemetrics"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 // Conn is the interface the registry drives. ClusterConn is the production impl.
@@ -39,6 +40,7 @@ type Conn interface {
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 	ListCRDs(ctx context.Context) ([]crd.Info, error)
+	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error)
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)
