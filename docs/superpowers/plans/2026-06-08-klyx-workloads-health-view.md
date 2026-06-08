@@ -209,7 +209,7 @@ func classifyDeployment(d *appsv1.Deployment) classified {
 	for i := range d.Status.Conditions {
 		cond := &d.Status.Conditions[i]
 		switch cond.Type {
-		case "ReplicaFailure":
+		case appsv1.DeploymentReplicaFailure:
 			if cond.Status == corev1.ConditionTrue {
 				c.condReason = cond.Reason
 				return c
@@ -326,6 +326,17 @@ func TestWorstPodReason(t *testing.T) {
 		t.Fatalf("pend got %q/%v", r, sev)
 	}
 
+	// Unknown waiting reason -> still hard (surface it), but a known hard reason
+	// (CrashLoopBackOff) outranks it.
+	r, sev = worstPodReason([]corev1.Pod{waitingPod("SomeWeirdNewReason")})
+	if r != "SomeWeirdNewReason" || sev != sevHard {
+		t.Fatalf("unknown got %q/%v", r, sev)
+	}
+	r, _ = worstPodReason([]corev1.Pod{waitingPod("SomeWeirdNewReason"), waitingPod("CrashLoopBackOff")})
+	if r != "CrashLoopBackOff" {
+		t.Fatalf("known should outrank unknown, got %q", r)
+	}
+
 	// Clean pod -> none.
 	clean := corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}}}
 	r, sev = worstPodReason([]corev1.Pod{clean})
@@ -388,7 +399,13 @@ func worstPodReason(pods []corev1.Pod) (string, severity) {
 	consider := func(reason string, sev severity) {
 		switch sev {
 		case sevHard:
-			if r := hardRank[reason]; r > bestHard {
+			// Unknown waiting reasons are still treated as hard (a health lens must
+			// not silently hide an unrecognized failure) but rank below named ones.
+			r := hardRank[reason]
+			if r == 0 {
+				r = 10
+			}
+			if r > bestHard {
 				bestHard, bestReason, bestSev = r, reason, sevHard
 			}
 		case sevHistorical:
@@ -585,6 +602,7 @@ Expected: FAIL — `Assemble` undefined.
 package workloads
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -709,17 +727,16 @@ func ageSeconds(created, now time.Time) int {
 	return d
 }
 
+// rankOf honors a hard pod failure regardless of ready count (matches the spec
+// contract: a hard-failure reason makes the workload Unhealthy).
 func rankOf(desired, ready, restarts int, sev severity) HealthRank {
 	if desired == 0 {
 		return Healthy
 	}
-	if ready == 0 {
+	if sev == sevHard || ready == 0 {
 		return Unhealthy
 	}
 	if ready < desired {
-		if sev == sevHard {
-			return Unhealthy
-		}
 		return Degraded
 	}
 	// ready == desired
@@ -739,15 +756,16 @@ func displayReason(kind string, c classified, podReason string) string {
 	if c.condReason != "" {
 		return c.condReason
 	}
-	if c.ready == c.desired {
-		// Speak each kind's vocabulary: Deployments have an "Available" condition;
-		// StatefulSets/DaemonSets are "Ready".
-		if kind == "Deployment" {
-			return "Available"
-		}
-		return "Ready"
+	if c.ready < c.desired {
+		// Readable fallback when conditions are sparse.
+		return fmt.Sprintf("Progressing · %d unavailable", c.desired-c.ready)
 	}
-	return ""
+	// Speak each kind's vocabulary: Deployments have an "Available" condition;
+	// StatefulSets/DaemonSets are "Ready".
+	if kind == "Deployment" {
+		return "Available"
+	}
+	return "Ready"
 }
 
 func extractOwner(l map[string]string) *Owner {
@@ -817,9 +835,12 @@ func TestListWorkloads(t *testing.T) {
 	c := &ClusterConn{typed: cs, clk: clock.NewFake(time.Unix(0, 0))}
 	c.caps = capability.Set{GitOps: capability.GitOpsCapability{Flux: capability.FluxInfo{Present: true}}}
 
-	out, err := c.ListWorkloads(context.Background(), "")
+	out, fluxPresent, err := c.ListWorkloads(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !fluxPresent {
+		t.Fatal("want fluxPresent true")
 	}
 	if len(out) != 1 || out[0].Name != "api" || out[0].Rank.String() != "unhealthy" || out[0].Reason != "ImagePullBackOff" || out[0].Restarts != 4 {
 		t.Fatalf("got %+v", out)
@@ -849,46 +870,47 @@ import (
 
 // ListWorkloads lists Deploy/StatefulSet/DaemonSet + Pods scoped to namespace
 // ("" = all; a set namespace scopes the typed list at source) and assembles
-// their health. On-demand; no watch.
-func (c *ClusterConn) ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, error) {
-	deps, err := c.typed.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	stss, err := c.typed.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	dss, err := c.typed.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	pods, err := c.typed.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-
+// their health. Also returns whether Flux is present (so the UI can distinguish
+// "no Flux" from "not Flux-managed"). On-demand; no watch.
+func (c *ClusterConn) ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error) {
 	c.mu.RLock()
 	fluxPresent := c.caps.GitOps.Flux.Present
 	c.mu.RUnlock()
+
+	deps, err := c.typed.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fluxPresent, err
+	}
+	stss, err := c.typed.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fluxPresent, err
+	}
+	dss, err := c.typed.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fluxPresent, err
+	}
+	pods, err := c.typed.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fluxPresent, err
+	}
 
 	clk := c.clk
 	if clk == nil {
 		clk = clock.Real{}
 	}
-	return workloads.Assemble(deps.Items, stss.Items, dss.Items, pods.Items, fluxPresent, clk.Now()), nil
+	return workloads.Assemble(deps.Items, stss.Items, dss.Items, pods.Items, fluxPresent, clk.Now()), fluxPresent, nil
 }
 ```
 
 In `internal/fleet/conn.go`, add the import `"github.com/moomora/klyx/internal/workloads"` and to the `Conn` interface:
 ```go
-	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, error)
+	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error)
 ```
 
-In `internal/fleet/registry_test.go`, add the `fakeConn` stub (and `workloads` import):
+In `internal/fleet/registry_test.go`, add the `fakeConn` stub (and `workloads` import; match the existing fakeConn receiver style):
 ```go
-func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload, error) {
-	return nil, nil
+func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
+	return nil, false, nil
 }
 ```
 
@@ -926,10 +948,13 @@ import (
 	"github.com/moomora/klyx/internal/workloads"
 )
 
-type fakeWLConn struct{ wl []workloads.Workload }
+type fakeWLConn struct {
+	wl   []workloads.Workload
+	flux bool
+}
 
-func (f fakeWLConn) ListWorkloads(context.Context, string) ([]workloads.Workload, error) {
-	return f.wl, nil
+func (f fakeWLConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
+	return f.wl, f.flux, nil
 }
 
 func TestListWorkloadsDTO(t *testing.T) {
@@ -941,7 +966,7 @@ func TestListWorkloadsDTO(t *testing.T) {
 		}
 	})
 	t.Run("maps + namespaces on all-load + rank string", func(t *testing.T) {
-		conn := fakeWLConn{wl: []workloads.Workload{
+		conn := fakeWLConn{flux: true, wl: []workloads.Workload{
 			{Kind: "Deployment", Namespace: "b", Name: "x", Desired: 1, Ready: 0, Rank: workloads.Unhealthy, Reason: "CrashLoopBackOff",
 				GitOps: &workloads.Owner{Kind: "Kustomization", Namespace: "flux-system", Name: "x"},
 				Pods:   []workloads.Pod{{Name: "x-1", Ready: false, Restarts: 5, Reason: "CrashLoopBackOff", Node: "n1", AgeSeconds: 30}}},
@@ -950,6 +975,9 @@ func TestListWorkloadsDTO(t *testing.T) {
 		s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
 
 		all := s.ListWorkloads("c", "")
+		if !all.FluxPresent {
+			t.Fatal("want FluxPresent true")
+		}
 		if len(all.Workloads) != 2 || all.Workloads[0].Rank != "unhealthy" {
 			t.Fatalf("workloads: %+v", all.Workloads)
 		}
@@ -1036,7 +1064,7 @@ import (
 const workloadsTimeout = 30 * time.Second
 
 type WorkloadsConn interface {
-	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, error)
+	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error)
 }
 
 type WorkloadsService struct {
@@ -1058,10 +1086,11 @@ func (s *WorkloadsService) ListWorkloads(cluster, namespace string) WorkloadsRes
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), workloadsTimeout)
 	defer cancel()
-	wl, err := conn.ListWorkloads(ctx, namespace)
+	wl, fluxPresent, err := conn.ListWorkloads(ctx, namespace)
 	if err != nil {
 		return out
 	}
+	out.FluxPresent = fluxPresent
 
 	nsSet := map[string]bool{}
 	for _, w := range wl {
@@ -1248,7 +1277,7 @@ export async function listWorkloads(cluster: string, namespace: string): Promise
 
 - [ ] **Step 4: Nav wiring (Sidebar + ClusterDetail)**
 
-In `cmd/klyx/frontend/src/chrome/Sidebar.tsx`, add an icon import (e.g. `IconBox`) to the `@tabler/icons-react` import and a `SECTION_ICONS` entry after `network`:
+In `cmd/klyx/frontend/src/chrome/Sidebar.tsx`, add an icon import to the `@tabler/icons-react` import (use one that actually exists — `IconBox` or `IconBoxMultiple` are good; if `tsc` flags it, pick another from the package) and a `SECTION_ICONS` entry after `network`:
 ```ts
   { section: "workloads", Icon: IconBox },
 ```
@@ -1391,6 +1420,9 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No workloads{wl.namespace ? ` in ${wl.namespace}` : ""}.</div>
       ) : (
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "12px 90px 1fr 70px 64px 1.2fr 160px", gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
+            <span /><span>kind</span><span>workload</span><span>ready</span><span>restarts</span><span>status</span><span>gitops</span>
+          </div>
           {rows.map((w) => {
             const expanded = wl.expanded.includes(keyOf(w));
             return (
