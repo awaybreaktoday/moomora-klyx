@@ -88,15 +88,22 @@ type WorkloadResources struct {
 
 `nil` encodes the truth; no extra booleans:
 
-- `nil Limit` has exactly one cause — not every matched container is capped for that
-  resource — so it renders `no limit`.
+- **For a workload with matched pods**, `nil Limit` has exactly one cause — not every
+  matched container is capped for that resource — so it renders `no limit` (cpu and
+  mem evaluated independently).
 - `nil Request` → `—`.
 - `nil Usage` → `—` (Prometheus absent/unavailable; req/limit still render).
+- **For a workload with no matched pods** (empty/nil selector, or zero live pods),
+  there is no live pod spec to aggregate, so all cells are nil and render `—` — *not*
+  `no limit`. Rendering keys on the matched-pod count: zero pods → `—` across the
+  board; ≥1 pod → `nil Limit` means `no limit`.
 
 ### Aggregation rules (the honesty contract)
 
-Computed over the **currently matched live pods** (same join as `Assemble`), regular
-containers only (init containers excluded as transient):
+Computed over the **currently matched live pods** (same join as `Assemble`). Regular
+app containers — **including sidecars** (sidecars are regular containers, so they
+count toward the any-container-uncapped rule) — are included; **init containers are
+excluded** as transient:
 
 - **Limit** (per resource, independently for cpu and mem): if *every* matched
   container sets a limit → `Limit = sum`. If *any* container lacks one → `Limit =
@@ -126,6 +133,7 @@ colour. CPU and memory are **not symmetric**:
   OOM. Memory red is *OOM risk*. The wording stays distinct.
 - `no limit` → value + muted `· no limit`, no bar, no percentage.
 - `Usage` nil → `— / <limit>`, no colour (can't compute saturation without usage).
+- No matched pods → all cells `—` (no live spec to aggregate); never `no limit`.
 
 ## Rank & sort
 
@@ -154,8 +162,9 @@ from a separate pollable call. Metrics never become a second source of workload 
 
 1. **`internal/workloads/resources.go` (pure, extends M7-c-ii-a).** Aggregates
    request/limit from matched pods' container specs into `WorkloadResources`
-   (`Usage` left nil). Reuses the *same* pod-to-workload join helper as `Assemble`
-   (same namespace, same selector match, empty selector → zero pods) — not a copy.
+   (`Usage` left nil), over regular containers including sidecars, init excluded.
+   Reuses the *same* pod-to-workload join helper as `Assemble` (same namespace, same
+   selector match, empty selector → zero pods) — not a copy.
    `ListWorkloads` now returns req/limit, so the expand's req/limit picture works
    even with Prometheus down.
 
@@ -257,8 +266,9 @@ frontend can distinguish `no limit` (limit null) from "not loaded yet."
   usage-absent → no tier; threshold boundaries (mem 75/90, cpu 90/100).
 - merge patches usage only — a metrics poll never replaces structural rows.
 - stale-on-transient-fail keeps last-good usage.
-- near-limit sort order (mem-sat desc → cpu-sat desc → k8s rank → ns/name);
-  no-limit rows sort below calculable ones.
+- near-limit sort order (mem-sat desc → cpu-sat desc → k8s rank → ns/name); rows with
+  no calculable saturation (no-limit or usage-absent) sort below calculable ones; when
+  both mem and cpu saturation are nil, the tie falls back to k8s rank then ns/name.
 - **metrics unavailable → cpu/mem columns and the near-limit control are not
   rendered** (pins the capability-gated UI boundary).
 
@@ -266,14 +276,21 @@ frontend can distinguish `no limit` (limit null) from "not loaded yet."
 
 In `klyx-test`:
 
-- A Deployment with a small memory limit + a steady allocator pushing ~80–90% of it →
-  confirm the mem bar goes red, the expand says **OOM risk**, the "near limit" sort
-  floats it to the top, and **the rank dot stays grey** (k8s says it's fine right
-  now). This makes the whole conceptual decision visible.
+- A Deployment with a small memory limit + a steady allocator pushing **>90% (target
+  ~92–95%)** of it → confirm the mem bar goes **red**, the expand says **OOM risk**,
+  the "near limit" sort floats it to the top, and **the rank dot stays grey** (k8s says
+  it's fine right now). This makes the whole conceptual decision visible. (An ~80–90%
+  allocator should read amber; aim above 90 for the red/OOM-risk proof.)
 - A Deployment with no limits → `no limit`, no fake percentage, sorts below saturable
   workloads under "near limit".
+- A Deployment whose selector matches no live pods (or scaled to zero) → cpu/mem `—`
+  (not `no limit`).
 - Briefly interrupt the metrics source → usage `—`, limit still shown from the pod
   spec, stale reason surfaced; on recovery, values return without a full row replace.
+- **Verify cAdvisor series cleanliness**: confirm the cpu/mem queries return one
+  series per real container/pod, not duplicate empty-image infrastructure series. If
+  the homelab scrape yields duplicates, add an `image!=""` matcher to the queries
+  (do not add it blindly otherwise).
 - Clean up: `kubectl delete ns klyx-test`.
 
 ## Design decisions (locked)
