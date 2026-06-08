@@ -60,6 +60,11 @@ func build(kind, ns, name string, objLabels map[string]string, selector *metav1.
 		})
 	}
 
+	// Rank is pod-backed by design: it derives from the worst pod severity, NOT
+	// from c.condReason. A lagging controller condition (e.g. Available=False while
+	// ready==desired) is shown in the status text but does not redden the rank dot.
+	// This is intentional - any real pod hard-failure still forces Unhealthy via sev,
+	// so a broken workload can never render healthy. Do not wire condReason into rankOf.
 	reason, sev := worstPodReason(deref(matched))
 	w.Rank = rankOf(c.desired, c.ready, w.Restarts, sev)
 	w.Reason = displayReason(kind, c, reason)
