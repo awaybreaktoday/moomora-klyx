@@ -12,6 +12,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-08-klyx-workload-metrics-design.md`
 
+## Preconditions (verified in the current `main` tree — no prep work needed)
+
+- `(*fleet.ClusterConn).ListWorkloads(ctx, namespace) ([]workloads.Workload, bool, error)` **already** returns the `fluxPresent` bool (M7-c-ii-a). This plan reuses that signature verbatim — it does NOT expand the API. The `Conn` interface (conn.go) and the appbridge `WorkloadsConn` already declare the 3-value form.
+- `(*fleet.ClusterConn).ensureMetricsLocked(ctx, forceReprobe bool, now time.Time)` **already** exists (`internal/fleet/metrics.go`) and is the exact helper `RouteMetrics` uses. No extraction/refactor required.
+- Fleet unit tests build a conn directly: `c := &ClusterConn{typed: fake.NewSimpleClientset(...), clk: clock.NewFake(time.Unix(0,0))}` and set `c.caps`. A conn built this way has no Prometheus Service, so `ensureMetricsLocked` resolves to *unavailable* with no network call — used by the Task 3 gating test.
+- **Resource aggregation is from `*corev1.Pod`, never from `workloads.Pod`.** `aggregateResources` runs inside `build` on the `matched` `[]*corev1.Pod` (which carry container specs). `workloads.Pod` deliberately does not carry container resources; never aggregate from `Workload.Pods`.
+- Resource quantities are converted with `AsApproximateFloat64()` (cpu cores; memory bytes). This is approximate float64 intended for display and saturation only, not integer-exact accounting — acceptable and intended.
+
 ---
 
 ## File Structure
@@ -567,6 +575,36 @@ func queryByPod(ctx context.Context, cl *metrics.Client, promql string) (map[str
 Run: `go test ./internal/fleet/ -run TestQueryByPod -v`
 Expected: PASS.
 
+- [ ] **Step 4b: Add a gating test for the unavailable path**
+
+Append to `internal/fleet/workload_metrics_test.go`. This mirrors the `TestListWorkloads` harness (a `ClusterConn` built directly with a fake clientset). With no Prometheus Service in the fake, `ensureMetricsLocked` resolves to unavailable with no network call, so `WorkloadMetrics` returns an unavailable status. Add the imports it needs (`appsv1 "k8s.io/api/apps/v1"`, `corev1 "k8s.io/api/core/v1"`, `metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"`, `"k8s.io/client-go/kubernetes/fake"`, `"github.com/moomora/klyx/internal/capability"`, `"github.com/moomora/klyx/internal/clock"`, `"time"`, `"strings"`).
+
+```go
+func TestWorkloadMetricsUnavailableWhenNoSource(t *testing.T) {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "api"},
+		Spec:       appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}}},
+	}
+	cs := fake.NewSimpleClientset(dep) // no Prometheus Service → metrics unavailable
+	c := &ClusterConn{typed: cs, clk: clock.NewFake(time.Unix(0, 0))}
+	c.caps = capability.Set{}
+
+	usage, st := c.WorkloadMetrics(context.Background(), "")
+	if st.Available {
+		t.Fatalf("expected unavailable, got %+v", st)
+	}
+	if usage != nil {
+		t.Fatalf("expected nil usage on unavailable, got %v", usage)
+	}
+	if !strings.HasPrefix(st.Message, "metrics unavailable") {
+		t.Fatalf("message should explain unavailability, got %q", st.Message)
+	}
+}
+```
+
+Run: `go test ./internal/fleet/ -run "TestQueryByPod|TestWorkloadMetricsUnavailable" -v`
+Expected: PASS. (If the message prefix differs because `ensureMetricsLocked` produces a `Reason`, the prefix is still `metrics unavailable` per the `WorkloadMetrics` construction — adjust only if the assertion legitimately mismatches the produced string.)
+
 - [ ] **Step 5: Add `WorkloadMetrics` to the `Conn` interface**
 
 In `internal/fleet/conn.go`, in the `Conn interface` block, directly after the `ListWorkloads(...)` line (currently line ~43):
@@ -993,7 +1031,10 @@ Add the two new actions (next to `setWorkloads`):
   toggleNearLimitSort: () => set((s) => ({ workloads: { ...s.workloads, nearLimitSort: !s.workloads.nearLimitSort } })),
 ```
 
-Note: a metrics-unavailable response keeps `metricsAvailable` at its prior value (false on first load), so the columns simply never appear when there's no source — but does NOT flip a previously-true availability to false on a transient hiccup (that path only marks stale).
+**Capability-gating semantics (important — do not conflate with stale):**
+- `metricsAvailable` flips **true** only on an `available` response, and is **never flipped back to false** by a later unavailable response.
+- **First-load unavailable** (no successful poll yet, e.g. no metrics source): `metricsAvailable` stays `false` → cpu/mem columns + near-limit chip are **hidden**, view is exactly M7-c-ii-a.
+- **Transient unavailable after a prior success**: `metricsAvailable` stays `true` → columns **remain visible with last-good usage**, `metricsStale = true` (the stale path only marks stale; it must not hide columns). This is why the code reads `metricsStale: s.workloads.metricsAvailable` and leaves `metricsAvailable` untouched on the failure branch.
 
 - [ ] **Step 6: Write store tests for patch-merge + capability**
 
@@ -1287,7 +1328,10 @@ Apply test fixtures to the live homelab (context `kubernetes-admin@homelab-orang
 ```bash
 kubectl create namespace klyx-test --dry-run=client -o yaml | kubectl apply -f -
 
-# (a) Near-OOM: small mem limit + steady allocator pushing >90% (target ~92-95%).
+# (a) Near-OOM: a 512Mi limit + steady allocator at ~480M working set → ~93% of
+# limit (red/OOM-risk) with ~34MB of headroom so it does NOT OOMKill (the larger
+# absolute limit makes the stress process overhead a smaller proportion — a 256Mi
+# limit at 90% leaves too little headroom and tends to OOM, destroying the proof).
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -1302,8 +1346,8 @@ spec:
         - name: hog
           image: polinux/stress
           command: ["stress"]
-          args: ["--vm","1","--vm-bytes","240M","--vm-hang","0"]
-          resources: { requests: { memory: "256Mi", cpu: "50m" }, limits: { memory: "256Mi", cpu: "200m" } }
+          args: ["--vm","1","--vm-bytes","480M","--vm-hang","0"]
+          resources: { requests: { memory: "256Mi", cpu: "50m" }, limits: { memory: "512Mi", cpu: "200m" } }
 EOF
 
 # (b) No limits at all.
@@ -1315,7 +1359,7 @@ kubectl -n klyx-test scale deployment zero --replicas=0
 ```
 
 Then launch `cmd/klyx/bin/klyx` (or `task dev` / `wails3 dev` from `cmd/klyx`), go to **homelab-orange → Workloads → klyx-test**, and confirm:
-- `memhog`: mem bar **red**, expand reads **OOM risk ~92%**, the **"near limit"** sort floats it to the top, and the **rank dot stays grey** (k8s health unaffected).
+- `memhog`: mem bar **red**, expand reads **OOM risk ~93%**, the **"near limit"** sort floats it to the top, and the **rank dot stays grey** (k8s health unaffected). If it OOMKills instead, lower `--vm-bytes` to `440M` and re-apply.
 - `nolimit`: cpu/mem show **`· no limit`**, no bar, no %; under "near limit" it sorts **below** memhog.
 - `zero`: cpu/mem show **`—`** (not "no limit").
 - The **cpu/mem columns and "near limit" chip are present** (homelab-orange has Prometheus). Cross-check on a cluster without a metrics source (or temporarily): columns and chip absent, view identical to M7-c-ii-a.
