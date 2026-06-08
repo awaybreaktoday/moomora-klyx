@@ -1,0 +1,190 @@
+package workloads
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+)
+
+// Assemble joins workloads with their pods and derives health, sorted
+// triage-first (Rank, then namespace/name). fluxPresent gates owner extraction.
+// AgeSeconds is computed from now.
+func Assemble(deploys []appsv1.Deployment, stss []appsv1.StatefulSet, dss []appsv1.DaemonSet,
+	pods []corev1.Pod, fluxPresent bool, now time.Time) []Workload {
+
+	out := make([]Workload, 0, len(deploys)+len(stss)+len(dss))
+	for i := range deploys {
+		d := &deploys[i]
+		out = append(out, build("Deployment", d.Namespace, d.Name, d.Labels, d.Spec.Selector, classifyDeployment(d), pods, fluxPresent, now))
+	}
+	for i := range stss {
+		s := &stss[i]
+		out = append(out, build("StatefulSet", s.Namespace, s.Name, s.Labels, s.Spec.Selector, classifyStatefulSet(s), pods, fluxPresent, now))
+	}
+	for i := range dss {
+		ds := &dss[i]
+		out = append(out, build("DaemonSet", ds.Namespace, ds.Name, ds.Labels, ds.Spec.Selector, classifyDaemonSet(ds), pods, fluxPresent, now))
+	}
+
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].Rank != out[b].Rank {
+			return out[a].Rank < out[b].Rank
+		}
+		if out[a].Namespace != out[b].Namespace {
+			return out[a].Namespace < out[b].Namespace
+		}
+		return out[a].Name < out[b].Name
+	})
+	return out
+}
+
+func build(kind, ns, name string, objLabels map[string]string, selector *metav1.LabelSelector,
+	c classified, allPods []corev1.Pod, fluxPresent bool, now time.Time) Workload {
+
+	w := Workload{Kind: kind, Namespace: ns, Name: name,
+		Desired: c.desired, Ready: c.ready, Available: c.available, Updated: c.updated}
+
+	matched := matchPods(ns, selector, allPods)
+	w.Pods = make([]Pod, 0, len(matched))
+	for _, p := range matched {
+		pr, _ := worstPodReason([]corev1.Pod{*p})
+		w.Restarts += podRestarts(p)
+		w.Pods = append(w.Pods, Pod{
+			Name: p.Name, Ready: podReady(p), Restarts: podRestarts(p), Reason: pr,
+			Node: p.Spec.NodeName, AgeSeconds: ageSeconds(p.CreationTimestamp.Time, now),
+		})
+	}
+
+	reason, sev := worstPodReason(deref(matched))
+	w.Rank = rankOf(c.desired, c.ready, w.Restarts, sev)
+	w.Reason = displayReason(kind, c, reason)
+
+	if fluxPresent {
+		w.GitOps = extractOwner(objLabels)
+	}
+	return w
+}
+
+// matchPods returns pods in ns matching selector. A nil or EMPTY selector matches
+// ZERO pods (never the whole namespace).
+func matchPods(ns string, selector *metav1.LabelSelector, allPods []corev1.Pod) []*corev1.Pod {
+	if selector == nil || (len(selector.MatchLabels) == 0 && len(selector.MatchExpressions) == 0) {
+		return nil
+	}
+	s, err := metav1.LabelSelectorAsSelector(selector)
+	if err != nil {
+		return nil
+	}
+	// Pods are matched by label selector, same namespace. NOTE: if two workloads
+	// have overlapping selectors a pod can match both — this mirrors Kubernetes
+	// label semantics (no owner-reference arbitration in this slice).
+	var out []*corev1.Pod
+	for i := range allPods {
+		p := &allPods[i]
+		if p.Namespace == ns && s.Matches(labels.Set(p.Labels)) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func deref(ps []*corev1.Pod) []corev1.Pod {
+	out := make([]corev1.Pod, len(ps))
+	for i, p := range ps {
+		out[i] = *p
+	}
+	return out
+}
+
+// podReady reports the pod's PodReady condition for the per-pod expand. The
+// workload's ready/desired count comes from the workload status (Classify), which
+// is authoritative; a pod that hasn't yet reported PodReady shows not-ready here
+// but does not affect the row's rank.
+func podReady(p *corev1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func podRestarts(p *corev1.Pod) int {
+	n := 0
+	for _, cs := range p.Status.InitContainerStatuses {
+		n += int(cs.RestartCount)
+	}
+	for _, cs := range p.Status.ContainerStatuses {
+		n += int(cs.RestartCount)
+	}
+	return n
+}
+
+func ageSeconds(created, now time.Time) int {
+	if created.IsZero() {
+		return 0
+	}
+	d := int(now.Sub(created).Seconds())
+	if d < 0 {
+		return 0
+	}
+	return d
+}
+
+// rankOf honors a hard pod failure regardless of ready count (matches the spec
+// contract: a hard-failure reason makes the workload Unhealthy).
+func rankOf(desired, ready, restarts int, sev severity) HealthRank {
+	if desired == 0 {
+		return Healthy
+	}
+	if sev == sevHard || ready == 0 {
+		return Unhealthy
+	}
+	if ready < desired {
+		return Degraded
+	}
+	// ready == desired
+	if restarts > 0 || sev == sevHistorical {
+		return Restarts
+	}
+	return Healthy
+}
+
+func displayReason(kind string, c classified, podReason string) string {
+	if c.desired == 0 {
+		return "Scaled to 0"
+	}
+	if podReason != "" {
+		return podReason
+	}
+	if c.condReason != "" {
+		return c.condReason
+	}
+	if c.ready < c.desired {
+		// Readable fallback when conditions are sparse.
+		return fmt.Sprintf("Progressing · %d unavailable", c.desired-c.ready)
+	}
+	// Speak each kind's vocabulary: Deployments have an "Available" condition;
+	// StatefulSets/DaemonSets are "Ready".
+	if kind == "Deployment" {
+		return "Available"
+	}
+	return "Ready"
+}
+
+func extractOwner(l map[string]string) *Owner {
+	// Kustomization is checked first deliberately: it is the GitOps root (a
+	// HelmRelease may itself be owned by a Kustomization). GitOps is primary.
+	if n := l["kustomize.toolkit.fluxcd.io/name"]; n != "" {
+		return &Owner{Kind: "Kustomization", Namespace: l["kustomize.toolkit.fluxcd.io/namespace"], Name: n}
+	}
+	if n := l["helm.toolkit.fluxcd.io/name"]; n != "" {
+		return &Owner{Kind: "HelmRelease", Namespace: l["helm.toolkit.fluxcd.io/namespace"], Name: n}
+	}
+	return nil
+}
