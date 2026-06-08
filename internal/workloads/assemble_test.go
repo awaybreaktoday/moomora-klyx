@@ -146,6 +146,151 @@ func TestAssembleDisplayReasonArms(t *testing.T) {
 	}
 }
 
+// runningPodLastTerminated builds a 1/1-ready pod whose single container is
+// currently Running but carries a lastState terminated marker (the trace a
+// restart leaves behind). reason/finishedAt drive recency classification.
+func runningPodLastTerminated(ns, name string, labels map[string]string, restarts int32, reason string, finishedAt time.Time) corev1.Pod {
+	cs := corev1.ContainerStatus{
+		RestartCount: restarts,
+		State:        corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+			Reason: reason, FinishedAt: metav1.NewTime(finishedAt),
+		}},
+	}
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Labels: labels, CreationTimestamp: metav1.NewTime(time.Unix(0, 0))},
+		Spec:       corev1.PodSpec{NodeName: "node-1"},
+		Status: corev1.PodStatus{
+			Phase:             corev1.PodRunning,
+			Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			ContainerStatuses: []corev1.ContainerStatus{cs},
+		},
+	}
+}
+
+func readyDeploy(ns, name string, sel *metav1.LabelSelector) appsv1.Deployment {
+	return appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
+		Spec:       appsv1.DeploymentSpec{Replicas: i32(1), Selector: sel},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 1, AvailableReplicas: 1},
+	}
+}
+
+func TestRankOf(t *testing.T) {
+	tests := []struct {
+		name           string
+		desired, ready int
+		recent         bool
+		sev            severity
+		want           HealthRank
+	}{
+		{"scaled to zero", 0, 0, false, sevNone, Healthy},
+		{"hard failure forces unhealthy even when ready", 1, 1, false, sevHard, Unhealthy},
+		{"zero ready is unhealthy", 1, 0, false, sevNone, Unhealthy},
+		{"partial ready is degraded", 3, 1, false, sevNone, Degraded},
+		{"recent termination lights info", 1, 1, true, sevNone, Restarts},
+		{"recent termination with historical sev lights info", 1, 1, true, sevHistorical, Restarts},
+		// The whole point: an old (non-recent) restart settles to grey, even when
+		// the reason scanner still tags it historical.
+		{"stale historical settles to healthy", 1, 1, false, sevHistorical, Healthy},
+		{"old restart settles to healthy", 1, 1, false, sevNone, Healthy},
+		{"benign current transient does not light info on its own", 1, 1, false, sevBenign, Healthy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := rankOf(tt.desired, tt.ready, tt.recent, tt.sev); got != tt.want {
+				t.Fatalf("rankOf(%d,%d,%v,%v)=%v want %v", tt.desired, tt.ready, tt.recent, tt.sev, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRecentlyTerminated(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	withInit := func(finished time.Time) []*corev1.Pod {
+		p := corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "x", Name: "p"},
+			Status: corev1.PodStatus{
+				InitContainerStatuses: []corev1.ContainerStatus{{
+					LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+						Reason: "Error", FinishedAt: metav1.NewTime(finished),
+					}},
+				}},
+			},
+		}
+		return []*corev1.Pod{&p}
+	}
+	if !recentlyTerminated(withInit(now.Add(-5*time.Minute)), now) {
+		t.Fatalf("init container terminated 5m ago must be recent")
+	}
+	if recentlyTerminated(withInit(now.Add(-5*time.Hour)), now) {
+		t.Fatalf("init container terminated 5h ago must NOT be recent")
+	}
+	// No termination at all.
+	none := &corev1.Pod{Status: corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{}}}}
+	if recentlyTerminated([]*corev1.Pod{none}, now) {
+		t.Fatalf("pod with no termination must NOT be recent")
+	}
+}
+
+func TestAssembleOldRestartSettlesToHealthy(t *testing.T) {
+	now := time.Unix(200_000, 0)
+	d := readyDeploy("x", "settled", sel(map[string]string{"app": "s"}))
+	p := runningPodLastTerminated("x", "s-1", map[string]string{"app": "s"}, 3, "Error", now.Add(-30*time.Hour))
+	out := Assemble([]appsv1.Deployment{d}, nil, nil, []corev1.Pod{p}, false, now)
+	w := out[0]
+	if w.Rank != Healthy {
+		t.Fatalf("old restart must settle to Healthy: %+v", w)
+	}
+	if w.Restarts != 3 {
+		t.Fatalf("restart COUNT must stay visible: %+v", w)
+	}
+	if w.Reason == "Error" {
+		t.Fatalf("stale historical reason must be suppressed from text, got %q", w.Reason)
+	}
+	if w.Reason != "Available" {
+		t.Fatalf("healthy Deployment must read Available, got %q", w.Reason)
+	}
+}
+
+func TestAssembleRecentRestartLightsInfo(t *testing.T) {
+	now := time.Unix(200_000, 0)
+	d := readyDeploy("x", "recent", sel(map[string]string{"app": "r"}))
+	p := runningPodLastTerminated("x", "r-1", map[string]string{"app": "r"}, 3, "Error", now.Add(-2*time.Minute))
+	out := Assemble([]appsv1.Deployment{d}, nil, nil, []corev1.Pod{p}, false, now)
+	if out[0].Rank != Restarts {
+		t.Fatalf("recent restart must light info tier: %+v", out[0])
+	}
+}
+
+func TestAssembleStaleOOMKillSuppressedFromText(t *testing.T) {
+	now := time.Unix(200_000, 0)
+	d := readyDeploy("x", "stale-oom", sel(map[string]string{"app": "o"}))
+	p := runningPodLastTerminated("x", "o-1", map[string]string{"app": "o"}, 1, "OOMKilled", now.Add(-10*time.Hour))
+	out := Assemble([]appsv1.Deployment{d}, nil, nil, []corev1.Pod{p}, false, now)
+	w := out[0]
+	if w.Rank != Healthy {
+		t.Fatalf("stale OOMKill must settle to Healthy: %+v", w)
+	}
+	if w.Reason != "Available" {
+		t.Fatalf("stale OOMKill must be suppressed from text (want Available), got %q", w.Reason)
+	}
+}
+
+func TestAssembleRecentOOMKillShown(t *testing.T) {
+	now := time.Unix(200_000, 0)
+	d := readyDeploy("x", "recent-oom", sel(map[string]string{"app": "ro"}))
+	p := runningPodLastTerminated("x", "ro-1", map[string]string{"app": "ro"}, 1, "OOMKilled", now.Add(-3*time.Minute))
+	out := Assemble([]appsv1.Deployment{d}, nil, nil, []corev1.Pod{p}, false, now)
+	w := out[0]
+	if w.Rank != Restarts {
+		t.Fatalf("recent OOMKill must light info tier: %+v", w)
+	}
+	if w.Reason != "OOMKilled" {
+		t.Fatalf("recent OOMKill must be shown in text, got %q", w.Reason)
+	}
+}
+
 func TestAssembleHelmOwner(t *testing.T) {
 	now := time.Unix(0, 0)
 	d := appsv1.Deployment{

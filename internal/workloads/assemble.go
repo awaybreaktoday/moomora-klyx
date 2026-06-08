@@ -66,8 +66,16 @@ func build(kind, ns, name string, objLabels map[string]string, selector *metav1.
 	// This is intentional - any real pod hard-failure still forces Unhealthy via sev,
 	// so a broken workload can never render healthy. Do not wire condReason into rankOf.
 	reason, sev := worstPodReason(deref(matched))
-	w.Rank = rankOf(c.desired, c.ready, w.Restarts, sev)
-	w.Reason = displayReason(kind, c, reason)
+	recent := recentlyTerminated(matched, now)
+	// Suppress a stale historical reason (an old OOMKill/Error left in lastState)
+	// from the row's status text, so the dot and the text agree. Hard (current
+	// failure) and benign (current transient) reasons are always shown.
+	shownReason := reason
+	if sev == sevHistorical && !recent {
+		shownReason = ""
+	}
+	w.Rank = rankOf(c.desired, c.ready, recent, sev)
+	w.Reason = displayReason(kind, c, shownReason)
 
 	if fluxPresent {
 		w.GitOps = extractOwner(objLabels)
@@ -141,9 +149,46 @@ func ageSeconds(created, now time.Time) int {
 	return d
 }
 
-// rankOf honors a hard pod failure regardless of ready count (matches the spec
-// contract: a hard-failure reason makes the workload Unhealthy).
-func rankOf(desired, ready, restarts int, sev severity) HealthRank {
+// recentTerminationWindow bounds how long a container termination keeps a
+// workload in the info "Restarts" tier. Beyond it, an old restart is treated as
+// settled (the restart COUNT stays visible regardless - only the rank dot quiets).
+const recentTerminationWindow = time.Hour
+
+// recentlyTerminated reports whether any container (init or main) in the matched
+// pods terminated within recentTerminationWindow of now. It reads both the current
+// terminated state and the last-termination state (the marker a restart leaves
+// behind), across init and main containers.
+func recentlyTerminated(pods []*corev1.Pod, now time.Time) bool {
+	within := func(t metav1.Time) bool {
+		if t.IsZero() {
+			return false
+		}
+		return now.Sub(t.Time) <= recentTerminationWindow
+	}
+	scan := func(css []corev1.ContainerStatus) bool {
+		for _, cs := range css {
+			if cs.LastTerminationState.Terminated != nil && within(cs.LastTerminationState.Terminated.FinishedAt) {
+				return true
+			}
+			if cs.State.Terminated != nil && within(cs.State.Terminated.FinishedAt) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, p := range pods {
+		if scan(p.Status.InitContainerStatuses) || scan(p.Status.ContainerStatuses) {
+			return true
+		}
+	}
+	return false
+}
+
+// rankOf honors a hard pod failure regardless of ready count. The "Restarts"
+// (info) tier is recency-gated: only a *recent* container termination elevates an
+// otherwise-healthy workload, so a pod that restarted weeks ago does not stay lit
+// forever. The restart COUNT remains visible in its own column regardless.
+func rankOf(desired, ready int, recent bool, sev severity) HealthRank {
 	if desired == 0 {
 		return Healthy
 	}
@@ -154,7 +199,7 @@ func rankOf(desired, ready, restarts int, sev severity) HealthRank {
 		return Degraded
 	}
 	// ready == desired
-	if restarts > 0 || sev == sevHistorical {
+	if recent {
 		return Restarts
 	}
 	return Healthy
