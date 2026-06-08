@@ -93,12 +93,12 @@ type Owner struct {
 }
 
 type Pod struct {
-	Name     string
-	Ready    bool
-	Restarts int
-	Reason   string // worst container/pod reason, "" if running clean
-	Node     string
-	Created  time.Time
+	Name       string
+	Ready      bool
+	Restarts   int
+	Reason     string // worst container/pod reason, "" if running clean
+	Node       string
+	AgeSeconds int // derived in Assemble from (now - creationTimestamp); never time.Now() downstream
 }
 
 type Workload struct {
@@ -130,7 +130,8 @@ func Assemble(deploys []appsv1.Deployment, stss []appsv1.StatefulSet,
   `currentRevision != updateRevision` → rolling out.
 - **DaemonSet:** desired = `status.desiredNumberScheduled`; ready = `status.numberReady`;
   available = `status.numberAvailable`; updated = `status.updatedNumberScheduled`;
-  `numberUnavailable > 0` → degraded.
+  `numberUnavailable > 0` → degraded, condition reason `Degraded · N unavailable`
+  (same style as Deployment's `Progressing · N unavailable`).
 
 **Selector-join (pods → workload):** use the workload's `spec.selector`
 (`metav1.LabelSelector` → `labels.Selector`) matched against pod labels, **same
@@ -138,7 +139,9 @@ namespace only**. **An empty/nil selector matches ZERO pods** (never the whole
 namespace). Owner-reference confirmation is a possible future safety check; for
 this slice, selector-match is the join. For each matched pod: `Ready` from the
 `PodReady` condition; `Restarts` = sum of `containerStatuses[].restartCount`;
-`Node` = `spec.nodeName`; `Created` = `metadata.creationTimestamp`.
+`Node` = `spec.nodeName`; `AgeSeconds` = `now - metadata.creationTimestamp`
+(using the `now` passed into `Assemble`, so it is deterministic and the
+appbridge never calls `time.Now()` for age).
 
 **WorstPodReason** — across the workload's matched pods, the worst single reason
 by precedence (reads container statuses AND pod phase/conditions, since
@@ -166,9 +169,13 @@ than one distinct hard failure. The plan pins this order in a table test.
 - else `Restarts` if `desired>0 && ready==desired && totalRestarts>0`.
 - else `Healthy` (`ready==desired`, no restarts). `desired==0` lands here.
 
-**Reason (display string)** = WorstPodReason if present; else the Classify
-condition reason (`Available` / `Ready` / `Rolling out · N updated` /
-`Progressing · N unavailable`); else, when `desired==0`, `Scaled to 0`.
+**Reason (display string)**, in order — the `desired==0` rule dominates so a
+scaled-down workload with a stale condition never shows something noisier:
+1. `desired==0` → `Scaled to 0`.
+2. else WorstPodReason if present.
+3. else the Classify condition reason (`Rolling out · N updated` /
+   `Progressing · N unavailable` / `Degraded · N unavailable` / a failure reason).
+4. else `Available` (Deployment) / `Ready` (STS/DS).
 
 **Owner extraction** (only when `fluxPresent`): from workload labels —
 `kustomize.toolkit.fluxcd.io/name` + `…/namespace` → `Owner{Kind:"Kustomization"}`;
@@ -210,7 +217,7 @@ type WorkloadDTO struct {
 	Desired, Ready, Available, Updated int
 	Restarts                           int
 	Reason                             string
-	Rank                               string // "unhealthy"/"degraded"/"restarts"/"healthy"
+	Rank                               string // pinned API values, lowercase: "unhealthy" | "degraded" | "restarts" | "healthy" (no title-case, no UI wording)
 	GitOps                             *OwnerDTO
 	Pods                               []PodDTO
 }
@@ -249,6 +256,10 @@ type WorkloadsSlice = {
 Setter rule (namespace-list preservation): on a result with `namespace==""`,
 replace `namespaces` from `result.namespaces`; on a scoped result
 (`namespace!=""`), **keep the previous `namespaces`** so the dropdown stays full.
+**Fallback** (first load was scoped, so `namespaces` is empty): if `namespaces`
+is empty after a scoped result, seed it with `[currentNamespace]` so the dropdown
+has at least the active option until an all-namespaces load (selecting "all
+namespaces") populates the full list. No extra backend call.
 
 `WorkloadsView.tsx`:
 - **Filter bar:** namespace `<select>` (options = `namespaces`; choosing one sets
@@ -307,8 +318,10 @@ later optimization, not in this slice.
     `fluxPresent`, multi-kind mix.
 - `internal/fleet`: `ListWorkloads` against a fake clientset (deploy/sts/ds +
   pods, healthy + broken) → assembled/sorted; namespace scoping passes through.
-- `internal/appbridge`: DTO mapping (nested pods, owner, nil owner, rank string,
-  `Namespaces` only on all-load, non-nil slices).
+- `internal/appbridge`: DTO mapping (nested pods, owner, nil owner, `Namespaces`
+  only on all-load, non-nil slices, `AgeSeconds` passed through from the model),
+  and a test pinning the exact rank strings `"unhealthy"|"degraded"|"restarts"|
+  "healthy"` (lowercase, no UI wording).
 - frontend: triage sort render + dot colours; kind / needs-attention filters;
   namespace change triggers re-fetch; pod expand by `<kind>/<ns>/<name>` key;
   GitOps owner compact + tooltip; scaled-to-zero row; empty state; dropdown
