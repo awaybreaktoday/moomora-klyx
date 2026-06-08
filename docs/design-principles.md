@@ -62,6 +62,12 @@ Go + Wails. Native binaries. Sub-second cold start. ~10-20MB on disk. The webvie
 
 **Implication for build:** any dependency that requires Node.js at runtime is rejected. The binary must ship statically linked.
 
+## 11. Diagnostic lenses, not a resource zoo
+
+Klyx shows Kubernetes resources through diagnostic lenses - health, ownership, traffic path, policy, observability, and failure context decide what is surfaced - not as a generic kind-tree. A resource appears because it serves one of those lenses, never merely because Kubernetes has that kind. Lens/Headlamp/k9s already do the left-nav resource zoo; that is the commoditized 80% Klyx deliberately cedes.
+
+**Implication for build:** no flat browser of every kind, and especially no ConfigMap/Secret/Role/ServiceAccount tables. Workloads appear as a health lens; Services as topology nodes; CRDs grouped by API group; Flux/Argo as GitOps. Events and logs, when they come, are a diagnosis lens (contextual, attached to what they explain), not a firehose table. The test for any new surface: does it diagnose, explain, or operate - or is it just a table of a kind?
+
 ## Visual language
 
 Borrowed from the mockups - see `mockups.html` for the canonical reference.
