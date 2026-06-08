@@ -5,6 +5,7 @@ import { CRDBrowser } from "./CRDBrowser";
 import { InstanceList } from "./InstanceList";
 import { InstanceDetail } from "./InstanceDetail";
 import { NetworkView } from "./NetworkView";
+import { WorkloadsView } from "./WorkloadsView";
 import { Placeholder } from "../chrome/Placeholder";
 
 export function ClusterDetail() {
@@ -31,5 +32,6 @@ export function ClusterDetail() {
     return <CRDBrowser cluster={cluster.name} />;
   }
   if (route.section === "network") return <NetworkView cluster={cluster.name} />;
+  if (route.section === "workloads") return <WorkloadsView cluster={cluster.name} />;
   return <Placeholder section={route.section} c={cluster} />;
 }

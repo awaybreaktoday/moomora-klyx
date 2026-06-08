@@ -55,7 +55,24 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability";
+export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads";
+
+export type OwnerDTO = { kind: string; namespace: string; name: string };
+export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
+export type WorkloadDTO = { kind: string; namespace: string; name: string; desired: number; ready: number; available: number; updated: number; restarts: number; reason: string; rank: "unhealthy"|"degraded"|"restarts"|"healthy"; gitops: OwnerDTO | null; pods: PodDTO[] };
+export type WorkloadsResultDTO = { fluxPresent: boolean; namespaces: string[]; workloads: WorkloadDTO[] };
+export type WorkloadKind = "Deployment" | "StatefulSet" | "DaemonSet";
+export type WorkloadsSlice = {
+  cluster: string | null;
+  namespace: string;        // "" = all
+  items: WorkloadDTO[];
+  namespaces: string[];
+  fluxPresent: boolean;
+  loading: boolean;
+  kindFilter: Record<WorkloadKind, boolean>;
+  needsAttention: boolean;
+  expanded: string[];       // keys "<kind>/<namespace>/<name>"
+};
 
 export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
 export type InstanceDTO = { namespace: string; name: string; created: string };
@@ -76,6 +93,7 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   network: "Network",
   resources: "Resources",
   observability: "Observability",
+  workloads: "Workloads",
 };
 
 export type CRDKindDTO = { kind: string; plural: string; scope: string; version: string; operator: string; shortNames: string[] };
@@ -190,6 +208,13 @@ type FleetState = {
   setMetricsLoading: (cluster: string) => void;
   setMetrics: (cluster: string, dto: MetricsDTO) => void;
   clearMetrics: () => void;
+  workloads: WorkloadsSlice;
+  setWorkloadsLoading: (cluster: string, namespace: string) => void;
+  setWorkloads: (cluster: string, namespace: string, result: WorkloadsResultDTO) => void;
+  toggleWorkloadKind: (k: WorkloadKind) => void;
+  toggleNeedsAttention: () => void;
+  toggleWorkloadExpand: (key: string) => void;
+  clearWorkloads: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -292,4 +317,18 @@ export const useFleet = create<FleetState>((set) => ({
   setMetricsLoading: (cluster) => set((s) => ({ metrics: { cluster, dto: s.metrics.cluster === cluster ? s.metrics.dto : null, loading: true } })),
   setMetrics: (cluster, dto) => set({ metrics: { cluster, dto, loading: false } }),
   clearMetrics: () => set({ metrics: { cluster: null, dto: null, loading: false } }),
+  workloads: { cluster: null, namespace: "", items: [], namespaces: [], fluxPresent: false, loading: false,
+    kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, needsAttention: false, expanded: [] },
+  setWorkloadsLoading: (cluster, namespace) => set((s) => ({ workloads: { ...s.workloads, cluster, namespace, loading: true } })),
+  setWorkloads: (cluster, namespace, result) => set((s) => {
+    // namespace-list preservation: replace only on all-load; fallback to [namespace] if empty.
+    let namespaces = s.workloads.namespaces;
+    if (namespace === "") namespaces = result.namespaces ?? [];
+    if (namespaces.length === 0 && namespace !== "") namespaces = [namespace];
+    return { workloads: { ...s.workloads, cluster, namespace, items: result.workloads ?? [], namespaces, fluxPresent: result.fluxPresent, loading: false } };
+  }),
+  toggleWorkloadKind: (k) => set((s) => ({ workloads: { ...s.workloads, kindFilter: { ...s.workloads.kindFilter, [k]: !s.workloads.kindFilter[k] } } })),
+  toggleNeedsAttention: () => set((s) => ({ workloads: { ...s.workloads, needsAttention: !s.workloads.needsAttention } })),
+  toggleWorkloadExpand: (key) => set((s) => ({ workloads: { ...s.workloads, expanded: s.workloads.expanded.includes(key) ? s.workloads.expanded.filter((k) => k !== key) : [...s.workloads.expanded, key] } })),
+  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "" } })),
 }));
