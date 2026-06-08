@@ -26,4 +26,13 @@ describe("workloads slice", () => {
     useFleet.getState().toggleWorkloadExpand("Deployment/x/y");
     expect(useFleet.getState().workloads.expanded).not.toContain("Deployment/x/y");
   });
+
+  it("clearWorkloads resets kindFilter and needsAttention", () => {
+    useFleet.getState().toggleWorkloadKind("Deployment");
+    useFleet.getState().toggleNeedsAttention();
+    expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(false);
+    useFleet.getState().clearWorkloads();
+    expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(true);
+    expect(useFleet.getState().workloads.needsAttention).toBe(false);
+  });
 });
