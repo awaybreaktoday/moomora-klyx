@@ -16,6 +16,11 @@ func (f fakeWLConn) ListWorkloads(context.Context, string) ([]workloads.Workload
 	return f.wl, f.flux, nil
 }
 
+func (f fakeWLConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
+	cpu := 0.3
+	return map[string]workloads.Usage{"Deployment/ns/api": {CPU: &cpu}}, workloads.UsageStatus{Available: true}
+}
+
 func TestListWorkloadsDTO(t *testing.T) {
 	t.Run("cluster miss -> empty non-nil", func(t *testing.T) {
 		s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false })
@@ -53,6 +58,36 @@ func TestListWorkloadsDTO(t *testing.T) {
 		scoped := s.ListWorkloads("c", "b")
 		if len(scoped.Namespaces) != 0 {
 			t.Fatalf("scoped namespaces should be empty, got %+v", scoped.Namespaces)
+		}
+	})
+}
+
+func TestGetWorkloadMetricsDTO(t *testing.T) {
+	s := NewWorkloadsService(func(name string) (WorkloadsConn, bool) {
+		if name == "c" {
+			return fakeWLConn{}, true
+		}
+		return nil, false
+	})
+
+	t.Run("cluster miss returns non-nil empty + unavailable", func(t *testing.T) {
+		r := s.GetWorkloadMetrics("nope", "")
+		if r.Usage == nil || len(r.Usage) != 0 || r.Status.Available {
+			t.Fatalf("got %+v", r)
+		}
+	})
+
+	t.Run("maps usage by workload key", func(t *testing.T) {
+		r := s.GetWorkloadMetrics("c", "")
+		if !r.Status.Available {
+			t.Fatalf("status: %+v", r.Status)
+		}
+		u, ok := r.Usage["Deployment/ns/api"]
+		if !ok || u.CPUUsage == nil || *u.CPUUsage != 0.3 {
+			t.Fatalf("usage: %+v", r.Usage)
+		}
+		if u.MemUsage != nil {
+			t.Fatalf("mem should be nil, got %v", *u.MemUsage)
 		}
 	})
 }
