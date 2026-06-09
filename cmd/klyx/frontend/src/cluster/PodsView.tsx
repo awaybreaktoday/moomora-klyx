@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useFleet } from "../store/fleet";
 import type { PodDetailDTO } from "../store/fleet";
 import { listPods, openPodDetail } from "../bridge/pods";
+import { LogsPane } from "./LogsPane";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -204,7 +205,11 @@ function PodDetailPanel({
       ) : (
         <>
           {tab === "info" && <InfoTab detail={detail} cluster={cluster} namespace={namespace} name={name} />}
-          {tab === "logs" && <div style={{ color: "var(--color-text-tertiary)" }}>logs come in T7</div>}
+          {tab === "logs" && (
+            <div style={{ height: "calc(100vh - 160px)", display: "flex", flexDirection: "column" }}>
+              <LogsPane cluster={cluster} pod={detail.summary} />
+            </div>
+          )}
           {tab === "yaml" && (
             <pre style={{
               margin: 0, padding: 10,

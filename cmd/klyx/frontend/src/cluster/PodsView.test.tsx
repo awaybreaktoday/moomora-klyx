@@ -10,6 +10,19 @@ vi.mock("../bridge/pods", () => ({
 }));
 import { openPodDetail } from "../bridge/pods";
 
+// LogsPane uses LogsService and Wails Events — stub them out so PodsView tests
+// don't need a Wails runtime.
+vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
+  LogsService: {
+    OpenLogStream: vi.fn().mockResolvedValue({ streamId: "test-stream", error: undefined }),
+    CloseLogStream: vi.fn().mockResolvedValue(undefined),
+    CloseAll: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+vi.mock("@wailsio/runtime", () => ({
+  Events: { On: vi.fn().mockReturnValue(() => {}) },
+}));
+
 const makeContainer = (overrides = {}) => ({
   name: "app", image: "nginx:latest", ready: true, restarts: 0, state: "running", init: false, ...overrides,
 });
@@ -120,7 +133,7 @@ describe("PodsView", () => {
     expect(getByText("app=grafana")).toBeTruthy();
   });
 
-  it("logs tab renders placeholder", () => {
+  it("logs tab mounts the LogsPane (shows streaming controls)", async () => {
     seed([healthy]);
     useFleet.setState((s) => ({
       pods: {
@@ -130,9 +143,10 @@ describe("PodsView", () => {
         detailLoading: false,
       },
     }));
-    const { getByText } = render(<PodsView cluster="homelab" />);
+    const { getByText, getByRole } = render(<PodsView cluster="homelab" />);
     fireEvent.click(getByText("logs"));
-    expect(getByText("logs come in T7")).toBeTruthy();
+    // LogsPane renders its container selector — confirm it's there
+    expect(getByRole("combobox", { name: /container/i })).toBeTruthy();
   });
 
   it("yaml tab renders yaml content", () => {
