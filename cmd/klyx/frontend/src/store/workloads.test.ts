@@ -62,4 +62,17 @@ describe("workloads slice", () => {
     expect(s.items[0].resources.cpu.usage).toBe(0.3);
     expect(s.metricsStale).toBe(true);
   });
+
+  it("setWorkloadUsage first-load unavailable keeps metricsAvailable false (columns hidden)", () => {
+    const f = useFleet.getState();
+    f.setWorkloads("c", "", { fluxPresent: false, namespaces: [], workloads: [
+      { kind: "Deployment", namespace: "ns", name: "api", desired: 1, ready: 1, available: 1, updated: 1, restarts: 0, reason: "", rank: "healthy", gitops: null, pods: [],
+        resources: { cpu: { usage: null, request: null, limit: null }, mem: { usage: null, request: null, limit: null } } },
+    ] });
+    // No prior available response → an unavailable response must NOT reveal columns.
+    f.setWorkloadUsage("c", "", { status: { available: false, message: "no source", updatedAt: "" }, usage: {} });
+    const s = useFleet.getState().workloads;
+    expect(s.metricsAvailable).toBe(false);
+    expect(s.metricsStale).toBe(false);
+  });
 });
