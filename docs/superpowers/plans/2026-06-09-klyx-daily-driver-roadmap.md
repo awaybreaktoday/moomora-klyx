@@ -68,24 +68,24 @@ loop until done.
 ### DD1 — Pods lens + live logs + events (the daily core)
 Branch: `feat/dd1-pods-logs-events`
 
-- [ ] T1 Go: pure pod-summary model in `internal/workloads` (reuse severity engine;
+- [x] T1 Go: pure pod-summary model in `internal/workloads` (reuse severity engine;
       PodSummary{Name,Namespace,Ready,Phase,Reason,Rank,Restarts,Node,IP,
       AgeSeconds,Owner{kind,name},Containers[]}) + fleet `ListPods(ctx, namespace)`
       (typed list, triage sort unhealthy-first).
-- [ ] T2 Go: fleet `PodDetail(ctx, ns, name)` — containers (state/image/restarts/
+- [x] T2 Go: fleet `PodDetail(ctx, ns, name)` — containers (state/image/restarts/
       req+lim), conditions, labels, owner chain, events (reuse crd events helper via
       GVR pods), YAML. appbridge PodsService: ListPods/GetPodDetail DTOs.
-- [ ] T3 Go: log streaming — fleet `StreamLogs(ctx, ns, pod, container, previous,
+- [x] T3 Go: log streaming — fleet `StreamLogs(ctx, ns, pod, container, previous,
       tailLines)` using client-go GetLogs(follow) → lines pushed via Emitter events
       (`podlogs:<streamID>`); appbridge LogsService Open/Close with stream registry,
       context cancel on close/cluster-nav; cap buffer; never block the UI thread.
       ADVERSARIAL REVIEW required (lifecycle/leak/blocking).
-- [ ] T4 Go: events lens — fleet `ListEvents(ctx, namespace)` (core v1 events,
+- [x] T4 Go: events lens — fleet `ListEvents(ctx, namespace)` (core v1 events,
       warning-first sort, dedupe by count), appbridge EventsService DTO.
-- [ ] T5 Go: day-2 verbs — appbridge: DeletePod(cluster, ns, name),
+- [x] T5 Go: day-2 verbs — appbridge: DeletePod(cluster, ns, name),
       RolloutRestart(cluster, kind, ns, name) (patch restartedAt annotation);
       ActionResultDTO; respect Protected.
-- [ ] T6 FE: "pods" ClusterSection (4 nav touch points) + pods store slice + bridge +
+- [x] T6 FE: "pods" ClusterSection (4 nav touch points) + pods store slice + bridge +
       PodsView: triage list (dot/ns/name/ready/phase-reason/restarts/cpu-mem
       capability-gated/node/age), ns dropdown + search + needs-attention chip;
       row click → detail panel (info, conditions, owner link, events, yaml).
