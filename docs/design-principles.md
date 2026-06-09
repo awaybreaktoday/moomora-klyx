@@ -62,11 +62,16 @@ Go + Wails. Native binaries. Sub-second cold start. ~10-20MB on disk. The webvie
 
 **Implication for build:** any dependency that requires Node.js at runtime is rejected. The binary must ship statically linked.
 
-## 11. Diagnostic lenses, not a resource zoo
+## 11. Diagnostic lenses first, daily driver included (revised 2026-06-09)
 
-Klyx shows Kubernetes resources through diagnostic lenses - health, ownership, traffic path, policy, observability, and failure context decide what is surfaced - not as a generic kind-tree. A resource appears because it serves one of those lenses, never merely because Kubernetes has that kind. Lens/Headlamp/k9s already do the left-nav resource zoo; that is the commoditized 80% Klyx deliberately cedes.
+Klyx leads with diagnostic lenses - health, ownership, traffic path, policy, observability, and failure context decide what is surfaced first. The owner has since promoted Klyx to daily driver, so standard resource coverage (pods, configmaps, secrets, services, nodes, RBAC viewing, events, logs) is now in scope - but done the Klyx way, not as a dumb kind-tree:
 
-**Implication for build:** no flat browser of every kind, and especially no ConfigMap/Secret/Role/ServiceAccount tables. Workloads appear as a health lens; Services as topology nodes; CRDs grouped by API group; Flux/Argo as GitOps. Events and logs, when they come, are a diagnosis lens (contextual, attached to what they explain), not a firehose table. The test for any new surface: does it diagnose, explain, or operate - or is it just a table of a kind?
+- Every list defaults to a diagnostic ordering (triage sort, warning-first events), never alphabetical-by-default.
+- Standard kinds ship through the one generic GVR engine with a curated category layout, not fifteen bespoke tables.
+- Secrets are masked until explicitly revealed. RBAC is view-only.
+- Logs and events exist both contextually (attached to the pod/workload they explain) and as first-class views, because a daily driver needs the direct path too.
+
+**Implication for build:** the test for any new surface is now "does it diagnose, explain, or operate - and does its default presentation tell you what's wrong before what exists?" A plain table is acceptable only as the body under a diagnostic default.
 
 ## Visual language
 

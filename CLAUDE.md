@@ -19,18 +19,22 @@ A native desktop application (Go + Wails) that connects to one or more Kubernete
 - CRD browser grouped by API group with live instance counts
 - Inline observability metrics from Prometheus/LGTM
 - Keyboard-first command palette navigation
+- Daily-driver coverage (owner directive 2026-06-09): pods with live logs and
+  events, the standard resource kinds through the generic GVR engine, nodes,
+  day-2 verbs (delete pod, restart, scale, cordon/drain, port-forward), and
+  helm release inspection - see `docs/superpowers/plans/2026-06-09-klyx-daily-driver-roadmap.md`
 
 ## What Klyx is not
 
 Hard non-goals. Resist scope creep toward these even if a feature seems adjacent:
 
 - Not a resource creation/editing wizard. Desired state is authored as Helm/Kustomize in Git, never hand-written through Klyx. Klyx may drive controllers and perform day-2 operations (reconcile, suspend/resume, and later scale/restart), but it never authors desired state - Git remains the source of truth.
-- Not an RBAC management UI. Klyx views and operates on cluster state; it does not manage roles, bindings, or permissions.
+- Not an RBAC management UI. Klyx views RBAC objects (read-only) and operates on cluster state; it does not manage roles, bindings, or permissions.
 - Not an alerting platform. Delegate to AlertManager / Grafana.
-- Not a Helm chart browser or installer. That's `helm` and Flux's job.
+- Not a Helm chart browser or installer. Release inspection and rollback are in scope (day-2); install/uninstall and chart browsing stay with `helm` and Flux.
 - Not a multi-tenant SaaS. Single-user desktop binary, with optional `klyx serve` headless mode for shared team use.
 - Not an Electron app. Native binary, sub-second startup, ~10-20MB.
-- Not a kubectl replacement. K9s and kubectl remain the daily ops tools.
+- (Revised 2026-06-09) Klyx IS the daily driver. The original "not a kubectl replacement" non-goal was retired by the owner: Klyx now aims to cover daily Kubernetes operation end to end, shelling out to kubectl/helm where they are the better tool (drain, exec escape hatch, helm release data). What it still never does is author desired state.
 
 ## Tech stack (locked decisions)
 
@@ -99,8 +103,9 @@ After M1, milestones in priority order:
 - M3: GitOps view with Flux support
 - M4: CRD browser grouped by API group
 - M5: Gateway API topology view (M5-a lanes, M5-b-i Envoy policies, M5-b-ii Cilium inference shipped; M5-c ClusterMesh edges next)
-- M7: Inline observability (Prom queries)
-- M8: `klyx serve` headless mode
+- M7: Inline observability (Prom queries) — shipped through M7-c-ii (workloads health + cpu/mem)
+- M9: Daily driver (in progress, autonomous build) — pods/logs/events, standard resources, nodes, day-2 verbs, helm, port-forward, command palette + layout. Roadmap: `docs/superpowers/plans/2026-06-09-klyx-daily-driver-roadmap.md`
+- M8: `klyx serve` headless mode (after M9)
 - Deferred: Argo support + coexistence (was M6) — the owner runs Flux only and Argo ships a strong UI, so the Klyx wedge is thin and it can't be native-verified here. The M3 GitOps view is already vocabulary-correct (Flux ready/drift as its own concept), so an Argo provider can be added later if Argo enters the fleet or `klyx serve` goes multi-user (where fleet-wide Argo aggregation would beat per-instance Argo UIs).
 
 ## References
