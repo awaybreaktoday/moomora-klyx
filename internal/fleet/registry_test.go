@@ -51,6 +51,9 @@ func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload,
 func (f *fakeConn) ListPods(context.Context, string) ([]workloads.PodSummary, error) {
 	return nil, nil
 }
+func (f *fakeConn) ListEvents(context.Context, string) ([]workloads.EventSummary, error) {
+	return nil, nil
+}
 func (f *fakeConn) PodDetail(context.Context, string, string) (PodDetail, error) {
 	return PodDetail{}, nil
 }
