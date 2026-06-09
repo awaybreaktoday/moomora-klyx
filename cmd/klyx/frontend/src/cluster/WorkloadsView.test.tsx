@@ -4,7 +4,8 @@ import { WorkloadsView } from "./WorkloadsView";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO } from "../store/fleet";
 
-vi.mock("../bridge/workloads", () => ({ listWorkloads: vi.fn() }));
+vi.mock("../bridge/workloads", () => ({ listWorkloads: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../bridge/workload-metrics", () => ({ getWorkloadMetrics: vi.fn().mockResolvedValue(undefined) }));
 
 const noResources = { cpu: { usage: null, request: null, limit: null }, mem: { usage: null, request: null, limit: null } };
 const broken: WorkloadDTO = { kind: "Deployment", namespace: "ollama-prod", name: "ollama", desired: 1, ready: 0, available: 0, updated: 1, restarts: 7, reason: "CrashLoopBackOff", rank: "unhealthy", gitops: { kind: "Kustomization", namespace: "flux-system", name: "ollama" }, pods: [{ name: "ollama-x", ready: false, restarts: 7, reason: "CrashLoopBackOff", node: "node-3", ageSeconds: 720 }], resources: noResources };
@@ -40,5 +41,27 @@ describe("WorkloadsView", () => {
     fireEvent.click(getByText(/needs attention/i));
     expect(getByText("ollama")).toBeTruthy();
     expect(queryByText("grafana")).toBeNull();
+  });
+
+  it("hides cpu/mem columns and near-limit control when metrics unavailable", () => {
+    seed([broken, healthy]);
+    // metricsAvailable stays false (default store state)
+    const { queryByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(queryByText("near limit")).toBeNull();
+    expect(queryByText("cpu")).toBeNull();
+    expect(queryByText("mem")).toBeNull();
+  });
+
+  it("shows cpu/mem columns and near-limit control when metrics available", () => {
+    seed([broken, healthy]);
+    // Call setWorkloadUsage with an available result so metricsAvailable becomes true
+    useFleet.getState().setWorkloadUsage("homelab-nelli", "", {
+      status: { available: true, message: "", updatedAt: "2026-06-09T00:00:00Z" },
+      usage: {},
+    });
+    const { getByText, getAllByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(getByText("near limit")).toBeTruthy();
+    expect(getAllByText("cpu").length).toBeGreaterThan(0);
+    expect(getAllByText("mem").length).toBeGreaterThan(0);
   });
 });
