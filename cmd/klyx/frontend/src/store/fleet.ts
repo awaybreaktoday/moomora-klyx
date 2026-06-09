@@ -59,7 +59,12 @@ export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
-export type WorkloadDTO = { kind: string; namespace: string; name: string; desired: number; ready: number; available: number; updated: number; restarts: number; reason: string; rank: "unhealthy"|"degraded"|"restarts"|"healthy"; gitops: OwnerDTO | null; pods: PodDTO[] };
+export type ResourceCellDTO = { usage: number | null; request: number | null; limit: number | null };
+export type WorkloadResourcesDTO = { cpu: ResourceCellDTO; mem: ResourceCellDTO };
+export type WorkloadDTO = { kind: string; namespace: string; name: string; desired: number; ready: number; available: number; updated: number; restarts: number; reason: string; rank: "unhealthy"|"degraded"|"restarts"|"healthy"; gitops: OwnerDTO | null; pods: PodDTO[]; resources: WorkloadResourcesDTO };
+export type WorkloadUsageDTO = { cpuUsage: number | null; memUsage: number | null };
+export type WorkloadMetricsStatusDTO = { available: boolean; message: string; updatedAt: string };
+export type WorkloadMetricsResultDTO = { status: WorkloadMetricsStatusDTO; usage: Record<string, WorkloadUsageDTO> };
 export type WorkloadsResultDTO = { fluxPresent: boolean; namespaces: string[]; workloads: WorkloadDTO[] };
 export type WorkloadKind = "Deployment" | "StatefulSet" | "DaemonSet";
 export type WorkloadsSlice = {
@@ -72,6 +77,10 @@ export type WorkloadsSlice = {
   kindFilter: Record<WorkloadKind, boolean>;
   needsAttention: boolean;
   expanded: string[];       // keys "<kind>/<namespace>/<name>"
+  metricsAvailable: boolean;
+  metricsStatus: WorkloadMetricsStatusDTO | null;
+  metricsStale: boolean;
+  nearLimitSort: boolean;
 };
 
 export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
@@ -214,6 +223,8 @@ type FleetState = {
   toggleWorkloadKind: (k: WorkloadKind) => void;
   toggleNeedsAttention: () => void;
   toggleWorkloadExpand: (key: string) => void;
+  setWorkloadUsage: (cluster: string, namespace: string, result: WorkloadMetricsResultDTO) => void;
+  toggleNearLimitSort: () => void;
   clearWorkloads: () => void;
 };
 
@@ -318,7 +329,8 @@ export const useFleet = create<FleetState>((set) => ({
   setMetrics: (cluster, dto) => set({ metrics: { cluster, dto, loading: false } }),
   clearMetrics: () => set({ metrics: { cluster: null, dto: null, loading: false } }),
   workloads: { cluster: null, namespace: "", items: [], namespaces: [], fluxPresent: false, loading: false,
-    kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, needsAttention: false, expanded: [] },
+    kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, needsAttention: false, expanded: [],
+    metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false },
   setWorkloadsLoading: (cluster, namespace) => set((s) => ({ workloads: { ...s.workloads, cluster, namespace, loading: true } })),
   setWorkloads: (cluster, namespace, result) => set((s) => {
     // namespace-list preservation: replace only on all-load; fallback to [namespace] if empty.
@@ -330,5 +342,23 @@ export const useFleet = create<FleetState>((set) => ({
   toggleWorkloadKind: (k) => set((s) => ({ workloads: { ...s.workloads, kindFilter: { ...s.workloads.kindFilter, [k]: !s.workloads.kindFilter[k] } } })),
   toggleNeedsAttention: () => set((s) => ({ workloads: { ...s.workloads, needsAttention: !s.workloads.needsAttention } })),
   toggleWorkloadExpand: (key) => set((s) => ({ workloads: { ...s.workloads, expanded: s.workloads.expanded.includes(key) ? s.workloads.expanded.filter((k) => k !== key) : [...s.workloads.expanded, key] } })),
-  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true } } })),
+  setWorkloadUsage: (cluster, namespace, result) =>
+    set((s) => {
+      if (s.workloads.cluster !== cluster || s.workloads.namespace !== namespace) return {};
+      if (result.status.available) {
+        const items = s.workloads.items.map((w) => {
+          const u = result.usage[`${w.kind}/${w.namespace}/${w.name}`];
+          if (!u) return w;
+          return { ...w, resources: {
+            cpu: { ...w.resources.cpu, usage: u.cpuUsage },
+            mem: { ...w.resources.mem, usage: u.memUsage },
+          } };
+        });
+        return { workloads: { ...s.workloads, items, metricsAvailable: true, metricsStatus: result.status, metricsStale: false } };
+      }
+      const keptUpdatedAt = s.workloads.metricsStatus?.updatedAt ?? "";
+      return { workloads: { ...s.workloads, metricsStatus: { ...result.status, updatedAt: keptUpdatedAt }, metricsStale: s.workloads.metricsAvailable } };
+    }),
+  toggleNearLimitSort: () => set((s) => ({ workloads: { ...s.workloads, nearLimitSort: !s.workloads.nearLimitSort } })),
+  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false } })),
 }));

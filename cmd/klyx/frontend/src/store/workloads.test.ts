@@ -35,4 +35,31 @@ describe("workloads slice", () => {
     expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(true);
     expect(useFleet.getState().workloads.needsAttention).toBe(false);
   });
+
+  it("setWorkloadUsage patches usage by key without replacing rows", () => {
+    const f = useFleet.getState();
+    f.setWorkloads("c", "", { fluxPresent: false, namespaces: [], workloads: [
+      { kind: "Deployment", namespace: "ns", name: "api", desired: 1, ready: 1, available: 1, updated: 1, restarts: 0, reason: "Available", rank: "healthy", gitops: null, pods: [],
+        resources: { cpu: { usage: null, request: 0.25, limit: 0.5 }, mem: { usage: null, request: null, limit: 536870912 } } },
+    ] });
+    f.setWorkloadUsage("c", "", { status: { available: true, message: "", updatedAt: "t1" }, usage: { "Deployment/ns/api": { cpuUsage: 0.3, memUsage: 400000000 } } });
+    const w = useFleet.getState().workloads.items[0];
+    expect(w.resources.cpu.usage).toBe(0.3);
+    expect(w.resources.cpu.limit).toBe(0.5);
+    expect(w.reason).toBe("Available");
+    expect(useFleet.getState().workloads.metricsAvailable).toBe(true);
+  });
+
+  it("setWorkloadUsage transient failure keeps last-good usage, marks stale", () => {
+    const f = useFleet.getState();
+    f.setWorkloads("c", "", { fluxPresent: false, namespaces: [], workloads: [
+      { kind: "Deployment", namespace: "ns", name: "api", desired: 1, ready: 1, available: 1, updated: 1, restarts: 0, reason: "", rank: "healthy", gitops: null, pods: [],
+        resources: { cpu: { usage: null, request: null, limit: 0.5 }, mem: { usage: null, request: null, limit: null } } },
+    ] });
+    f.setWorkloadUsage("c", "", { status: { available: true, message: "", updatedAt: "t1" }, usage: { "Deployment/ns/api": { cpuUsage: 0.3, memUsage: null } } });
+    f.setWorkloadUsage("c", "", { status: { available: false, message: "down", updatedAt: "" }, usage: {} });
+    const s = useFleet.getState().workloads;
+    expect(s.items[0].resources.cpu.usage).toBe(0.3);
+    expect(s.metricsStale).toBe(true);
+  });
 });
