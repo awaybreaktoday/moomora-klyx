@@ -87,3 +87,23 @@ func TestAggregateResourcesInitContainersExcluded(t *testing.T) {
 		t.Fatalf("init container must be excluded; mem limit should be 512Mi, got %v", r.Mem.Limit)
 	}
 }
+
+func TestAggregateResourcesCrossPodUncappedMeansNilLimit(t *testing.T) {
+	// Pod A fully capped, Pod B has a container with no cpu limit. The workload's
+	// cpu limit MUST be nil (not pod A's 0.5) — the any-uncapped rule is global
+	// across all matched pods, not reset per pod.
+	pods := []*corev1.Pod{
+		podWith(ctr("app", "250m", "500m", "256Mi", "512Mi")), // fully capped
+		podWith(ctr("app", "250m", "", "256Mi", "512Mi")),     // no cpu limit
+	}
+	r := aggregateResources(pods)
+	if r.CPU.Limit != nil {
+		t.Fatalf("cpu limit must be nil when a container in ANY pod is uncapped, got %v", *r.CPU.Limit)
+	}
+	if r.Mem.Limit == nil || *r.Mem.Limit != 2*512*1024*1024 {
+		t.Fatalf("mem limit should sum both pods (2x512Mi), got %v", r.Mem.Limit)
+	}
+	if r.CPU.Request == nil || *r.CPU.Request != 0.5 {
+		t.Fatalf("cpu request should sum both pods (0.25+0.25), got %v", r.CPU.Request)
+	}
+}
