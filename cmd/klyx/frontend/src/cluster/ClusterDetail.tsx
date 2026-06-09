@@ -6,6 +6,7 @@ import { InstanceList } from "./InstanceList";
 import { InstanceDetail } from "./InstanceDetail";
 import { NetworkView } from "./NetworkView";
 import { WorkloadsView } from "./WorkloadsView";
+import { PodsView } from "./PodsView";
 import { Placeholder } from "../chrome/Placeholder";
 
 export function ClusterDetail() {
@@ -33,5 +34,6 @@ export function ClusterDetail() {
   }
   if (route.section === "network") return <NetworkView cluster={cluster.name} />;
   if (route.section === "workloads") return <WorkloadsView cluster={cluster.name} />;
+  if (route.section === "pods") return <PodsView cluster={cluster.name} />;
   return <Placeholder section={route.section} c={cluster} />;
 }
