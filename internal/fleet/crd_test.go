@@ -223,6 +223,114 @@ func TestGetInstanceDetailClusterScoped(t *testing.T) {
 	}
 }
 
+func TestGetInstanceDetailSecretMasked(t *testing.T) {
+	secretGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{secretGVR: "SecretList"}
+
+	b64pass := "aHVudGVyMg==" // base64("hunter2")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata":   map[string]interface{}{"name": "app-secret", "namespace": "default", "uid": "uid-s1"},
+		"data": map[string]interface{}{
+			"password": b64pass,
+		},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	typed := typedfake.NewSimpleClientset()
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "", "v1", "secrets", "default", "app-secret")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+
+	// YAML must contain the key name but not the base64 value.
+	if !strings.Contains(d.YAML, "password") {
+		t.Fatalf("key name missing from YAML:\n%s", d.YAML)
+	}
+	if strings.Contains(d.YAML, b64pass) {
+		t.Fatalf("base64 value must be masked in YAML:\n%s", d.YAML)
+	}
+	if !strings.Contains(d.YAML, "<masked>") {
+		t.Fatalf("<masked> placeholder missing from YAML:\n%s", d.YAML)
+	}
+
+	// SecretKeys must list the key with correct byte length.
+	if len(d.SecretKeys) != 1 || d.SecretKeys[0].Key != "password" || d.SecretKeys[0].Bytes != 7 {
+		t.Fatalf("SecretKeys: %+v", d.SecretKeys)
+	}
+}
+
+func TestGetInstanceDetailNonSecretUnaffected(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1",
+		"kind":       "Widget",
+		"metadata":   map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-w1"},
+		"spec":       map[string]interface{}{"field": "visible-value"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if !strings.Contains(d.YAML, "visible-value") {
+		t.Fatalf("non-secret field must not be masked:\n%s", d.YAML)
+	}
+	if len(d.SecretKeys) != 0 {
+		t.Fatalf("SecretKeys must be empty for non-secret, got %+v", d.SecretKeys)
+	}
+}
+
+func TestRevealSecretKey(t *testing.T) {
+	// client-go typed fake stores Secret.Data as []byte; the Secret.Data field
+	// is decoded bytes, not base64.
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2"), "token": []byte("abc")},
+	}
+	typed := typedfake.NewSimpleClientset(sec)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	val, err := c.RevealSecretKey(context.Background(), "default", "app-secret", "password")
+	if err != nil {
+		t.Fatalf("reveal: %v", err)
+	}
+	if val != "hunter2" {
+		t.Fatalf("want 'hunter2', got %q", val)
+	}
+}
+
+func TestRevealSecretKeyMissingKey(t *testing.T) {
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-secret", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("abc")},
+	}
+	typed := typedfake.NewSimpleClientset(sec)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	_, err := c.RevealSecretKey(context.Background(), "default", "app-secret", "nonexistent")
+	if err == nil {
+		t.Fatal("want error for missing key, got nil")
+	}
+}
+
+func TestRevealSecretKeyMissingSecret(t *testing.T) {
+	typed := typedfake.NewSimpleClientset()
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	_, err := c.RevealSecretKey(context.Background(), "default", "ghost-secret", "key")
+	if err == nil {
+		t.Fatal("want error for missing secret, got nil")
+	}
+}
+
 func partialMeta(group, version, kind, ns, name string) *metav1.PartialObjectMetadata {
 	return &metav1.PartialObjectMetadata{
 		TypeMeta:   metav1.TypeMeta{APIVersion: group + "/" + version, Kind: kind},

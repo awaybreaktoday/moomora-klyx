@@ -52,6 +52,7 @@ type Conn interface {
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)
+	RevealSecretKey(ctx context.Context, ns, name, key string) (string, error)
 	ListGateways(ctx context.Context) ([]gwapi.GatewayRef, bool, error)
 	GetGatewayTopology(ctx context.Context, namespace, name string) (gwapi.Topology, error)
 	MeshMember(ctx context.Context) (clustermesh.Member, MeshReadStatus)

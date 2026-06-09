@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { useFleet, ResourceRef, InstanceRef, InstanceDetailDTO } from "../store/fleet";
 import { InstanceDetail } from "./InstanceDetail";
 
-vi.mock("../bridge/crd", () => ({ getInstanceDetail: vi.fn(async () => {}), copyText: vi.fn(async () => {}) }));
-import { getInstanceDetail, copyText } from "../bridge/crd";
+vi.mock("../bridge/crd", () => ({
+  getInstanceDetail: vi.fn(async () => {}),
+  copyText: vi.fn(async () => {}),
+  revealSecretKey: vi.fn(async () => "hunter2"),
+}));
+import { getInstanceDetail, copyText, revealSecretKey } from "../bridge/crd";
 
 const resource: ResourceRef = { group: "cert-manager.io", version: "v1", plural: "certificates", kind: "Certificate", scope: "Namespaced" };
 const instance: InstanceRef = { namespace: "default", name: "web-tls" };
@@ -15,8 +19,24 @@ const detail: InstanceDetailDTO = {
   yaml: "apiVersion: cert-manager.io/v1\nkind: Certificate\n",
 };
 
-function seed(over: Partial<{ ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean }> = {}) {
-  useFleet.setState({ instanceDetail: { ref: instance, detail, loading: false, ...over } });
+const secretResource: ResourceRef = { group: "", version: "v1", plural: "secrets", kind: "Secret", scope: "Namespaced" };
+const secretInstance: InstanceRef = { namespace: "default", name: "app-secret" };
+const secretDetail: InstanceDetailDTO = {
+  kind: "Secret", namespace: "default", name: "app-secret", created: "", labels: {},
+  conditions: [], events: [],
+  yaml: "apiVersion: v1\nkind: Secret\ndata:\n  password: <masked>\n",
+  secretKeys: [
+    { key: "password", bytes: 7 },
+    { key: "token", bytes: 3 },
+  ],
+};
+
+function seed(over: Partial<{ ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean }> = {}, inst = instance) {
+  useFleet.setState({ instanceDetail: { ref: inst, detail: detail, loading: false, ...over } });
+}
+
+function seedSecret(over: Partial<{ ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean }> = {}) {
+  useFleet.setState({ instanceDetail: { ref: secretInstance, detail: secretDetail, loading: false, ...over } });
 }
 
 beforeEach(() => { vi.clearAllMocks(); seed(); });
@@ -53,5 +73,64 @@ describe("InstanceDetail", () => {
     seed({ detail: null, loading: true });
     const { getByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
     expect(getByText(/Loading/i)).toBeTruthy();
+  });
+});
+
+describe("InstanceDetail — secrets", () => {
+  beforeEach(() => { vi.clearAllMocks(); seedSecret(); });
+
+  it("renders data section with key names", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    expect(getByText("password")).toBeTruthy();
+    expect(getByText("token")).toBeTruthy();
+  });
+
+  it("shows masked dots before reveal", () => {
+    const { getAllByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    // Both keys should have Reveal buttons initially.
+    const revealButtons = getAllByText("Reveal");
+    expect(revealButtons.length).toBe(2);
+  });
+
+  it("reveal button calls bridge and shows decoded value", async () => {
+    const { getAllByText, getByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    const revealButtons = getAllByText("Reveal");
+    await act(async () => { fireEvent.click(revealButtons[0]); });
+    await waitFor(() => expect(getByText("hunter2")).toBeTruthy());
+    expect(revealSecretKey).toHaveBeenCalledWith("x", "default", "app-secret", "password");
+  });
+
+  it("hide button re-masks the value", async () => {
+    const { getAllByText, getByText, queryByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    const revealButtons = getAllByText("Reveal");
+    // Reveal first.
+    await act(async () => { fireEvent.click(revealButtons[0]); });
+    await waitFor(() => expect(getByText("hunter2")).toBeTruthy());
+    // Then hide.
+    const hideBtn = getByText("Hide");
+    await act(async () => { fireEvent.click(hideBtn); });
+    await waitFor(() => expect(queryByText("hunter2")).toBeNull());
+  });
+
+  it("copy button calls bridge and clipboard without revealing in UI", async () => {
+    const { getAllByText, queryByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    const copyButtons = getAllByText("Copy");
+    await act(async () => { fireEvent.click(copyButtons[0]); });
+    await waitFor(() => expect(revealSecretKey).toHaveBeenCalled());
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("hunter2"));
+    // Value must NOT appear in the DOM after copy-only.
+    expect(queryByText("hunter2")).toBeNull();
+  });
+
+  it("yaml section still shows <masked> placeholder", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    expect(getByText(/<masked>/)).toBeTruthy();
+  });
+
+  it("non-secret detail has no data section", () => {
+    seed();
+    const { queryAllByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
+    // "Reveal" buttons should not appear for non-secret.
+    expect(queryAllByText("Reveal").length).toBe(0);
   });
 });

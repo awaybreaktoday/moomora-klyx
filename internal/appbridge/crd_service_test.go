@@ -2,6 +2,7 @@ package appbridge
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,11 +10,12 @@ import (
 )
 
 type fakeCRDConn struct {
-	infos     []crd.Info
-	counts    map[string]int
-	instances []crd.InstanceMeta
-	nextToken string
-	detail    crd.InstanceDetail
+	infos      []crd.Info
+	counts     map[string]int
+	instances  []crd.InstanceMeta
+	nextToken  string
+	detail     crd.InstanceDetail
+	secretData map[string]string // key -> decoded value, for RevealSecretKey tests
 }
 
 func (f *fakeCRDConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return f.infos, nil }
@@ -29,6 +31,16 @@ func (f *fakeCRDConn) ListInstances(ctx context.Context, group, version, plural 
 }
 func (f *fakeCRDConn) GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error) {
 	return f.detail, nil
+}
+func (f *fakeCRDConn) RevealSecretKey(ctx context.Context, ns, name, key string) (string, error) {
+	if f.secretData == nil {
+		return "", errors.New("key not found")
+	}
+	v, ok := f.secretData[key]
+	if !ok {
+		return "", errors.New("key not found")
+	}
+	return v, nil
 }
 
 func TestListCRDsGroupsAndAttributes(t *testing.T) {
@@ -125,6 +137,60 @@ func TestGetInstanceDetailUnknownClusterEmpty(t *testing.T) {
 	svc := NewCRDService(func(string) (CRDConn, bool) { return nil, false })
 	if d := svc.GetInstanceDetail("ghost", "g", "v", "p", "n", "x"); d.Kind != "" || len(d.Conditions) != 0 {
 		t.Fatalf("want empty, got %+v", d)
+	}
+}
+
+func TestRevealSecretKeySuccess(t *testing.T) {
+	conn := &fakeCRDConn{secretData: map[string]string{"password": "hunter2"}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	r := svc.RevealSecretKey("x", "default", "app-secret", "password")
+	if r.Error != "" {
+		t.Fatalf("unexpected error: %s", r.Error)
+	}
+	if r.Value != "hunter2" {
+		t.Fatalf("want 'hunter2', got %q", r.Value)
+	}
+}
+
+func TestRevealSecretKeyMissingKey(t *testing.T) {
+	conn := &fakeCRDConn{secretData: map[string]string{"token": "abc"}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	r := svc.RevealSecretKey("x", "default", "app-secret", "nonexistent")
+	if r.Error == "" {
+		t.Fatal("want error for missing key, got none")
+	}
+	if r.Value != "" {
+		t.Fatalf("value must be empty on error, got %q", r.Value)
+	}
+}
+
+func TestRevealSecretKeyClusterMiss(t *testing.T) {
+	svc := NewCRDService(func(string) (CRDConn, bool) { return nil, false })
+
+	r := svc.RevealSecretKey("ghost", "default", "app-secret", "password")
+	if r.Error == "" {
+		t.Fatal("want error on cluster miss, got none")
+	}
+}
+
+func TestGetInstanceDetailSecretKeysProjected(t *testing.T) {
+	conn := &fakeCRDConn{detail: crd.InstanceDetail{
+		Kind:       "Secret",
+		Namespace:  "default",
+		Name:       "app-secret",
+		SecretKeys: []crd.SecretKeyInfo{{Key: "password", Bytes: 7}, {Key: "token", Bytes: 3}},
+		YAML:       "kind: Secret\n",
+	}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	d := svc.GetInstanceDetail("x", "", "v1", "secrets", "default", "app-secret")
+	if len(d.SecretKeys) != 2 {
+		t.Fatalf("want 2 SecretKeys, got %d", len(d.SecretKeys))
+	}
+	if d.SecretKeys[0].Key != "password" || d.SecretKeys[0].Bytes != 7 {
+		t.Fatalf("SecretKeys[0]: %+v", d.SecretKeys[0])
 	}
 }
 

@@ -1,6 +1,7 @@
 package crd
 
 import (
+	"encoding/base64"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,6 +25,14 @@ type Event struct {
 	Last    time.Time
 }
 
+// SecretKeyInfo describes one key in a Secret's data map: name and decoded
+// byte-length only. The value never leaves the Go side until RevealSecretKey is
+// called explicitly.
+type SecretKeyInfo struct {
+	Key   string
+	Bytes int
+}
+
 // InstanceDetail is the full per-instance detail: header, conditions, events, YAML.
 type InstanceDetail struct {
 	Kind       string
@@ -34,6 +43,10 @@ type InstanceDetail struct {
 	Conditions []Condition
 	Events     []Event
 	YAML       string
+	// SecretKeys is populated only for v1 Secrets. The YAML has values replaced
+	// with "<masked>"; this list gives key names + decoded byte-lengths so the
+	// frontend can render a key list without any value data crossing the bridge.
+	SecretKeys []SecretKeyInfo
 }
 
 // ParseConditions maps status.conditions[] (a near-universal convention). Empty
@@ -63,6 +76,72 @@ func ToYAML(obj map[string]interface{}) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// MaskSecretData returns a shallow-cloned object map with all values in the
+// "data" and "stringData" fields replaced by the literal string "<masked>", and
+// a sorted slice of SecretKeyInfo carrying key names + decoded byte-lengths.
+// The input is never mutated. Call this only when group=="" && kind=="Secret".
+func MaskSecretData(obj map[string]interface{}) (map[string]interface{}, []SecretKeyInfo) {
+	out := make(map[string]interface{}, len(obj))
+	for k, v := range obj {
+		out[k] = v
+	}
+
+	var keys []SecretKeyInfo
+
+	// data: base64-encoded byte values (the standard Secret.data field)
+	if raw, ok := obj["data"].(map[string]interface{}); ok && len(raw) > 0 {
+		masked := make(map[string]interface{}, len(raw))
+		for k, v := range raw {
+			// Decode byte-length from the base64 string; fall back to 0 on any error.
+			n := 0
+			if s, ok := v.(string); ok && s != "" {
+				if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+					n = len(b)
+				}
+			}
+			keys = append(keys, SecretKeyInfo{Key: k, Bytes: n})
+			masked[k] = "<masked>"
+		}
+		out["data"] = masked
+	}
+
+	// stringData: plain-text values; defense-in-depth masking.
+	if raw, ok := obj["stringData"].(map[string]interface{}); ok && len(raw) > 0 {
+		masked := make(map[string]interface{}, len(raw))
+		for k, v := range raw {
+			n := 0
+			if s, ok := v.(string); ok {
+				n = len(s)
+			}
+			// Only add to keys list if not already present from data.
+			found := false
+			for _, ki := range keys {
+				if ki.Key == k {
+					found = true
+					break
+				}
+			}
+			if !found {
+				keys = append(keys, SecretKeyInfo{Key: k, Bytes: n})
+			}
+			masked[k] = "<masked>"
+		}
+		out["stringData"] = masked
+	}
+
+	// Sort for deterministic output.
+	sortSecretKeys(keys)
+	return out, keys
+}
+
+func sortSecretKeys(ks []SecretKeyInfo) {
+	for i := 1; i < len(ks); i++ {
+		for j := i; j > 0 && ks[j].Key < ks[j-1].Key; j-- {
+			ks[j], ks[j-1] = ks[j-1], ks[j]
+		}
+	}
 }
 
 // withoutManagedFields returns obj with metadata.managedFields removed, matching

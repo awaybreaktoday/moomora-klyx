@@ -51,6 +51,13 @@ type EventDTO struct {
 	LastSeen string `json:"lastSeen"` // RFC3339; "" when unset
 }
 
+// SecretKeyDTO carries the name and decoded byte-length of one key in a
+// Secret's data map. The value itself never crosses the bridge here.
+type SecretKeyDTO struct {
+	Key   string `json:"key"`
+	Bytes int    `json:"bytes"`
+}
+
 // InstanceDetailDTO is the full per-instance detail.
 type InstanceDetailDTO struct {
 	Kind       string            `json:"kind"`
@@ -61,6 +68,17 @@ type InstanceDetailDTO struct {
 	Conditions []ConditionDTO    `json:"conditions"`
 	Events     []EventDTO        `json:"events"`
 	YAML       string            `json:"yaml"`
+	// SecretKeys is non-empty only for v1 Secrets. YAML values are masked;
+	// call RevealSecretKey to fetch an individual decoded value.
+	SecretKeys []SecretKeyDTO `json:"secretKeys,omitempty"`
+}
+
+// RevealResultDTO is returned by RevealSecretKey. On success Value is the
+// decoded plaintext and Error is "". On failure Value is "" and Error carries
+// the human-readable reason. The value is not logged anywhere.
+type RevealResultDTO struct {
+	Value string `json:"value"`
+	Error string `json:"error"`
 }
 
 // groupCRDs groups parsed CRDs by API group, attaches the curated category, and
