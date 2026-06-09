@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"context"
+	"io"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -51,6 +53,9 @@ func (f *fakeConn) ListPods(context.Context, string) ([]workloads.PodSummary, er
 }
 func (f *fakeConn) PodDetail(context.Context, string, string) (PodDetail, error) {
 	return PodDetail{}, nil
+}
+func (f *fakeConn) PodLogStream(context.Context, string, string, string, bool, int64) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
 }
 func (f *fakeConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
 	return nil, workloads.UsageStatus{}
