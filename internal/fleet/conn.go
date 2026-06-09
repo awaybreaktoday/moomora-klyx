@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -41,7 +42,13 @@ type Conn interface {
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 	ListCRDs(ctx context.Context) ([]crd.Info, error)
 	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error)
+	ListPods(ctx context.Context, namespace string) ([]workloads.PodSummary, error)
+	DeletePod(ctx context.Context, namespace, name string) error
+	ListEvents(ctx context.Context, namespace string) ([]workloads.EventSummary, error)
+	PodDetail(ctx context.Context, namespace, name string) (PodDetail, error)
+	PodLogStream(ctx context.Context, namespace, pod, container string, previous bool, tailLines int64) (io.ReadCloser, error)
 	WorkloadMetrics(ctx context.Context, namespace string) (map[string]workloads.Usage, workloads.UsageStatus)
+	RolloutRestart(ctx context.Context, kind, namespace, name string) error
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)

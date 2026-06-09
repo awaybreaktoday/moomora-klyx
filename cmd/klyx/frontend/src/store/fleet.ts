@@ -55,7 +55,7 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads";
+export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads" | "pods" | "events";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -83,6 +83,37 @@ export type WorkloadsSlice = {
   nearLimitSort: boolean;
 };
 
+export type ContainerSummaryDTO = { name: string; image: string; ready: boolean; restarts: number; state: string; init: boolean };
+export type PodSummaryDTO = { namespace: string; name: string; ready: boolean; phase: string; reason: string; rank: "unhealthy"|"degraded"|"restarts"|"healthy"; restarts: number; node: string; ip: string; ownerKind: string; ownerName: string; ageSeconds: number; containers: ContainerSummaryDTO[] };
+export type PodsResultDTO = { namespaces: string[]; pods: PodSummaryDTO[] };
+export type PodDetailDTO = { summary: PodSummaryDTO; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; qosClass: string; serviceAccount: string };
+
+export type PodRef = { namespace: string; name: string };
+export type PodsSlice = {
+  cluster: string | null;
+  namespace: string;
+  items: PodSummaryDTO[];
+  namespaces: string[];
+  loading: boolean;
+  needsAttention: boolean;
+  search: string;
+  selected: PodRef | null;
+  detail: PodDetailDTO | null;
+  detailLoading: boolean;
+};
+
+export type EventRowDTO = { type: "Normal" | "Warning"; reason: string; message: string; count: number; namespace: string; kind: string; name: string; lastSeenUnix: number; firstSeenUnix: number };
+export type EventsResultDTO = { namespaces: string[]; events: EventRowDTO[] };
+export type EventsSlice = {
+  cluster: string | null;
+  namespace: string;
+  items: EventRowDTO[];
+  namespaces: string[];
+  loading: boolean;
+  warningsOnly: boolean;
+  search: string;
+};
+
 export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
 export type InstanceDTO = { namespace: string; name: string; created: string };
 export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nextToken: string; loading: boolean; filter: string };
@@ -103,6 +134,8 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   resources: "Resources",
   observability: "Observability",
   workloads: "Workloads",
+  pods: "Pods",
+  events: "Events",
 };
 
 export type CRDKindDTO = { kind: string; plural: string; scope: string; version: string; operator: string; shortNames: string[] };
@@ -226,6 +259,20 @@ type FleetState = {
   setWorkloadUsage: (cluster: string, namespace: string, result: WorkloadMetricsResultDTO) => void;
   toggleNearLimitSort: () => void;
   clearWorkloads: () => void;
+  pods: PodsSlice;
+  setPodsLoading: (cluster: string, namespace: string) => void;
+  setPods: (cluster: string, namespace: string, result: PodsResultDTO) => void;
+  togglePodsNeedsAttention: () => void;
+  setPodsSearch: (s: string) => void;
+  selectPod: (ref: PodRef | null) => void;
+  setPodDetail: (ref: PodRef, detail: PodDetailDTO) => void;
+  clearPods: () => void;
+  events: EventsSlice;
+  setEventsLoading: (cluster: string, namespace: string) => void;
+  setEvents: (cluster: string, namespace: string, result: EventsResultDTO) => void;
+  toggleWarningsOnly: () => void;
+  setEventsSearch: (s: string) => void;
+  clearEvents: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -361,4 +408,32 @@ export const useFleet = create<FleetState>((set) => ({
     }),
   toggleNearLimitSort: () => set((s) => ({ workloads: { ...s.workloads, nearLimitSort: !s.workloads.nearLimitSort } })),
   clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false } })),
+  pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false },
+  setPodsLoading: (cluster, namespace) => set((s) => ({ pods: { ...s.pods, cluster, namespace, loading: true } })),
+  setPods: (cluster, namespace, result) => set((s) => {
+    let namespaces = s.pods.namespaces;
+    if (namespace === "") namespaces = result.namespaces ?? [];
+    if (namespaces.length === 0 && namespace !== "") namespaces = [namespace];
+    return { pods: { ...s.pods, cluster, namespace, items: result.pods ?? [], namespaces, loading: false } };
+  }),
+  togglePodsNeedsAttention: () => set((s) => ({ pods: { ...s.pods, needsAttention: !s.pods.needsAttention } })),
+  setPodsSearch: (search) => set((s) => ({ pods: { ...s.pods, search } })),
+  selectPod: (ref) => set((s) => ({ pods: { ...s.pods, selected: ref, detail: null, detailLoading: ref !== null } })),
+  setPodDetail: (ref, detail) => set((s) => {
+    const sel = s.pods.selected;
+    if (!sel || sel.namespace !== ref.namespace || sel.name !== ref.name) return {};
+    return { pods: { ...s.pods, detail, detailLoading: false } };
+  }),
+  clearPods: () => set({ pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false } }),
+  events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" },
+  setEventsLoading: (cluster, namespace) => set((s) => ({ events: { ...s.events, cluster, namespace, loading: true } })),
+  setEvents: (cluster, namespace, result) => set((s) => {
+    let namespaces = s.events.namespaces;
+    if (namespace === "") namespaces = result.namespaces ?? [];
+    if (namespaces.length === 0 && namespace !== "") namespaces = [namespace];
+    return { events: { ...s.events, cluster, namespace, items: result.events ?? [], namespaces, loading: false } };
+  }),
+  toggleWarningsOnly: () => set((s) => ({ events: { ...s.events, warningsOnly: !s.events.warningsOnly } })),
+  setEventsSearch: (search) => set((s) => ({ events: { ...s.events, search } })),
+  clearEvents: () => set({ events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" } }),
 }));

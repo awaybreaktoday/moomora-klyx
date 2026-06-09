@@ -156,6 +156,30 @@ func main() {
 		return c, true
 	})
 
+	podsSvc := appbridge.NewPodsService(func(name string) (appbridge.PodsConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
+	logsSvc := appbridge.NewLogsService(func(name string) (appbridge.LogsConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	}, em)
+
+	eventsSvc := appbridge.NewEventsService(func(name string) (appbridge.EventsConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -167,6 +191,9 @@ func main() {
 			application.NewService(meshSvc),
 			application.NewService(metricsSvc),
 			application.NewService(workloadsSvc),
+			application.NewService(podsSvc),
+			application.NewService(logsSvc),
+			application.NewService(eventsSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -200,5 +227,8 @@ func main() {
 type emitterAdapter struct{ app *application.App }
 
 func (e *emitterAdapter) Emit(name string, data any) {
+	if e.app == nil {
+		return
+	}
 	e.app.Event.Emit(name, data)
 }
