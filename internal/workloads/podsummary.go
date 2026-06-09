@@ -1,0 +1,176 @@
+package workloads
+
+import (
+	"sort"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+)
+
+// PodSummary is the pods-lens row: one pod classified with the same severity
+// engine the workloads lens uses (one interpretation of "broken", never two).
+type PodSummary struct {
+	Namespace, Name string
+	Ready           bool
+	Phase           string // pod phase as reported (Running/Pending/Succeeded/Failed/Unknown)
+	Reason          string // worst container/pod reason, "" if clean
+	Rank            HealthRank
+	Restarts        int
+	Node, IP        string
+	OwnerKind       string // top controller ownerRef kind ("Deployment" is NOT resolved here — ReplicaSet/StatefulSet/DaemonSet/Job/Node/"")
+	OwnerName       string
+	AgeSeconds      int
+	Containers      []ContainerSummary
+}
+
+// ContainerSummary is a single container row within a PodSummary.
+type ContainerSummary struct {
+	Name     string
+	Image    string
+	Ready    bool
+	Restarts int
+	State    string // "running" | "waiting:<Reason>" | "terminated:<Reason>" | ""
+	Init     bool
+}
+
+// rankPod maps a single pod's state to a HealthRank.
+//
+// Rank semantics (ordered by precedence):
+//   - phase Succeeded → Healthy  (a completed pod is not broken)
+//   - sev==sevHard OR phase==Failed → Unhealthy
+//   - not ready AND phase != Succeeded → Degraded (pending/initialising/not-ready)
+//   - recentlyTerminated → Restarts (info tier, recency-gated)
+//   - else → Healthy
+func rankPod(p *corev1.Pod, sev severity, recent bool) HealthRank {
+	if p.Status.Phase == corev1.PodSucceeded {
+		return Healthy
+	}
+	if sev == sevHard || p.Status.Phase == corev1.PodFailed {
+		return Unhealthy
+	}
+	if !podReady(p) {
+		return Degraded
+	}
+	if recent {
+		return Restarts
+	}
+	return Healthy
+}
+
+// SummarizePods classifies each pod using the shared severity engine and
+// returns them sorted by Rank (worst first), then Namespace, then Name.
+func SummarizePods(pods []corev1.Pod, now time.Time) []PodSummary {
+	out := make([]PodSummary, 0, len(pods))
+	for i := range pods {
+		p := &pods[i]
+		reason, sev := worstPodReason([]corev1.Pod{*p})
+		recent := recentlyTerminated([]*corev1.Pod{p}, now)
+		rank := rankPod(p, sev, recent)
+
+		// Succeeded pods with no reason string get the conventional "Completed" label.
+		if p.Status.Phase == corev1.PodSucceeded && reason == "" {
+			reason = "Completed"
+		}
+
+		ps := PodSummary{
+			Namespace:  p.Namespace,
+			Name:       p.Name,
+			Ready:      podReady(p),
+			Phase:      string(p.Status.Phase),
+			Reason:     reason,
+			Rank:       rank,
+			Restarts:   podRestarts(p),
+			Node:       p.Spec.NodeName,
+			IP:         p.Status.PodIP,
+			AgeSeconds: ageSeconds(p.CreationTimestamp.Time, now),
+			Containers: buildContainerSummaries(p),
+		}
+
+		// Owner: first ownerRef where Controller is set and true.
+		for _, ref := range p.OwnerReferences {
+			if ref.Controller != nil && *ref.Controller {
+				ps.OwnerKind = ref.Kind
+				ps.OwnerName = ref.Name
+				break
+			}
+		}
+
+		out = append(out, ps)
+	}
+
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].Rank != out[b].Rank {
+			return out[a].Rank < out[b].Rank
+		}
+		if out[a].Namespace != out[b].Namespace {
+			return out[a].Namespace < out[b].Namespace
+		}
+		return out[a].Name < out[b].Name
+	})
+
+	return out
+}
+
+// buildContainerSummaries returns init containers first (Init:true) then regular
+// containers. A spec container with no matching ContainerStatus still appears
+// (state ""). Statuses are matched to spec containers by name.
+func buildContainerSummaries(p *corev1.Pod) []ContainerSummary {
+	// Index statuses by container name for O(1) lookup.
+	initStatuses := make(map[string]corev1.ContainerStatus, len(p.Status.InitContainerStatuses))
+	for _, cs := range p.Status.InitContainerStatuses {
+		initStatuses[cs.Name] = cs
+	}
+	mainStatuses := make(map[string]corev1.ContainerStatus, len(p.Status.ContainerStatuses))
+	for _, cs := range p.Status.ContainerStatuses {
+		mainStatuses[cs.Name] = cs
+	}
+
+	var out []ContainerSummary
+
+	for _, c := range p.Spec.InitContainers {
+		cs, ok := initStatuses[c.Name]
+		sum := ContainerSummary{
+			Name:  c.Name,
+			Image: c.Image,
+			Init:  true,
+		}
+		if ok {
+			sum.Ready = cs.Ready
+			sum.Restarts = int(cs.RestartCount)
+			sum.State = containerStateString(cs.State)
+		}
+		out = append(out, sum)
+	}
+
+	for _, c := range p.Spec.Containers {
+		cs, ok := mainStatuses[c.Name]
+		sum := ContainerSummary{
+			Name:  c.Name,
+			Image: c.Image,
+			Init:  false,
+		}
+		if ok {
+			sum.Ready = cs.Ready
+			sum.Restarts = int(cs.RestartCount)
+			sum.State = containerStateString(cs.State)
+		}
+		out = append(out, sum)
+	}
+
+	return out
+}
+
+// containerStateString encodes a ContainerState as the canonical state string.
+// Returns "running", "waiting:<Reason>", "terminated:<Reason>", or "".
+func containerStateString(s corev1.ContainerState) string {
+	if s.Running != nil {
+		return "running"
+	}
+	if s.Waiting != nil {
+		return "waiting:" + s.Waiting.Reason
+	}
+	if s.Terminated != nil {
+		return "terminated:" + s.Terminated.Reason
+	}
+	return ""
+}
