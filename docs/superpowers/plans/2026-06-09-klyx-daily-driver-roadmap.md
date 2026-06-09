@@ -65,7 +65,7 @@ loop until done.
 
 ## Phases
 
-### DD1 — Pods lens + live logs + events (the daily core)
+### DD1 — Pods lens + live logs + events (the daily core) — MERGED to main 2026-06-10
 Branch: `feat/dd1-pods-logs-events`
 
 - [x] T1 Go: pure pod-summary model in `internal/workloads` (reuse severity engine;
@@ -89,14 +89,14 @@ Branch: `feat/dd1-pods-logs-events`
       PodsView: triage list (dot/ns/name/ready/phase-reason/restarts/cpu-mem
       capability-gated/node/age), ns dropdown + search + needs-attention chip;
       row click → detail panel (info, conditions, owner link, events, yaml).
-- [ ] T7 FE: logs pane in pod detail — follow/pause, container picker, previous
+- [x] T7 FE: logs pane in pod detail — follow/pause, container picker, previous
       toggle, tail-lines select, search highlight, wrap toggle, clear; auto-scroll
       with stick-to-bottom; stream cleanup on unmount/nav.
-- [ ] T8 FE: "events" ClusterSection + EventsView: warning-first, type/ns filter,
+- [x] T8 FE: "events" ClusterSection + EventsView: warning-first, type/ns filter,
       involved-object links into pods/workloads where resolvable.
-- [ ] T9 FE: actions — delete pod + rollout restart (from PodsView and
+- [x] T9 FE: actions — delete pod + rollout restart (from PodsView and
       WorkloadsView rows) via ConfirmDialog; toast; refresh after action.
-- [ ] T10 Gate + verify: bindings, full gate, fixtures on homelab-nelli (crashloop
+- [x] T10 Gate + verify: bindings, full gate, fixtures on homelab-nelli (crashloop
       pod → red + reason; delete pod → recreated; logs stream from a chatty pod;
       events show the crashloop warnings), cleanup, merge.
 
@@ -181,3 +181,10 @@ Branch: `feat/dd5-palette-layout`
 
 ## Eyeball checklist (owner: verify visually when convenient)
 *(append items here as phases merge; clear after owner confirms)*
+
+DD1 (pods/logs/events):
+- Pods section: triage list, crashloop pods float red with reason; search + needs-attention chips work.
+- Pod detail panel: info/conditions/events/yaml render; Esc closes.
+- Logs tab: live tail follows; container picker, previous, tail-lines, wrap, search highlight; scrolling up disables follow.
+- Events section: warning-first; pod names link into the pod detail.
+- Actions: delete pod + restart owner / workload restart show confirm (typed name on protected clusters), toast on result.
