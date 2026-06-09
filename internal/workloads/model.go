@@ -48,4 +48,5 @@ type Workload struct {
 	Rank                               HealthRank
 	GitOps                             *Owner
 	Pods                               []Pod
+	Resources                          WorkloadResources
 }

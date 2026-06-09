@@ -80,6 +80,7 @@ func build(kind, ns, name string, objLabels map[string]string, selector *metav1.
 	if fluxPresent {
 		w.GitOps = extractOwner(objLabels)
 	}
+	w.Resources = aggregateResources(matched)
 	return w
 }
 
