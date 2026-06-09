@@ -46,6 +46,9 @@ func (f *fakeConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return ni
 func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
 	return nil, false, nil
 }
+func (f *fakeConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
+	return nil, workloads.UsageStatus{}
+}
 func (f *fakeConn) CountResource(ctx context.Context, group, version, plural string) (int, bool, error) {
 	return 0, false, nil
 }
