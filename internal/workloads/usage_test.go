@@ -54,3 +54,35 @@ func TestAggregateUsagePartialSamplesBestEffort(t *testing.T) {
 		t.Fatalf("mem: got %v want nil", u.Mem)
 	}
 }
+
+func TestAggregateUsageEmptyPodsStillPresent(t *testing.T) {
+	// Contract the frontend merge depends on: every workload is emitted under its
+	// Key, even with no pods (all-nil cells), so a merge can always find the row.
+	ws := []Workload{{Kind: "Deployment", Namespace: "ns", Name: "api", Pods: nil}}
+	out := AggregateUsage(ws, map[string]float64{"ns/api-1": 0.1}, map[string]float64{})
+	u, ok := out["Deployment/ns/api"]
+	if !ok {
+		t.Fatalf("workload with empty Pods must still be present in the map")
+	}
+	if u.CPU != nil || u.Mem != nil {
+		t.Fatalf("empty-Pods workload must have all-nil cells, got %+v", u)
+	}
+}
+
+func TestAggregateUsageMultiWorkloadDistinctValues(t *testing.T) {
+	// Guards against pointer aliasing across workloads: each workload's Usage must
+	// carry its own value, not share a pointer with another workload.
+	ws := []Workload{
+		{Kind: "Deployment", Namespace: "ns", Name: "a", Pods: []Pod{{Name: "a-1"}}},
+		{Kind: "Deployment", Namespace: "ns", Name: "b", Pods: []Pod{{Name: "b-1"}}},
+	}
+	cpu := map[string]float64{"ns/a-1": 0.3, "ns/b-1": 0.5}
+	out := AggregateUsage(ws, cpu, map[string]float64{})
+	a, b := out["Deployment/ns/a"], out["Deployment/ns/b"]
+	if a.CPU == nil || b.CPU == nil {
+		t.Fatalf("both workloads must have cpu, got a=%v b=%v", a.CPU, b.CPU)
+	}
+	if !approxEqual(*a.CPU, 0.3) || !approxEqual(*b.CPU, 0.5) {
+		t.Fatalf("distinct values expected: a=%v (want 0.3) b=%v (want 0.5)", *a.CPU, *b.CPU)
+	}
+}
