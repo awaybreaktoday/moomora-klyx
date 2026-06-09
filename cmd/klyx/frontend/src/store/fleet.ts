@@ -55,7 +55,7 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads" | "pods";
+export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads" | "pods" | "events";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -102,6 +102,18 @@ export type PodsSlice = {
   detailLoading: boolean;
 };
 
+export type EventRowDTO = { type: "Normal" | "Warning"; reason: string; message: string; count: number; namespace: string; kind: string; name: string; lastSeenUnix: number; firstSeenUnix: number };
+export type EventsResultDTO = { namespaces: string[]; events: EventRowDTO[] };
+export type EventsSlice = {
+  cluster: string | null;
+  namespace: string;
+  items: EventRowDTO[];
+  namespaces: string[];
+  loading: boolean;
+  warningsOnly: boolean;
+  search: string;
+};
+
 export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
 export type InstanceDTO = { namespace: string; name: string; created: string };
 export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nextToken: string; loading: boolean; filter: string };
@@ -123,6 +135,7 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   observability: "Observability",
   workloads: "Workloads",
   pods: "Pods",
+  events: "Events",
 };
 
 export type CRDKindDTO = { kind: string; plural: string; scope: string; version: string; operator: string; shortNames: string[] };
@@ -254,6 +267,12 @@ type FleetState = {
   selectPod: (ref: PodRef | null) => void;
   setPodDetail: (ref: PodRef, detail: PodDetailDTO) => void;
   clearPods: () => void;
+  events: EventsSlice;
+  setEventsLoading: (cluster: string, namespace: string) => void;
+  setEvents: (cluster: string, namespace: string, result: EventsResultDTO) => void;
+  toggleWarningsOnly: () => void;
+  setEventsSearch: (s: string) => void;
+  clearEvents: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -406,4 +425,15 @@ export const useFleet = create<FleetState>((set) => ({
     return { pods: { ...s.pods, detail, detailLoading: false } };
   }),
   clearPods: () => set({ pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false } }),
+  events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" },
+  setEventsLoading: (cluster, namespace) => set((s) => ({ events: { ...s.events, cluster, namespace, loading: true } })),
+  setEvents: (cluster, namespace, result) => set((s) => {
+    let namespaces = s.events.namespaces;
+    if (namespace === "") namespaces = result.namespaces ?? [];
+    if (namespaces.length === 0 && namespace !== "") namespaces = [namespace];
+    return { events: { ...s.events, cluster, namespace, items: result.events ?? [], namespaces, loading: false } };
+  }),
+  toggleWarningsOnly: () => set((s) => ({ events: { ...s.events, warningsOnly: !s.events.warningsOnly } })),
+  setEventsSearch: (search) => set((s) => ({ events: { ...s.events, search } })),
+  clearEvents: () => set({ events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" } }),
 }));
