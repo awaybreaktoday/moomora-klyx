@@ -7,8 +7,14 @@ import type { PodSummaryDTO, PodDetailDTO } from "../store/fleet";
 vi.mock("../bridge/pods", () => ({
   listPods: vi.fn().mockResolvedValue(undefined),
   openPodDetail: vi.fn().mockResolvedValue(undefined),
+  deletePod: vi.fn().mockResolvedValue(undefined),
 }));
-import { openPodDetail } from "../bridge/pods";
+vi.mock("../bridge/workloads", () => ({
+  listWorkloads: vi.fn().mockResolvedValue(undefined),
+  rolloutRestart: vi.fn().mockResolvedValue(undefined),
+}));
+import { openPodDetail, deletePod } from "../bridge/pods";
+import { rolloutRestart } from "../bridge/workloads";
 
 // LogsPane uses LogsService and Wails Events — stub them out so PodsView tests
 // don't need a Wails runtime.
@@ -177,5 +183,99 @@ describe("PodsView", () => {
     const { getByText } = render(<PodsView cluster="homelab" />);
     fireEvent.click(getByText("✕"));
     expect(useFleet.getState().pods.selected).toBeNull();
+  });
+
+  // --- Action button tests ---
+
+  function openDetailPanel(pod = healthy, detail = fakeDetail) {
+    seed([pod]);
+    useFleet.setState((s) => ({
+      pods: { ...s.pods, selected: { namespace: pod.namespace, name: pod.name }, detail, detailLoading: false },
+    }));
+  }
+
+  it("delete pod button opens confirm dialog with controller-recreate body", () => {
+    openDetailPanel(healthy); // healthy has ownerKind="ReplicaSet"
+    const { getByText } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByText("delete pod"));
+    expect(getByText(/the controller will recreate it/i)).toBeTruthy();
+  });
+
+  it("delete pod button dialog body warns about no-controller standalone pods", () => {
+    const standalone: PodSummaryDTO = { ...healthy, ownerKind: "", ownerName: "" };
+    const detailWithStandalone = { ...fakeDetail, summary: standalone };
+    openDetailPanel(standalone, detailWithStandalone);
+    const { getByText } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByText("delete pod"));
+    expect(getByText(/will NOT be recreated/i)).toBeTruthy();
+  });
+
+  it("confirming delete pod calls deletePod bridge", () => {
+    openDetailPanel(healthy);
+    const { getByText, getAllByRole } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByText("delete pod"));
+    // Confirm button is the last "Delete" in the DOM (inside the dialog).
+    const confirmBtns = getAllByRole("button", { name: "Delete" });
+    fireEvent.click(confirmBtns[confirmBtns.length - 1]);
+    expect(deletePod).toHaveBeenCalledWith("homelab", "monitoring", "grafana-xyz");
+  });
+
+  it("restart owner button is visible for ReplicaSet owner", () => {
+    openDetailPanel(healthy); // healthy has ownerKind="ReplicaSet"
+    const { getByText } = render(<PodsView cluster="homelab" />);
+    expect(getByText("restart owner")).toBeTruthy();
+  });
+
+  it("restart owner button is NOT visible for ownerKind='' (standalone pod)", () => {
+    const standalone: PodSummaryDTO = { ...healthy, ownerKind: "", ownerName: "" };
+    const detailWithStandalone = { ...fakeDetail, summary: standalone };
+    openDetailPanel(standalone, detailWithStandalone);
+    const { queryByText } = render(<PodsView cluster="homelab" />);
+    expect(queryByText("restart owner")).toBeNull();
+  });
+
+  it("restart owner button is NOT visible for ownerKind=Node", () => {
+    const nodeOwned: PodSummaryDTO = { ...healthy, ownerKind: "Node", ownerName: "node-1" };
+    const detailNode = { ...fakeDetail, summary: nodeOwned };
+    openDetailPanel(nodeOwned, detailNode);
+    const { queryByText } = render(<PodsView cluster="homelab" />);
+    expect(queryByText("restart owner")).toBeNull();
+  });
+
+  it("RS->Deployment name derivation: strips pod-template-hash suffix", () => {
+    // Pod owned by RS "web-7d4b9c6f9" — restart should target Deployment "web".
+    const rsPod: PodSummaryDTO = {
+      ...healthy,
+      namespace: "prod", name: "web-7d4b9c6f9-abc",
+      ownerKind: "ReplicaSet", ownerName: "web-7d4b9c6f9",
+    };
+    const detailRs = { ...fakeDetail, summary: rsPod };
+    seed([rsPod]);
+    useFleet.setState((s) => ({
+      pods: { ...s.pods, selected: { namespace: "prod", name: "web-7d4b9c6f9-abc" }, detail: detailRs, detailLoading: false },
+    }));
+    const { getByText, getAllByRole } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByText("restart owner"));
+    const confirmBtns = getAllByRole("button", { name: "Restart" });
+    fireEvent.click(confirmBtns[confirmBtns.length - 1]);
+    // Strip trailing hash segment "7d4b9c6f9" -> "web"
+    expect(rolloutRestart).toHaveBeenCalledWith("homelab", "Deployment", "prod", "web");
+  });
+
+  it("StatefulSet owner calls rolloutRestart directly without name transformation", () => {
+    const stsPod: PodSummaryDTO = {
+      ...healthy, namespace: "db", name: "postgres-0",
+      ownerKind: "StatefulSet", ownerName: "postgres",
+    };
+    const detailSts = { ...fakeDetail, summary: stsPod };
+    seed([stsPod]);
+    useFleet.setState((s) => ({
+      pods: { ...s.pods, selected: { namespace: "db", name: "postgres-0" }, detail: detailSts, detailLoading: false },
+    }));
+    const { getByText, getAllByRole } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByText("restart owner"));
+    const confirmBtns = getAllByRole("button", { name: "Restart" });
+    fireEvent.click(confirmBtns[confirmBtns.length - 1]);
+    expect(rolloutRestart).toHaveBeenCalledWith("homelab", "StatefulSet", "db", "postgres");
   });
 });

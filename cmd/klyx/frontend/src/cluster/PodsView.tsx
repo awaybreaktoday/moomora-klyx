@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useFleet } from "../store/fleet";
-import type { PodDetailDTO } from "../store/fleet";
-import { listPods, openPodDetail } from "../bridge/pods";
+import type { PodDetailDTO, PodSummaryDTO } from "../store/fleet";
+import { listPods, openPodDetail, deletePod } from "../bridge/pods";
+import { rolloutRestart } from "../bridge/workloads";
+import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 
 const rankDot: Record<string, string> = {
@@ -25,6 +27,9 @@ const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px";
 
 export function PodsView({ cluster }: { cluster: string }) {
   const pods = useFleet((s) => s.pods);
+  const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
+  const actionStatus = useFleet((s) => s.actionStatus);
+  const clearActionStatus = useFleet((s) => s.clearActionStatus);
 
   useEffect(() => {
     void listPods(cluster, "");
@@ -48,6 +53,7 @@ export function PodsView({ cluster }: { cluster: string }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Controls row */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+
           <select
             value={pods.namespace}
             onChange={(e) => onNamespace(e.target.value)}
@@ -136,6 +142,9 @@ export function PodsView({ cluster }: { cluster: string }) {
           name={pods.selected.name}
           detail={pods.detail}
           loading={pods.detailLoading}
+          isProtected={isProtected}
+          actionStatus={actionStatus}
+          clearActionStatus={clearActionStatus}
           onClose={() => useFleet.getState().selectPod(null)}
         />
       )}
@@ -143,22 +152,28 @@ export function PodsView({ cluster }: { cluster: string }) {
   );
 }
 
+type PodPendingAction = { verb: "restart" | "delete"; summary: PodSummaryDTO };
+
 function PodDetailPanel({
-  cluster, namespace, name, detail, loading, onClose,
+  cluster, namespace, name, detail, loading, isProtected, actionStatus, clearActionStatus, onClose,
 }: {
   cluster: string;
   namespace: string;
   name: string;
   detail: PodDetailDTO | null;
   loading: boolean;
+  isProtected: boolean;
+  actionStatus: import("../store/fleet").ActionStatus | null;
+  clearActionStatus: () => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"info" | "logs" | "yaml">("info");
+  const [pending, setPending] = useState<PodPendingAction | null>(null);
 
   // Close on Escape
   const handleKey = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  }, [onClose]);
+    if (e.key === "Escape") { if (pending) setPending(null); else onClose(); }
+  }, [onClose, pending]);
   useEffect(() => {
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
@@ -198,13 +213,35 @@ function PodDetailPanel({
         ))}
       </div>
 
+      {/* Action status toast */}
+      {actionStatus && (
+        <div
+          onClick={clearActionStatus}
+          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+            background: "var(--color-background-secondary)",
+            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
+            border: "0.5px solid var(--color-border-tertiary)" }}
+        >
+          {actionStatus.message}
+        </div>
+      )}
+
       {loading && !detail ? (
         <div style={{ color: "var(--color-text-secondary)" }}>Loading detail…</div>
       ) : !detail ? (
         <div style={{ color: "var(--color-text-secondary)" }}>Could not load pod detail.</div>
       ) : (
         <>
-          {tab === "info" && <InfoTab detail={detail} cluster={cluster} namespace={namespace} name={name} />}
+          {tab === "info" && (
+            <InfoTab
+              detail={detail}
+              cluster={cluster}
+              namespace={namespace}
+              name={name}
+              onRestart={(s) => setPending({ verb: "restart", summary: s })}
+              onDelete={(s) => setPending({ verb: "delete", summary: s })}
+            />
+          )}
           {tab === "logs" && (
             <div style={{ height: "calc(100vh - 160px)", display: "flex", flexDirection: "column" }}>
               <LogsPane cluster={cluster} pod={detail.summary} />
@@ -223,14 +260,71 @@ function PodDetailPanel({
           )}
         </>
       )}
+
+      {pending && (
+        <ConfirmDialog
+          title={pending.verb === "delete" ? "delete pod" : "restart owner"}
+          cluster={cluster}
+          detail={pending.verb === "delete"
+            ? (pending.summary.ownerKind === ""
+              ? `${pending.summary.namespace}/${pending.summary.name} — this pod has no controller; it will NOT be recreated.`
+              : `${pending.summary.namespace}/${pending.summary.name} — the controller will recreate it.`)
+            : `${pending.summary.namespace}/${pending.summary.name}`}
+          protected={isProtected}
+          danger={pending.verb === "delete"}
+          confirmLabel={pending.verb === "delete" ? "Delete" : "Restart"}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { verb, summary } = pending;
+            setPending(null);
+            if (verb === "delete") {
+              void deletePod(cluster, summary.namespace, summary.name);
+            } else {
+              // Restart the owner workload. For ReplicaSet, derive the Deployment name
+              // by stripping the trailing pod-template-hash segment (the last dash-separated
+              // segment added by the ReplicaSet controller), e.g. "web-7d4b9c6f9" -> "web".
+              const { ownerKind, ownerName } = summary;
+              let targetKind = ownerKind;
+              let targetName = ownerName;
+              if (ownerKind === "ReplicaSet") {
+                targetKind = "Deployment";
+                targetName = ownerName.split("-").slice(0, -1).join("-");
+              }
+              void rolloutRestart(cluster, targetKind, summary.namespace, targetName);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function InfoTab({ detail, namespace, name }: { detail: PodDetailDTO; cluster: string; namespace: string; name: string }) {
+function InfoTab({ detail, onRestart, onDelete }: {
+  detail: PodDetailDTO;
+  cluster: string;
+  namespace: string;
+  name: string;
+  onRestart: (s: PodSummaryDTO) => void;
+  onDelete: (s: PodSummaryDTO) => void;
+}) {
   const p = detail.summary;
+  // Restart is meaningful when the pod is owned by a ReplicaSet (-> Deployment),
+  // StatefulSet, or DaemonSet. Standalone pods (ownerKind="") have no controller to restart.
+  const showRestart = p.ownerKind === "ReplicaSet" || p.ownerKind === "StatefulSet" || p.ownerKind === "DaemonSet";
+
   return (
     <>
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+        {showRestart && (
+          <button onClick={() => onRestart(p)} style={btn}>restart owner</button>
+        )}
+        <button
+          onClick={() => onDelete(p)}
+          style={{ ...btn, color: "var(--color-text-danger)" }}
+        >delete pod</button>
+      </div>
+
       {/* Summary header */}
       <Section title="Summary">
         <InfoRow label="phase">{p.phase}{p.reason ? ` · ${p.reason}` : ""}</InfoRow>

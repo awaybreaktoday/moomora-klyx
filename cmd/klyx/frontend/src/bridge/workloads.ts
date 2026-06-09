@@ -1,6 +1,21 @@
 import { useFleet, WorkloadsResultDTO } from "../store/fleet";
 import { WorkloadsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
+type ActionResultDTO = { ok: boolean; error: string };
+
+export async function rolloutRestart(cluster: string, kind: string, namespace: string, name: string): Promise<void> {
+  const r = (await WorkloadsService.RolloutRestart(cluster, kind, namespace, name)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok
+      ? { kind: "success", message: `restart triggered for ${kind.toLowerCase()} ${namespace}/${name}` }
+      : { kind: "error", message: r.error || "Restart failed" },
+  );
+  if (r.ok) {
+    const cur = useFleet.getState().workloads;
+    void listWorkloads(cluster, cur.namespace);
+  }
+}
+
 export async function listWorkloads(cluster: string, namespace: string): Promise<void> {
   useFleet.getState().setWorkloadsLoading(cluster, namespace);
   try {

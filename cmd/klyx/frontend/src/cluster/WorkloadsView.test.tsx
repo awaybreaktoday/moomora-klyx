@@ -4,8 +4,12 @@ import { WorkloadsView } from "./WorkloadsView";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO } from "../store/fleet";
 
-vi.mock("../bridge/workloads", () => ({ listWorkloads: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../bridge/workloads", () => ({
+  listWorkloads: vi.fn().mockResolvedValue(undefined),
+  rolloutRestart: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("../bridge/workload-metrics", () => ({ getWorkloadMetrics: vi.fn().mockResolvedValue(undefined) }));
+import { rolloutRestart } from "../bridge/workloads";
 
 const noResources = { cpu: { usage: null, request: null, limit: null }, mem: { usage: null, request: null, limit: null } };
 const broken: WorkloadDTO = { kind: "Deployment", namespace: "ollama-prod", name: "ollama", desired: 1, ready: 0, available: 0, updated: 1, restarts: 7, reason: "CrashLoopBackOff", rank: "unhealthy", gitops: { kind: "Kustomization", namespace: "flux-system", name: "ollama" }, pods: [{ name: "ollama-x", ready: false, restarts: 7, reason: "CrashLoopBackOff", node: "node-3", ageSeconds: 720 }], resources: noResources };
@@ -63,5 +67,23 @@ describe("WorkloadsView", () => {
     expect(getByText("near limit")).toBeTruthy();
     expect(getAllByText("cpu").length).toBeGreaterThan(0);
     expect(getAllByText("mem").length).toBeGreaterThan(0);
+  });
+
+  it("restart button is visible after expanding a Deployment row", () => {
+    seed([broken]);
+    const { getByText, queryByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(queryByText("restart")).toBeNull();
+    fireEvent.click(getByText("ollama")); // expand the row
+    expect(getByText("restart")).toBeTruthy();
+  });
+
+  it("confirming restart dispatches rolloutRestart for the correct workload", () => {
+    seed([broken]);
+    const { getByText, getAllByRole } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByText("ollama")); // expand
+    fireEvent.click(getByText("restart")); // open confirm dialog
+    const confirmBtns = getAllByRole("button", { name: "Restart" });
+    fireEvent.click(confirmBtns[confirmBtns.length - 1]); // confirm
+    expect(rolloutRestart).toHaveBeenCalledWith("homelab-nelli", "Deployment", "ollama-prod", "ollama");
   });
 });

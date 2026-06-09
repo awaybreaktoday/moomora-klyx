@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
-import { listWorkloads } from "../bridge/workloads";
+import { listWorkloads, rolloutRestart } from "../bridge/workloads";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
+import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
 
 const rankDot: Record<string, string> = {
@@ -47,8 +48,15 @@ function riskLabel(resource: "cpu" | "mem", cell: ResourceCellDTO): string {
   return resource === "mem" ? `· OOM risk ${pct}%` : `· throttling risk ${pct}%`;
 }
 
+type WorkloadPending = { w: WorkloadDTO };
+
 export function WorkloadsView({ cluster }: { cluster: string }) {
   const wl = useFleet((s) => s.workloads);
+  const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
+  const actionStatus = useFleet((s) => s.actionStatus);
+  const clearActionStatus = useFleet((s) => s.clearActionStatus);
+  const [pending, setPending] = useState<WorkloadPending | null>(null);
+
   useEffect(() => {
     listWorkloads(cluster, "").then(() => getWorkloadMetrics(cluster, ""));
     const id = setInterval(() => {
@@ -86,6 +94,19 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
         <button onClick={onRefresh} style={btn}>refresh</button>
       </div>
 
+      {/* Action status toast */}
+      {actionStatus && (
+        <div
+          onClick={clearActionStatus}
+          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+            background: "var(--color-background-secondary)",
+            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
+            border: "0.5px solid var(--color-border-tertiary)" }}
+        >
+          {actionStatus.message}
+        </div>
+      )}
+
       {wl.loading && wl.items.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading workloads…</div>
       ) : rows.length === 0 ? (
@@ -122,11 +143,37 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
                     <span><span style={{ color: "var(--color-text-tertiary)" }}>mem</span> {w.pods.length === 0 ? "—" : `usage ${w.resources.mem.usage == null ? "—" : fmtMem(w.resources.mem.usage)} · req ${w.resources.mem.request == null ? "—" : fmtMem(w.resources.mem.request)} · ${w.resources.mem.limit == null ? "no limit" : `lim ${fmtMem(w.resources.mem.limit)}`}`} <span style={{ color: tierColor[saturation("mem", w.resources.mem.usage, w.resources.mem.limit).tier] }}>{riskLabel("mem", w.resources.mem)}</span></span>
                   </div>
                 )}
-                {expanded && <PodTable pods={w.pods} />}
+                {expanded && (
+                  <>
+                    <div style={{ padding: "6px 8px 4px 32px", background: "var(--color-background-secondary)" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPending({ w }); }}
+                        style={btn}
+                      >restart</button>
+                    </div>
+                    <PodTable pods={w.pods} />
+                  </>
+                )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title="restart"
+          cluster={cluster}
+          detail={`${pending.w.kind.toLowerCase()} ${pending.w.namespace}/${pending.w.name}`}
+          protected={isProtected}
+          confirmLabel="Restart"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { w } = pending;
+            setPending(null);
+            void rolloutRestart(cluster, w.kind, w.namespace, w.name);
+          }}
+        />
       )}
     </div>
   );

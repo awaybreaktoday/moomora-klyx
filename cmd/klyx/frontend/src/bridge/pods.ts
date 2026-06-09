@@ -1,6 +1,8 @@
 import { useFleet, PodsResultDTO, PodDetailDTO } from "../store/fleet";
 import { PodsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
+type ActionResultDTO = { ok: boolean; error: string };
+
 export async function listPods(cluster: string, namespace: string): Promise<void> {
   useFleet.getState().setPodsLoading(cluster, namespace);
   try {
@@ -14,6 +16,19 @@ export async function listPods(cluster: string, namespace: string): Promise<void
     if (useFleet.getState().pods.cluster === cluster) {
       useFleet.setState((s) => ({ pods: { ...s.pods, loading: false } }));
     }
+  }
+}
+
+export async function deletePod(cluster: string, namespace: string, name: string): Promise<void> {
+  const r = (await PodsService.DeletePod(cluster, namespace, name)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok
+      ? { kind: "success", message: `pod ${namespace}/${name} deleted` }
+      : { kind: "error", message: r.error || "Delete failed" },
+  );
+  if (r.ok) {
+    const cur = useFleet.getState().pods;
+    void listPods(cluster, cur.namespace);
   }
 }
 
