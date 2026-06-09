@@ -15,19 +15,49 @@ type PodDTO struct {
 	AgeSeconds int    `json:"ageSeconds"`
 }
 
+// ResourceCellDTO is one resource (cpu cores / memory bytes). Nil = JSON null ->
+// UI renders "—" (or "no limit" for a nil Limit with matched pods). Never 0.
+type ResourceCellDTO struct {
+	Usage   *float64 `json:"usage"`
+	Request *float64 `json:"request"`
+	Limit   *float64 `json:"limit"`
+}
+
+type WorkloadResourcesDTO struct {
+	CPU ResourceCellDTO `json:"cpu"`
+	Mem ResourceCellDTO `json:"mem"`
+}
+
+type WorkloadMetricsStatusDTO struct {
+	Available bool   `json:"available"`
+	Message   string `json:"message"`
+	UpdatedAt string `json:"updatedAt"` // RFC3339; "" when never succeeded
+}
+
+type WorkloadUsageDTO struct {
+	CPUUsage *float64 `json:"cpuUsage"`
+	MemUsage *float64 `json:"memUsage"`
+}
+
+type WorkloadMetricsResultDTO struct {
+	Status WorkloadMetricsStatusDTO    `json:"status"`
+	Usage  map[string]WorkloadUsageDTO `json:"usage"` // keyed "<kind>/<ns>/<name>"
+}
+
 type WorkloadDTO struct {
-	Kind      string    `json:"kind"`
-	Namespace string    `json:"namespace"`
-	Name      string    `json:"name"`
-	Desired   int       `json:"desired"`
-	Ready     int       `json:"ready"`
-	Available int       `json:"available"`
-	Updated   int       `json:"updated"`
-	Restarts  int       `json:"restarts"`
-	Reason    string    `json:"reason"`
-	Rank      string    `json:"rank"` // "unhealthy"|"degraded"|"restarts"|"healthy"
-	GitOps    *OwnerDTO `json:"gitops"`
-	Pods      []PodDTO  `json:"pods"`
+	Kind      string               `json:"kind"`
+	Namespace string               `json:"namespace"`
+	Name      string               `json:"name"`
+	Desired   int                  `json:"desired"`
+	Ready     int                  `json:"ready"`
+	Available int                  `json:"available"`
+	Updated   int                  `json:"updated"`
+	Restarts  int                  `json:"restarts"`
+	Reason    string               `json:"reason"`
+	Rank      string               `json:"rank"` // "unhealthy"|"degraded"|"restarts"|"healthy"
+	GitOps    *OwnerDTO            `json:"gitops"`
+	Pods      []PodDTO             `json:"pods"`
+	Resources WorkloadResourcesDTO `json:"resources"`
 }
 
 type WorkloadsResultDTO struct {
