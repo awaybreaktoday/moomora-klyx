@@ -12,9 +12,11 @@ import (
 
 // fakePodConn satisfies PodsConn without importing the real fleet.ClusterConn.
 type fakePodConn struct {
-	pods   []workloads.PodSummary
-	detail fleet.PodDetail
-	detErr error
+	pods      []workloads.PodSummary
+	detail    fleet.PodDetail
+	detErr    error
+	deleteErr error
+	deleted   []string // records "<namespace>/<name>" for assertion
 }
 
 func (f *fakePodConn) ListPods(_ context.Context, _ string) ([]workloads.PodSummary, error) {
@@ -23,6 +25,11 @@ func (f *fakePodConn) ListPods(_ context.Context, _ string) ([]workloads.PodSumm
 
 func (f *fakePodConn) PodDetail(_ context.Context, _, _ string) (fleet.PodDetail, error) {
 	return f.detail, f.detErr
+}
+
+func (f *fakePodConn) DeletePod(_ context.Context, namespace, name string) error {
+	f.deleted = append(f.deleted, namespace+"/"+name)
+	return f.deleteErr
 }
 
 // --- ListPods tests ---
@@ -156,5 +163,39 @@ func TestPodsService_GetPodDetail_ErrorReturnsEmpties(t *testing.T) {
 	}
 	if d.Summary.Name != "" {
 		t.Errorf("summary should be zero on error, got %+v", d.Summary)
+	}
+}
+
+// --- DeletePod tests ---
+
+func TestPodsService_DeletePod_ClusterMiss(t *testing.T) {
+	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false })
+	r := svc.DeletePod("ghost", "ns", "pod")
+	if r.OK || r.Error == "" {
+		t.Fatalf("want failure for unknown cluster, got %+v", r)
+	}
+	if r.Error != "cluster not connected: ghost" {
+		t.Errorf("error message: %q", r.Error)
+	}
+}
+
+func TestPodsService_DeletePod_Success(t *testing.T) {
+	conn := &fakePodConn{}
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	r := svc.DeletePod("c", "default", "web-xyz")
+	if !r.OK || r.Error != "" {
+		t.Fatalf("want OK, got %+v", r)
+	}
+	if len(conn.deleted) != 1 || conn.deleted[0] != "default/web-xyz" {
+		t.Errorf("deleted records: %v", conn.deleted)
+	}
+}
+
+func TestPodsService_DeletePod_ErrorSurfaced(t *testing.T) {
+	conn := &fakePodConn{deleteErr: context.DeadlineExceeded}
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	r := svc.DeletePod("c", "ns", "pod")
+	if r.OK || r.Error == "" {
+		t.Fatalf("want failure surfaced, got %+v", r)
 	}
 }

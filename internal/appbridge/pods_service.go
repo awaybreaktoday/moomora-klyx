@@ -11,11 +11,12 @@ import (
 
 const podsTimeout = 30 * time.Second
 
-// PodsConn is the per-cluster read surface PodsService needs. No fleet import
+// PodsConn is the per-cluster surface PodsService needs. No fleet import
 // in the interface itself — the lookup closure bridges to the real fleet.Conn.
 type PodsConn interface {
 	ListPods(ctx context.Context, namespace string) ([]workloads.PodSummary, error)
 	PodDetail(ctx context.Context, namespace, name string) (fleet.PodDetail, error)
+	DeletePod(ctx context.Context, namespace, name string) error
 }
 
 // PodsService is bound to JS. Pure request/response: ListPods returns
@@ -99,6 +100,21 @@ func (s *PodsService) GetPodDetail(cluster, namespace, name string) PodDetailDTO
 		QosClass:       d.QoSClass,
 		ServiceAccount: d.ServiceAccount,
 	}
+}
+
+// DeletePod deletes a single pod via the cluster connection. The owning
+// controller recreates it; this is the standard imperative bounce.
+func (s *PodsService) DeletePod(cluster, namespace, name string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.DeletePod(ctx, namespace, name); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
 }
 
 func toPodSummaryDTO(p workloads.PodSummary) PodSummaryDTO {

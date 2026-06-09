@@ -8,11 +8,28 @@ import (
 	"github.com/moomora/klyx/internal/workloads"
 )
 
+// RolloutRestart triggers a rolling restart for a workload by patching the
+// pod-template restartedAt annotation. kind must be Deployment, StatefulSet,
+// or DaemonSet.
+func (s *WorkloadsService) RolloutRestart(cluster, kind, namespace, name string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.RolloutRestart(ctx, kind, namespace, name); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
+}
+
 const workloadsTimeout = 30 * time.Second
 
 type WorkloadsConn interface {
 	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error)
 	WorkloadMetrics(ctx context.Context, namespace string) (map[string]workloads.Usage, workloads.UsageStatus)
+	RolloutRestart(ctx context.Context, kind, namespace, name string) error
 }
 
 type WorkloadsService struct {

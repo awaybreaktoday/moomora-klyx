@@ -2,23 +2,31 @@ package appbridge
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/moomora/klyx/internal/workloads"
 )
 
 type fakeWLConn struct {
-	wl   []workloads.Workload
-	flux bool
+	wl              []workloads.Workload
+	flux            bool
+	rolloutErr      error
+	lastRestartKind string
 }
 
-func (f fakeWLConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
+func (f *fakeWLConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
 	return f.wl, f.flux, nil
 }
 
-func (f fakeWLConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
+func (f *fakeWLConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
 	cpu := 0.3
 	return map[string]workloads.Usage{"Deployment/ns/api": {CPU: &cpu}}, workloads.UsageStatus{Available: true}
+}
+
+func (f *fakeWLConn) RolloutRestart(_ context.Context, kind, _, _ string) error {
+	f.lastRestartKind = kind
+	return f.rolloutErr
 }
 
 func TestListWorkloadsDTO(t *testing.T) {
@@ -30,7 +38,7 @@ func TestListWorkloadsDTO(t *testing.T) {
 		}
 	})
 	t.Run("maps + namespaces on all-load + rank string + flux", func(t *testing.T) {
-		conn := fakeWLConn{flux: true, wl: []workloads.Workload{
+		conn := &fakeWLConn{flux: true, wl: []workloads.Workload{
 			{Kind: "Deployment", Namespace: "b", Name: "x", Desired: 1, Ready: 0, Rank: workloads.Unhealthy, Reason: "CrashLoopBackOff",
 				GitOps: &workloads.Owner{Kind: "Kustomization", Namespace: "flux-system", Name: "x"},
 				Pods:   []workloads.Pod{{Name: "x-1", Ready: false, Restarts: 5, Reason: "CrashLoopBackOff", Node: "n1", AgeSeconds: 30}}},
@@ -65,7 +73,7 @@ func TestListWorkloadsDTO(t *testing.T) {
 func TestGetWorkloadMetricsDTO(t *testing.T) {
 	s := NewWorkloadsService(func(name string) (WorkloadsConn, bool) {
 		if name == "c" {
-			return fakeWLConn{}, true
+			return &fakeWLConn{}, true
 		}
 		return nil, false
 	})
@@ -90,4 +98,38 @@ func TestGetWorkloadMetricsDTO(t *testing.T) {
 			t.Fatalf("mem should be nil, got %v", *u.MemUsage)
 		}
 	})
+}
+
+// --- RolloutRestart tests ---
+
+func TestWorkloadsService_RolloutRestart_ClusterMiss(t *testing.T) {
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false })
+	r := s.RolloutRestart("ghost", "Deployment", "ns", "api")
+	if r.OK || r.Error == "" {
+		t.Fatalf("want failure for unknown cluster, got %+v", r)
+	}
+	if r.Error != "cluster not connected: ghost" {
+		t.Errorf("error message: %q", r.Error)
+	}
+}
+
+func TestWorkloadsService_RolloutRestart_Success(t *testing.T) {
+	conn := &fakeWLConn{}
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	r := s.RolloutRestart("c", "Deployment", "default", "api")
+	if !r.OK || r.Error != "" {
+		t.Fatalf("want OK, got %+v", r)
+	}
+	if conn.lastRestartKind != "Deployment" {
+		t.Errorf("kind: got %q, want Deployment", conn.lastRestartKind)
+	}
+}
+
+func TestWorkloadsService_RolloutRestart_ErrorSurfaced(t *testing.T) {
+	conn := &fakeWLConn{rolloutErr: errors.New("unsupported kind \"Job\"")}
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	r := s.RolloutRestart("c", "Job", "default", "migrate")
+	if r.OK || r.Error == "" {
+		t.Fatalf("want failure surfaced, got %+v", r)
+	}
 }
