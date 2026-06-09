@@ -101,11 +101,18 @@ func (s *LogsService) OpenLogStream(cluster, namespace, pod, container string, p
 	st := &logStream{cancel: cancel, done: make(chan struct{})}
 
 	s.mu.Lock()
-	// Cap: evict the oldest before registering the new one.
-	if len(s.order) >= maxConcurrentLogStreams {
+	// Cap: synchronously evict the oldest stream(s) before registering the new
+	// one. Removing both the map entry and the order slot here means concurrent
+	// or rapid sequential opens can never blow past maxConcurrentLogStreams - the
+	// invariant holds at registration time, not eventually. The evicted reader's
+	// finish() is tolerant: its delete(s.streams, streamID) and order scan will
+	// find the entry already gone and no-op cleanly.
+	for len(s.order) >= maxConcurrentLogStreams {
 		oldest := s.order[0]
+		s.order = s.order[1:]
 		if ev := s.streams[oldest]; ev != nil {
-			ev.cancel() // supervisor closes its rc; its reader exits and deregisters
+			delete(s.streams, oldest)
+			ev.cancel() // supervisor closes its rc; its reader exits via finish()
 		}
 	}
 	s.streams[streamID] = st
@@ -203,6 +210,9 @@ func (s *LogsService) finish(streamID string, rc io.ReadCloser, errMsg string) {
 	_ = rc.Close()
 
 	s.mu.Lock()
+	// st may already be nil if synchronous eviction in OpenLogStream removed
+	// this entry before finish() ran - both the delete and the order scan
+	// are no-ops in that case.
 	st := s.streams[streamID]
 	delete(s.streams, streamID)
 	for i, id := range s.order {

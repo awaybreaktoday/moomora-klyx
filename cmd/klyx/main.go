@@ -218,5 +218,8 @@ func main() {
 type emitterAdapter struct{ app *application.App }
 
 func (e *emitterAdapter) Emit(name string, data any) {
+	if e.app == nil {
+		return
+	}
 	e.app.Event.Emit(name, data)
 }

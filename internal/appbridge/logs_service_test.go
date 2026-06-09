@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -312,4 +313,111 @@ func TestCloseAll_DrainsEveryStream(t *testing.T) {
 	if svc.streamCount() != 0 {
 		t.Fatalf("registry not drained after CloseAll: %d", svc.streamCount())
 	}
+}
+
+// TestCapHoldsUnderBurst is the C1 regression lock: opening cap+10 streams
+// sequentially must leave the registry at or below the cap IMMEDIATELY (no
+// eventual wait). The synchronous eviction in OpenLogStream ensures this.
+func TestCapHoldsUnderBurst(t *testing.T) {
+	em := &captureEmitter{}
+	var mu sync.Mutex
+	var pipes []*io.PipeWriter
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, pw := range pipes {
+			pw.Close()
+		}
+	}()
+
+	svc := NewLogsService(func(string) (LogsConn, bool) {
+		pr, pw := io.Pipe()
+		mu.Lock()
+		pipes = append(pipes, pw)
+		mu.Unlock()
+		return &pipeConn{r: pr}, true
+	}, em)
+
+	burst := maxConcurrentLogStreams + 10
+	for i := 0; i < burst; i++ {
+		res := svc.OpenLogStream("c", "ns", "pod", "app", false, 100)
+		if res.StreamID == "" {
+			t.Fatalf("open %d failed: %+v", i, res)
+		}
+		// Immediate assertion - no wait allowed.
+		if got := svc.streamCount(); got > maxConcurrentLogStreams {
+			t.Fatalf("burst open %d: streamCount=%d > cap=%d (synchronous eviction failed)", i, got, maxConcurrentLogStreams)
+		}
+	}
+}
+
+// TestNoGoroutineLeakAcrossLifecycles verifies that all goroutines (reader,
+// supervisor, feeder) exit cleanly across three scenarios: clean EOF, cancel-
+// while-blocked (pipe that never writes), and over-cap eviction. After
+// CloseAll the goroutine count must return within a small tolerance of the
+// pre-test baseline.
+func TestNoGoroutineLeakAcrossLifecycles(t *testing.T) {
+	runtime.GC()
+	before := runtime.NumGoroutine()
+
+	em := &captureEmitter{}
+	var mu sync.Mutex
+	var pipes []*io.PipeWriter
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, pw := range pipes {
+			pw.Close()
+		}
+	}()
+
+	// Clean-EOF streams: body finishes immediately, reader exits on its own.
+	cleanSvc := NewLogsService(lookupOf(&stringConn{body: "line1\nline2\n"}), em)
+	for i := 0; i < 3; i++ {
+		cleanSvc.OpenLogStream("c", "ns", "pod", "app", false, 100)
+	}
+
+	// Cancel-while-blocked streams: pipes that never write, cancelled via CloseAll.
+	blockSvc := NewLogsService(func(string) (LogsConn, bool) {
+		pr, pw := io.Pipe()
+		mu.Lock()
+		pipes = append(pipes, pw)
+		mu.Unlock()
+		return &pipeConn{r: pr}, true
+	}, em)
+	for i := 0; i < 3; i++ {
+		blockSvc.OpenLogStream("c", "ns", "pod", "app", false, 100)
+	}
+
+	// Over-cap burst: opens cap+4 streams to exercise synchronous eviction paths.
+	burstSvc := NewLogsService(func(string) (LogsConn, bool) {
+		pr, pw := io.Pipe()
+		mu.Lock()
+		pipes = append(pipes, pw)
+		mu.Unlock()
+		return &pipeConn{r: pr}, true
+	}, em)
+	for i := 0; i < maxConcurrentLogStreams+4; i++ {
+		burstSvc.OpenLogStream("c", "ns", "pod", "app", false, 100)
+	}
+
+	// Wait for clean-EOF streams to drain on their own.
+	waitUntil(t, 3*time.Second, func() bool { return cleanSvc.streamCount() == 0 })
+
+	// Cancel remaining live streams.
+	blockSvc.CloseAll()
+	burstSvc.CloseAll()
+
+	// Goroutine count must settle back to baseline (±3 tolerance for runtime noise).
+	deadline := time.Now().Add(3 * time.Second)
+	var after int
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		after = runtime.NumGoroutine()
+		if after <= before+3 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("goroutine leak: before=%d after=%d (delta=%d)", before, after, after-before)
 }
