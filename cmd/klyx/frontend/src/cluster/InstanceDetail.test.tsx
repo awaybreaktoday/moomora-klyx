@@ -204,7 +204,7 @@ describe("InstanceDetail — service backing", () => {
     seedService();
     const { getByTestId } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
     fireEvent.click(getByTestId("pod-link-web-pod-1"));
-    expect(openPodDetail).toHaveBeenCalledWith("x", "", "web-pod-1");
+    expect(openPodDetail).toHaveBeenCalledWith("x", "default", "web-pod-1");
     expect(useFleet.getState().route).toMatchObject({ section: "pods" });
   });
 
