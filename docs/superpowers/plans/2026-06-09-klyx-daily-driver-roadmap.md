@@ -153,23 +153,23 @@ Branch: `feat/dd4-helm`
 - [x] T4 Gate + verify on nelli (kube-prometheus-stack history renders; values
       readable), merge.
 
-### DD5 — Command palette + layout finish
+### DD5 — Command palette + layout finish — MERGED to main 2026-06-10. M9 COMPLETE.
 Branch: `feat/dd5-palette-layout`
 
-- [ ] T1 Command palette (⌘K): fuzzy index of clusters, sections, namespaces,
+- [x] T1 Command palette (⌘K): fuzzy index of clusters, sections, namespaces,
       workloads/pods by name (recent-cluster cached), verbs (restart/scale/logs/
       forward); keyboard-first per principle #6. No new heavy deps — small custom
       fuzzy matcher unless cmdk earns its weight.
-- [ ] T2 Sidebar upgrade: labeled expandable rail (collapsed=icons, expanded=
+- [x] T2 Sidebar upgrade: labeled expandable rail (collapsed=icons, expanded=
       icon+label, persisted preference), section order: Overview, Workloads, Pods,
       Events, Resources, Network, GitOps, Helm, Observability.
-- [ ] T3 Layout polish: virtualized long lists (pods/events/instances), resizable
+- [x] T3 Layout polish: virtualized long lists (pods/events/instances), resizable
       detail panel (drag), consistent empty/loading/error states, global namespace
       selector unified across pods/events/workloads/resources views, toast
       unification.
-- [ ] T4 Keyboard map (j/k row nav, enter expand, / focus search, esc close panel)
+- [x] T4 Keyboard map (j/k row nav, enter expand, / focus search, esc close panel)
       + a11y pass on rows (the standing backlog item).
-- [ ] T5 Gate + final whole-app review + merge. Update CLAUDE.md milestone status.
+- [x] T5 Gate + final whole-app review + merge. Update CLAUDE.md milestone status.
 
 ## Deferred / explicitly out
 - Live YAML editing & resource creation (Git owns desired state — unchanged).
@@ -204,3 +204,10 @@ DD3 (day-2 ops):
 
 DD4 (helm):
 - Helm section: 15 releases listed on nelli with status dots; history shows revisions; values pane renders (with sensitive-data hint); rollback button only on non-current revisions and demands confirm.
+
+DD5 (palette + layout):
+- cmd+K opens the palette; typing fuzzy-filters clusters/sections/loaded pods/releases; enter navigates; esc closes; doesn't hijack typing in inputs.
+- Sidebar chevron expands to labeled mode and persists across restarts; section order is the triage order.
+- Detail panels drag-resize from the left edge (persists); pods/events lists stay smooth on big clusters.
+- One toast bottom-center for all actions (auto-dismisses ~6s).
+- j/k moves row selection, enter opens/expands, / focuses search, esc closes panel; esc during a confirm only cancels the confirm.
