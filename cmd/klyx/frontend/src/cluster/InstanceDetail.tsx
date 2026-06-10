@@ -17,8 +17,24 @@ function age(created: string): string {
   return `${Math.floor(sec / 86400)}d`;
 }
 
-const condColor = (status: string) =>
-  status === "True" ? "var(--color-text-success)" : status === "False" ? "var(--color-text-danger)" : "var(--color-text-info)";
+// Conditions where True means trouble and False is the healthy state - the
+// inverse of the usual Ready-style polarity. HPA's ScalingLimited=False means
+// "the desired count is within range" (good); node pressure conditions are the
+// same family. Without this, a healthy HPA renders a red dot.
+const NEGATIVE_POLARITY = new Set([
+  "ScalingLimited",
+  "MemoryPressure",
+  "DiskPressure",
+  "PIDPressure",
+  "NetworkUnavailable",
+]);
+
+const condColor = (status: string, type?: string) => {
+  const negative = type !== undefined && NEGATIVE_POLARITY.has(type);
+  const healthy = negative ? status === "False" : status === "True";
+  const unhealthy = negative ? status === "True" : status === "False";
+  return healthy ? "var(--color-text-success)" : unhealthy ? "var(--color-text-danger)" : "var(--color-text-info)";
+};
 
 // SecretDataSection renders the data section for a v1 Secret. Each key row
 // shows the key name, byte count, masked/revealed value, reveal toggle, and
@@ -429,7 +445,7 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
             <Section title="Conditions">
               {d.conditions.map((c) => (
                 <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status), display: "inline-block" }} />
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status, c.type), display: "inline-block" }} />
                   <span style={{ fontWeight: 500, width: 90 }}>{c.type}</span>
                   <span style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={c.message}>{c.message || c.reason}</span>
                 </div>

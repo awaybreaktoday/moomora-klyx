@@ -174,7 +174,7 @@ func parseSpecMetric(m map[string]interface{}, currentMap map[currentMetricKey]m
 		target := resourceTargetStr(res)
 		current := ""
 		if cm, ok := currentMap[currentMetricKey{metricType: "Resource", name: name}]; ok {
-			current = resourceCurrentStr(cm["resource"])
+			current = statusCurrentStr(cm["resource"])
 		}
 		return HPAMetric{Name: name, Type: metType, Target: target, Current: current}
 
@@ -184,7 +184,7 @@ func parseSpecMetric(m map[string]interface{}, currentMap map[currentMetricKey]m
 		target := resourceTargetStr(cr)
 		current := ""
 		if cm, ok := currentMap[currentMetricKey{metricType: "ContainerResource", name: name}]; ok {
-			current = resourceCurrentStr(cm["containerResource"])
+			current = statusCurrentStr(cm["containerResource"])
 		}
 		return HPAMetric{Name: name, Type: metType, Target: target, Current: current}
 
@@ -195,7 +195,7 @@ func parseSpecMetric(m map[string]interface{}, currentMap map[currentMetricKey]m
 		target := podsTargetStr(p)
 		current := ""
 		if cm, ok := currentMap[currentMetricKey{metricType: "Pods", name: name}]; ok {
-			current = podsCurrentStr(cm["pods"])
+			current = statusCurrentStr(cm["pods"])
 		}
 		return HPAMetric{Name: name, Type: metType, Target: target, Current: current}
 
@@ -206,7 +206,7 @@ func parseSpecMetric(m map[string]interface{}, currentMap map[currentMetricKey]m
 		target := objectTargetStr(o)
 		current := ""
 		if cm, ok := currentMap[currentMetricKey{metricType: "Object", name: name}]; ok {
-			current = objectCurrentStr(cm["object"])
+			current = statusCurrentStr(cm["object"])
 		}
 		return HPAMetric{Name: name, Type: metType, Target: target, Current: current}
 
@@ -217,7 +217,7 @@ func parseSpecMetric(m map[string]interface{}, currentMap map[currentMetricKey]m
 		target := externalTargetStr(e)
 		current := ""
 		if cm, ok := currentMap[currentMetricKey{metricType: "External", name: name}]; ok {
-			current = externalCurrentStr(cm["external"])
+			current = statusCurrentStr(cm["external"])
 		}
 		return HPAMetric{Name: name, Type: metType, Target: target, Current: current}
 
@@ -303,62 +303,49 @@ func externalTargetStr(e map[string]interface{}) string {
 
 // ---- Current string helpers (status) ----------------------------------------
 
-func resourceCurrentStr(raw interface{}) string {
-	res, ok := raw.(map[string]interface{})
-	if !ok || res == nil {
-		return ""
-	}
-	// currentAverageUtilization → "N%"
-	if u, ok := res["currentAverageUtilization"]; ok {
+// currentValueStr extracts a human value from a status current{} block:
+// averageUtilization → "N%", else averageValue / value quantity verbatim.
+func currentValueStr(cur map[string]interface{}) string {
+	if u, ok := cur["averageUtilization"]; ok {
 		if ui, ok := toInt64(u); ok {
 			return fmt.Sprintf("%d%%", ui)
 		}
 	}
-	// currentAverageValue → quantity string verbatim
-	if av, ok := res["currentAverageValue"].(string); ok && av != "" {
+	if av, ok := cur["averageValue"].(string); ok && av != "" {
 		return av
 	}
-	// currentValue
-	if v, ok := res["currentValue"].(string); ok && v != "" {
+	if v, ok := cur["value"].(string); ok && v != "" {
 		return v
 	}
 	return ""
 }
 
-func podsCurrentStr(raw interface{}) string {
-	p, ok := raw.(map[string]interface{})
-	if !ok || p == nil {
+// statusCurrentStr reads a status.currentMetrics[].<type> block. The
+// autoscaling/v2 (and v2beta2) shape nests values under current{} -
+// e.g. resource.current.averageUtilization. The flat currentAverage*
+// keys are the retired v2beta1 shape, kept as a defensive fallback only
+// (reading the flat keys FIRST was the bug that rendered "-" for every
+// live v2 HPA while the v2beta1-shaped fixtures passed).
+func statusCurrentStr(raw interface{}) string {
+	m, ok := raw.(map[string]interface{})
+	if !ok || m == nil {
 		return ""
 	}
-	if av, ok := p["currentAverageValue"].(string); ok && av != "" {
+	if cur, ok := m["current"].(map[string]interface{}); ok {
+		if s := currentValueStr(cur); s != "" {
+			return s
+		}
+	}
+	// v2beta1 flat fallback
+	if u, ok := m["currentAverageUtilization"]; ok {
+		if ui, ok := toInt64(u); ok {
+			return fmt.Sprintf("%d%%", ui)
+		}
+	}
+	if av, ok := m["currentAverageValue"].(string); ok && av != "" {
 		return av
 	}
-	return ""
-}
-
-func objectCurrentStr(raw interface{}) string {
-	o, ok := raw.(map[string]interface{})
-	if !ok || o == nil {
-		return ""
-	}
-	if av, ok := o["currentAverageValue"].(string); ok && av != "" {
-		return av
-	}
-	if v, ok := o["currentValue"].(string); ok && v != "" {
-		return v
-	}
-	return ""
-}
-
-func externalCurrentStr(raw interface{}) string {
-	e, ok := raw.(map[string]interface{})
-	if !ok || e == nil {
-		return ""
-	}
-	if av, ok := e["currentAverageValue"].(string); ok && av != "" {
-		return av
-	}
-	if v, ok := e["currentValue"].(string); ok && v != "" {
+	if v, ok := m["currentValue"].(string); ok && v != "" {
 		return v
 	}
 	return ""

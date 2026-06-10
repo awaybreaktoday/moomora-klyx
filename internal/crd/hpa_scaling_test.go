@@ -49,8 +49,11 @@ func TestBuildHPAScalingCPUUtilization(t *testing.T) {
 				map[string]interface{}{
 					"type": "Resource",
 					"resource": map[string]interface{}{
-						"name":                      "cpu",
-						"currentAverageUtilization": int64(43),
+						"name": "cpu",
+						"current": map[string]interface{}{
+							"averageUtilization": int64(43),
+							"averageValue":       "430m",
+						},
 					},
 				},
 			},
@@ -115,6 +118,8 @@ func TestBuildHPAScalingMemoryAverageValue(t *testing.T) {
 			"currentReplicas": int64(2),
 			"desiredReplicas": int64(2),
 			"currentMetrics": []interface{}{
+				// Deliberately the retired v2beta1 FLAT shape - this pins the
+				// defensive fallback in statusCurrentStr.
 				map[string]interface{}{
 					"type": "Resource",
 					"resource": map[string]interface{}{
@@ -312,15 +317,19 @@ func TestBuildHPAScalingTypeNameMatchingNotIndex(t *testing.T) {
 				map[string]interface{}{
 					"type": "Resource",
 					"resource": map[string]interface{}{
-						"name":                      "memory",
-						"currentAverageUtilization": int64(55),
+						"name": "memory",
+						"current": map[string]interface{}{
+							"averageUtilization": int64(55),
+						},
 					},
 				},
 				map[string]interface{}{
 					"type": "Resource",
 					"resource": map[string]interface{}{
-						"name":                      "cpu",
-						"currentAverageUtilization": int64(42),
+						"name": "cpu",
+						"current": map[string]interface{}{
+							"averageUtilization": int64(42),
+						},
 					},
 				},
 			},
