@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useFleet } from "../store/fleet";
-import type { PodDetailDTO, PodSummaryDTO } from "../store/fleet";
+import type { PodDetailDTO, PodSummaryDTO, ContainerSummaryDTO } from "../store/fleet";
 import { listPods, openPodDetail, deletePod } from "../bridge/pods";
 import { rolloutRestart } from "../bridge/workloads";
+import { copyExecCommand, openExecTerminal } from "../bridge/exec";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 import { ForwardPopover } from "./ForwardPopover";
@@ -332,6 +333,12 @@ function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
         ) : (
           <button onClick={() => setForwarding(true)} style={btn}>forward</button>
         )}
+        <ExecButtons
+          cluster={cluster}
+          namespace={namespace}
+          pod={name}
+          containers={p.containers.filter((c) => !c.init)}
+        />
         <button
           onClick={() => onDelete(p)}
           style={{ ...btn, color: "var(--color-text-danger)" }}
@@ -406,6 +413,110 @@ function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
         )}
       </Section>
     </>
+  );
+}
+
+// ExecButtons renders "open shell" and "copy kubectl exec" buttons for a pod.
+// When the pod has more than one regular (non-init) container, clicking "open shell"
+// first shows a tiny container picker; with a single container it fires immediately.
+function ExecButtons({
+  cluster, namespace, pod, containers,
+}: {
+  cluster: string;
+  namespace: string;
+  pod: string;
+  containers: ContainerSummaryDTO[];
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // copyState: "idle" | "copied" | "error"
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close picker on outside click.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [pickerOpen]);
+
+  const handleOpen = (container: string) => {
+    setPickerOpen(false);
+    void openExecTerminal(cluster, namespace, pod, container);
+  };
+
+  const handleCopy = async () => {
+    // Use first container (or "" for implicit single container) for the copy command.
+    const container = containers.length === 1 ? containers[0].name : containers[0]?.name ?? "";
+    const result = await copyExecCommand(cluster, namespace, pod, container);
+    setCopyState(result);
+    setTimeout(() => setCopyState("idle"), 1500);
+  };
+
+  const firstContainer = containers[0]?.name ?? "";
+
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center", position: "relative" }}>
+      {/* open shell button — container picker when >1 container */}
+      {containers.length > 1 ? (
+        <div ref={pickerRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setPickerOpen((v) => !v)}
+            style={btn}
+            title="Open interactive shell in container"
+          >
+            open shell ▾
+          </button>
+          {pickerOpen && (
+            <div style={{
+              position: "absolute", top: "100%", left: 0, zIndex: 20, marginTop: 2,
+              background: "var(--color-background-primary)",
+              border: "0.5px solid var(--color-border-secondary)",
+              borderRadius: 4,
+              minWidth: 160,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+            }}>
+              {containers.map((c) => (
+                <button
+                  key={c.name}
+                  onClick={() => handleOpen(c.name)}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left",
+                    padding: "5px 10px", fontSize: 11,
+                    background: "transparent",
+                    border: "none", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                    color: "var(--color-text-secondary)", cursor: "pointer",
+                  }}
+                  title={`exec into ${c.name}`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          onClick={() => handleOpen(firstContainer)}
+          style={btn}
+          title="Open interactive shell"
+        >
+          open shell
+        </button>
+      )}
+      {/* copy kubectl exec command */}
+      <button
+        onClick={() => void handleCopy()}
+        style={btn}
+        title="Copy kubectl exec command to clipboard"
+      >
+        {copyState === "copied" ? "copied!" : copyState === "error" ? "copy error" : "copy exec"}
+      </button>
+    </div>
   );
 }
 

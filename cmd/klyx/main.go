@@ -204,6 +204,14 @@ func main() {
 		return c, true
 	}, em)
 
+	execSvc := appbridge.NewExecService(func(name string) (appbridge.ExecConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -221,6 +229,7 @@ func main() {
 			application.NewService(nodesSvc),
 			application.NewService(nodeOpsSvc),
 			application.NewService(forwardsSvc),
+			application.NewService(execSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
