@@ -5,6 +5,7 @@ import { listPods, openPodDetail, deletePod } from "../bridge/pods";
 import { rolloutRestart } from "../bridge/workloads";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
+import { ForwardPopover } from "./ForwardPopover";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -299,7 +300,7 @@ function PodDetailPanel({
   );
 }
 
-function InfoTab({ detail, onRestart, onDelete }: {
+function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
   detail: PodDetailDTO;
   cluster: string;
   namespace: string;
@@ -308,6 +309,7 @@ function InfoTab({ detail, onRestart, onDelete }: {
   onDelete: (s: PodSummaryDTO) => void;
 }) {
   const p = detail.summary;
+  const [forwarding, setForwarding] = useState(false);
   // Restart is meaningful when the pod is owned by a ReplicaSet (-> Deployment),
   // StatefulSet, or DaemonSet. Standalone pods (ownerKind="") have no controller to restart.
   const showRestart = p.ownerKind === "ReplicaSet" || p.ownerKind === "StatefulSet" || p.ownerKind === "DaemonSet";
@@ -315,9 +317,20 @@ function InfoTab({ detail, onRestart, onDelete }: {
   return (
     <>
       {/* Action buttons */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
         {showRestart && (
           <button onClick={() => onRestart(p)} style={btn}>restart owner</button>
+        )}
+        {forwarding ? (
+          <ForwardPopover
+            cluster={cluster}
+            namespace={namespace}
+            kind="Pod"
+            name={name}
+            onClose={() => setForwarding(false)}
+          />
+        ) : (
+          <button onClick={() => setForwarding(true)} style={btn}>forward</button>
         )}
         <button
           onClick={() => onDelete(p)}

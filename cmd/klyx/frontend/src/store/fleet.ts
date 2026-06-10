@@ -33,6 +33,18 @@ export type FluxResourceDTO = {
   sourceName: string;
 };
 
+export type ForwardDTO = {
+  id: string;
+  cluster: string;
+  namespace: string;
+  targetKind: string; // "Pod" | "Service"
+  targetName: string;
+  localPort: number;
+  targetPort: number;
+  startedUnix: number;
+  status: string; // "active" | "broken"
+};
+
 export type ConditionDTO = { type: string; status: string; reason: string; message: string };
 export type InventoryEntryDTO = { group: string; version: string; kind: string; namespace: string; name: string };
 export type ResourceDetailDTO = {
@@ -248,6 +260,8 @@ type FleetState = {
   actionStatus: ActionStatus | null;
   setActionStatus: (s: ActionStatus) => void;
   clearActionStatus: () => void;
+  forwards: ForwardDTO[];
+  setForwards: (f: ForwardDTO[]) => void;
   crd: CRDSlice;
   setCRDs: (cluster: string, groups: CRDGroupDTO[]) => void;
   setCRDLoading: (cluster: string) => void;
@@ -354,6 +368,8 @@ export const useFleet = create<FleetState>((set) => ({
   actionStatus: null,
   setActionStatus: (actionStatus) => set({ actionStatus }),
   clearActionStatus: () => set({ actionStatus: null }),
+  forwards: [],
+  setForwards: (forwards) => set({ forwards }),
   crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
   setCRDs: (cluster, groups) => set((s) => ({ crd: { ...s.crd, cluster, groups, loading: false } })),
   setCRDLoading: (cluster) => set((s) => ({ crd: { ...s.crd, cluster, groups: [], loading: true, expanded: [], counts: {} } })),

@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/moomora/klyx/internal/capability"
@@ -65,6 +66,8 @@ type Conn interface {
 	RouteMetrics(ctx context.Context, routeKeys []string) (map[string]routemetrics.RouteMetrics, routemetrics.Status)
 	SetCordon(ctx context.Context, nodeName string, cordon bool) error
 	DrainNodeCmd(nodeName string) (*exec.Cmd, error)
+	PortForward(ctx context.Context, namespace, pod string, localPort, targetPort int) (stop func(), actualLocal int, done <-chan error, err error)
+	ResolveServicePod(ctx context.Context, namespace, service string, port int) (pod string, targetPort int, err error)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
@@ -74,7 +77,8 @@ const defaultConnectTimeout = 30 * time.Second
 
 type ClusterConn struct {
 	name        string
-	kubeContext string // kubeconfig context name for kubectl exec (e.g. drain)
+	kubeContext string       // kubeconfig context name for kubectl exec (e.g. drain)
+	restConfig  *rest.Config // for SPDY transports (port-forward); nil in fake-client tests
 	typed       kubernetes.Interface
 	meta        metadata.Interface
 	dyn         dynamic.Interface
@@ -128,6 +132,15 @@ func (c *ClusterConn) WithKubeContext(ctx string) *ClusterConn {
 
 // KubeContext returns the kubeconfig context name.
 func (c *ClusterConn) KubeContext() string { return c.kubeContext }
+
+// WithRESTConfig sets the *rest.Config used to build SPDY transports for
+// port-forwarding. Call it right after NewClusterConn in the factory; it is not
+// threadsafe after Start. Fake-client tests leave it nil (PortForward is not
+// fake-testable - see portforward.go).
+func (c *ClusterConn) WithRESTConfig(rc *rest.Config) *ClusterConn {
+	c.restConfig = rc
+	return c
+}
 
 func (c *ClusterConn) Name() string { return c.name }
 

@@ -196,6 +196,14 @@ func main() {
 		return c, true
 	}, em)
 
+	forwardsSvc := appbridge.NewForwardsService(func(name string) (appbridge.ForwardsConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	}, em)
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -212,6 +220,7 @@ func main() {
 			application.NewService(eventsSvc),
 			application.NewService(nodesSvc),
 			application.NewService(nodeOpsSvc),
+			application.NewService(forwardsSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -219,6 +228,11 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
+		// Port-forwards are long-lived OS-level listeners owned by this process;
+		// tear them down on quit so no orphaned local sockets or SPDY tunnels
+		// outlive the app. Forwards are the only resource that binds a local port,
+		// so they are the one that must be explicitly drained here.
+		OnShutdown: func() { forwardsSvc.StopAll() },
 	})
 
 	em.app = app

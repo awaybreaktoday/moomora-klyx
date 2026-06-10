@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO, ServiceBackingDTO } from "../store/fleet";
 import { getInstanceDetail, revealSecretKey, copyText } from "../bridge/crd";
 import { openPodDetail } from "../bridge/pods";
+import { ForwardPopover } from "./ForwardPopover";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
@@ -142,12 +143,14 @@ function SecretDataSection({
 // line (ready/notReady counts), port list, address list (with pod cross-links
 // for Pod-targeted endpoints), and selector chips.
 function ServiceBackingSection({
-  cluster, ns, backing,
+  cluster, ns, serviceName, backing,
 }: {
   cluster: string;
   ns: string; // the service's namespace - endpoint pods always live in it
+  serviceName: string;
   backing: ServiceBackingDTO;
 }) {
+  const [forwardPort, setForwardPort] = useState<number | null>(null);
   const summaryColor = backing.ready > 0 ? "var(--color-text-success)" : "var(--color-text-danger)";
   const summaryText = backing.ready > 0
     ? `${backing.ready} ready / ${backing.notReady} not ready`
@@ -167,10 +170,28 @@ function ServiceBackingSection({
 
       {/* Ports row */}
       {backing.ports.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4, alignItems: "center" }}>
           {backing.ports.map((p, i) => (
-            <span key={i} style={{ fontSize: 11, background: "var(--color-background-secondary)", padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>
-              {p.name ? `${p.name} ` : ""}{p.port}/{p.protocol}
+            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              {forwardPort === p.port ? (
+                <ForwardPopover
+                  cluster={cluster}
+                  namespace={ns}
+                  kind="Service"
+                  name={serviceName}
+                  prefillTargetPort={p.port}
+                  onClose={() => setForwardPort(null)}
+                />
+              ) : (
+                <button
+                  onClick={() => setForwardPort(p.port)}
+                  data-testid={`svc-forward-${p.port}`}
+                  title={`forward ${p.port}`}
+                  style={{ fontSize: 11, background: "var(--color-background-secondary)", padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)", border: "0.5px solid var(--color-border-tertiary)", cursor: "pointer" }}
+                >
+                  {p.name ? `${p.name} ` : ""}{p.port}/{p.protocol} ⇄
+                </button>
+              )}
             </span>
           ))}
         </div>
@@ -265,7 +286,7 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
 
           {/* Service backing section — rendered ABOVE yaml, ONLY for v1 Services */}
           {d.serviceBacking != null && (
-            <ServiceBackingSection cluster={cluster} ns={instance.namespace} backing={d.serviceBacking} />
+            <ServiceBackingSection cluster={cluster} ns={instance.namespace} serviceName={instance.name} backing={d.serviceBacking} />
           )}
 
           {/* Secret data section — rendered ABOVE yaml, ONLY for Secrets */}
