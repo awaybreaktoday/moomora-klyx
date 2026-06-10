@@ -103,20 +103,20 @@ Branch: `feat/dd1-pods-logs-events`
 ### DD2 — Standard resources, curated (the resource zoo, done the Klyx way)
 Branch: `feat/dd2-standard-resources`
 
-- [ ] T1 Curated builtin catalog: extend the Resources section so the CRD browser
+- [x] T1 Curated builtin catalog: extend the Resources section so the CRD browser
       gains a "Built-in" set above API groups: Workloads (Jobs, CronJobs,
       ReplicaSets), Config (ConfigMaps, Secrets), Network (Services, Ingresses,
       NetworkPolicies, EndpointSlices), Storage (PVCs, PVs, StorageClasses),
       Cluster (Namespaces, Nodes, ResourceQuotas, LimitRanges), Access (SAs, Roles,
       RoleBindings, ClusterRoles, ClusterRoleBindings — view-only). Static GVR
       table; instance list/detail reuse the existing engine; counts lazy.
-- [ ] T2 Secrets honesty: masked by default in detail YAML + per-key reveal/decode
+- [x] T2 Secrets honesty: masked by default in detail YAML + per-key reveal/decode
       (base64) with explicit click; never log values; copy-key button.
-- [ ] T3 Nodes view (first-class, not just instance list): list with roles, version,
+- [x] T3 Nodes view (first-class, not just instance list): list with roles, version,
       taints count, conditions summary, cpu/mem capacity vs allocatable (+ live
       usage when metrics available); node detail: conditions, taints, labels,
       pods-on-node (links), kubelet/os info.
-- [ ] T4 Cordon/uncordon (client-go patch unschedulable) + drain (exec kubectl,
+- [x] T4 Cordon/uncordon (client-go patch unschedulable) + drain (exec kubectl,
       streamed output modal, confirm + Protected gate).
 - [ ] T5 Service detail enrichment: endpoints/ready addresses inline (the "is it
       backed" question), selector → pods links.
