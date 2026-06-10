@@ -10,6 +10,7 @@ import { ForwardPopover } from "./ForwardPopover";
 import { VirtualList } from "../chrome/VirtualList";
 import type { VirtualListHandle } from "../chrome/VirtualList";
 import { useResizablePanel } from "../chrome/useResizablePanel";
+import { useResizableDock } from "../chrome/useResizableDock";
 import { useListKeys } from "../chrome/useListKeys";
 
 const rankDot: Record<string, string> = {
@@ -36,6 +37,7 @@ export function PodsView({ cluster }: { cluster: string }) {
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
 
   const [selectedIdx, setSelectedIdx] = useState(-1);
+  const [logsTarget, setLogsTarget] = useState<{ namespace: string; name: string; containers: ContainerSummaryDTO[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<VirtualListHandle>(null);
 
@@ -95,126 +97,139 @@ export function PodsView({ cluster }: { cluster: string }) {
   }, [pods.search, pods.needsAttention, pods.namespace]);
 
   return (
-    <div style={{ padding: "16px 20px", display: "flex", gap: 0, height: "100%", boxSizing: "border-box", position: "relative" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Controls row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box" }}>
+      {/* Main area: list + detail panel side by side */}
+      <div style={{ flex: 1, minHeight: 0, padding: "16px 20px", display: "flex", gap: 0, position: "relative" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {/* Controls row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap", flexShrink: 0 }}>
 
-          <select
-            value={pods.namespace}
-            onChange={(e) => onNamespace(e.target.value)}
-            style={{ fontSize: 12, padding: "3px 6px", background: "var(--color-background-primary)", color: "var(--color-text-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4 }}
-          >
-            <option value="">all namespaces</option>
-            {pods.namespaces.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
-          </select>
-          <Chip on={pods.needsAttention} onClick={() => useFleet.getState().togglePodsNeedsAttention()}>needs attention</Chip>
-          <input
-            ref={searchRef}
-            value={pods.search}
-            onChange={(e) => useFleet.getState().setPodsSearch(e.target.value)}
-            placeholder="filter pods"
-            style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
-          />
-          <button onClick={onRefresh} style={btn}>refresh</button>
-        </div>
-
-        {/* Table */}
-        {pods.loading && pods.items.length === 0 ? (
-          <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading pods…</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
-            {pods.items.length === 0
-              ? `No pods${pods.namespace ? ` in ${pods.namespace}` : ""}.`
-              : "No pods match the current filter."}
+            <select
+              value={pods.namespace}
+              onChange={(e) => onNamespace(e.target.value)}
+              style={{ fontSize: 12, padding: "3px 6px", background: "var(--color-background-primary)", color: "var(--color-text-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4 }}
+            >
+              <option value="">all namespaces</option>
+              {pods.namespaces.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
+            </select>
+            <Chip on={pods.needsAttention} onClick={() => useFleet.getState().togglePodsNeedsAttention()}>needs attention</Chip>
+            <input
+              ref={searchRef}
+              value={pods.search}
+              onChange={(e) => useFleet.getState().setPodsSearch(e.target.value)}
+              placeholder="filter pods"
+              style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
+            />
+            <button onClick={onRefresh} style={btn}>refresh</button>
           </div>
-        ) : (
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            {/* Header */}
-            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
-              <span /><span>pod</span><span>ready</span><span>phase</span><span>restarts</span><span>node</span><span>age</span>
+
+          {/* Table */}
+          {pods.loading && pods.items.length === 0 ? (
+            <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading pods…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
+              {pods.items.length === 0
+                ? `No pods${pods.namespace ? ` in ${pods.namespace}` : ""}.`
+                : "No pods match the current filter."}
             </div>
-            {/* Rows — VirtualList for >=100 items, plain render for smaller lists */}
-            <VirtualList
-              ref={listRef}
-              items={filtered}
-              rowHeight={32}
-              style={{ flex: 1, minHeight: 0 }}
-              render={(p, i) => {
-                const isKbSelected = i === effectiveIdx;
-                const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
-                const nonInitContainers = p.containers.filter((c) => !c.init);
-                const readyCount = nonInitContainers.filter((c) => c.ready).length;
-                return (
-                  <div
-                    key={`${p.namespace}/${p.name}`}
-                    role="button"
-                    tabIndex={0}
-                    aria-selected={isKbSelected}
-                    onClick={() => {
-                      setSelectedIdx(i);
-                      void openPodDetail(cluster, p.namespace, p.name);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
+          ) : (
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+              {/* Header */}
+              <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
+                <span /><span>pod</span><span>ready</span><span>phase</span><span>restarts</span><span>node</span><span>age</span>
+              </div>
+              {/* Rows — VirtualList for >=100 items, plain render for smaller lists */}
+              <VirtualList
+                ref={listRef}
+                items={filtered}
+                rowHeight={32}
+                style={{ flex: 1, minHeight: 0 }}
+                render={(p, i) => {
+                  const isKbSelected = i === effectiveIdx;
+                  const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
+                  const nonInitContainers = p.containers.filter((c) => !c.init);
+                  const readyCount = nonInitContainers.filter((c) => c.ready).length;
+                  return (
+                    <div
+                      key={`${p.namespace}/${p.name}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-selected={isKbSelected}
+                      onClick={() => {
                         setSelectedIdx(i);
                         void openPodDetail(cluster, p.namespace, p.name);
-                      }
-                    }}
-                    style={{
-                      display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
-                      padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
-                      cursor: "pointer",
-                      background: isKbSelected
-                        ? "var(--color-background-secondary)"
-                        : isSelected ? "var(--color-background-secondary)" : undefined,
-                      boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
-                      outline: "none",
-                    }}
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
-                    <span>
-                      <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
-                      {" / "}
-                      <span style={{ fontWeight: 500 }}>{p.name}</span>
-                    </span>
-                    <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
-                      {readyCount}/{nonInitContainers.length}
-                    </span>
-                    <span>
-                      <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
-                        {p.phase}
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedIdx(i);
+                          void openPodDetail(cluster, p.namespace, p.name);
+                        }
+                      }}
+                      style={{
+                        display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+                        padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                        cursor: "pointer",
+                        background: isKbSelected
+                          ? "var(--color-background-secondary)"
+                          : isSelected ? "var(--color-background-secondary)" : undefined,
+                        boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+                        outline: "none",
+                      }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
+                      <span>
+                        <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
+                        {" / "}
+                        <span style={{ fontWeight: 500 }}>{p.name}</span>
                       </span>
-                      {p.reason && (
-                        <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
-                          {p.reason}
+                      <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
+                        {readyCount}/{nonInitContainers.length}
+                      </span>
+                      <span>
+                        <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
+                          {p.phase}
                         </span>
-                      )}
-                    </span>
-                    <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
-                      {p.restarts}
-                    </span>
-                    <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
-                    <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
-                  </div>
-                );
-              }}
-            />
-          </div>
+                        {p.reason && (
+                          <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
+                            {p.reason}
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
+                        {p.restarts}
+                      </span>
+                      <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
+                      <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
+                    </div>
+                  );
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Detail panel */}
+        {pods.selected && (
+          <PodDetailPanel
+            cluster={cluster}
+            namespace={pods.selected.namespace}
+            name={pods.selected.name}
+            detail={pods.detail}
+            loading={pods.detailLoading}
+            isProtected={isProtected}
+            onClose={() => useFleet.getState().selectPod(null)}
+            onOpenLogs={(target) => setLogsTarget(target)}
+          />
         )}
       </div>
 
-      {/* Detail panel */}
-      {pods.selected && (
-        <PodDetailPanel
+      {/* Logs dock — persists across pod selection changes; close via ✕ only */}
+      {logsTarget && (
+        <LogsDock
           cluster={cluster}
-          namespace={pods.selected.namespace}
-          name={pods.selected.name}
-          detail={pods.detail}
-          loading={pods.detailLoading}
-          isProtected={isProtected}
-          onClose={() => useFleet.getState().selectPod(null)}
+          target={logsTarget}
+          onClose={() => setLogsTarget(null)}
         />
       )}
     </div>
@@ -224,7 +239,7 @@ export function PodsView({ cluster }: { cluster: string }) {
 type PodPendingAction = { verb: "restart" | "delete"; summary: PodSummaryDTO };
 
 function PodDetailPanel({
-  cluster, namespace, name, detail, loading, isProtected, onClose,
+  cluster, namespace, name, detail, loading, isProtected, onClose, onOpenLogs,
 }: {
   cluster: string;
   namespace: string;
@@ -233,8 +248,9 @@ function PodDetailPanel({
   loading: boolean;
   isProtected: boolean;
   onClose: () => void;
+  onOpenLogs: (target: { namespace: string; name: string; containers: ContainerSummaryDTO[] }) => void;
 }) {
-  const [tab, setTab] = useState<"info" | "logs" | "yaml">("info");
+  const [tab, setTab] = useState<"info" | "yaml">("info");
   const [pending, setPending] = useState<PodPendingAction | null>(null);
   const { width, handleProps } = useResizablePanel();
 
@@ -275,12 +291,23 @@ function PodDetailPanel({
         <span style={{ fontWeight: 500, ...ellipsis, flex: 1 }} title={`${namespace}/${name}`}>
           <span style={{ color: "var(--color-text-tertiary)" }}>{namespace}</span>/{name}
         </span>
+        {/* Logs button — opens / re-targets the dock */}
+        <button
+          onClick={() => {
+            if (detail) {
+              onOpenLogs({ namespace, name, containers: detail.summary.containers });
+            }
+          }}
+          style={{ ...btn, padding: "2px 8px", fontSize: 11 }}
+          aria-label="open logs dock"
+          title="Open logs in bottom dock"
+        >logs</button>
         <button onClick={onClose} style={{ ...btn, padding: "2px 8px", fontSize: 12 }} aria-label="close pod detail panel">✕</button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs: info | yaml (logs moved to dock) */}
       <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>
-        {(["info", "logs", "yaml"] as const).map((t) => (
+        {(["info", "yaml"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -309,11 +336,6 @@ function PodDetailPanel({
               onRestart={(s) => setPending({ verb: "restart", summary: s })}
               onDelete={(s) => setPending({ verb: "delete", summary: s })}
             />
-          )}
-          {tab === "logs" && (
-            <div style={{ height: "calc(100vh - 160px)", display: "flex", flexDirection: "column" }}>
-              <LogsPane cluster={cluster} pod={detail.summary} />
-            </div>
           )}
           {tab === "yaml" && (
             <pre style={{
@@ -363,6 +385,80 @@ function PodDetailPanel({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LogsDock — full-width resizable dock at the bottom of PodsView
+// ---------------------------------------------------------------------------
+
+function LogsDock({
+  cluster,
+  target,
+  onClose,
+}: {
+  cluster: string;
+  target: { namespace: string; name: string; containers: ContainerSummaryDTO[] };
+  onClose: () => void;
+}) {
+  const { height, handleProps } = useResizableDock();
+
+  return (
+    <div
+      data-testid="logs-dock"
+      style={{
+        flexShrink: 0,
+        height,
+        position: "relative",
+        borderTop: "0.5px solid var(--color-border-tertiary)",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--color-background-primary)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12,
+      }}
+    >
+      {/* Drag handle on top edge */}
+      <div
+        {...handleProps}
+        style={{
+          ...handleProps.style,
+          // Darken on hover via CSS. Inline styles can't do :hover — use a
+          // background that is visible on interaction feedback via pointer-capture.
+        }}
+      />
+
+      {/* Dock header */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "4px 12px 4px 14px",
+        borderBottom: "0.5px solid var(--color-border-tertiary)",
+        flexShrink: 0,
+      }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500 }}>
+          <span style={{ color: "var(--color-text-tertiary)" }}>{target.namespace}</span>/{target.name}
+        </span>
+        <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>logs</span>
+        <div style={{ marginLeft: "auto" }}>
+          <button
+            onClick={onClose}
+            style={{ ...btn, padding: "2px 8px", fontSize: 12 }}
+            aria-label="close logs dock"
+          >✕</button>
+        </div>
+      </div>
+
+      {/* LogsPane body — host-driven sizing: flex: 1, min-height: 0 gives LogsPane
+          its height. LogsPane's own normal-layout root is height:100%/flex-column
+          so it fills this container without any modification. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "8px 12px" }}>
+        <LogsPane
+          key={`${target.namespace}/${target.name}`}
+          cluster={cluster}
+          pod={target}
+        />
+      </div>
     </div>
   );
 }

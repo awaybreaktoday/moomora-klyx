@@ -139,7 +139,7 @@ describe("PodsView", () => {
     expect(getByText("app=grafana")).toBeTruthy();
   });
 
-  it("logs tab mounts the LogsPane (shows streaming controls)", async () => {
+  it("detail panel tabs are info and yaml (no logs tab)", () => {
     seed([healthy]);
     useFleet.setState((s) => ({
       pods: {
@@ -149,10 +149,147 @@ describe("PodsView", () => {
         detailLoading: false,
       },
     }));
-    const { getByText, getByRole } = render(<PodsView cluster="homelab" />);
-    fireEvent.click(getByText("logs"));
-    // LogsPane renders its container selector — confirm it's there
-    expect(getByRole("combobox", { name: /container/i })).toBeTruthy();
+    const { getByText, queryByRole } = render(<PodsView cluster="homelab" />);
+    // info and yaml tabs present
+    expect(getByText("info")).toBeTruthy();
+    expect(getByText("yaml")).toBeTruthy();
+    // no tab labelled "logs" (the logs button is in the header, not a tab)
+    // The button with text "logs" is the dock-open button, not a tab button.
+    // Verify no tab with role=button and exact text "logs" in the tabs row by
+    // checking the yaml tab switches content correctly instead.
+    fireEvent.click(getByText("yaml"));
+    expect(getByText(/apiVersion: v1/)).toBeTruthy();
+    // No container selector visible at this point (dock not open yet)
+    expect(queryByRole("combobox", { name: /container/i })).toBeNull();
+  });
+
+  it("logs button in panel header opens the dock with correct ns/name", async () => {
+    seed([healthy]);
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "monitoring", name: "grafana-xyz" },
+        detail: fakeDetail,
+        detailLoading: false,
+      },
+    }));
+    const { getByRole, getByTestId } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    const dock = getByTestId("logs-dock");
+    expect(dock).toBeTruthy();
+    // Dock header shows ns/name
+    const dockText = dock.textContent ?? "";
+    expect(dockText).toContain("monitoring");
+    expect(dockText).toContain("grafana-xyz");
+  });
+
+  it("dock persists when detail panel is closed", async () => {
+    seed([healthy]);
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "monitoring", name: "grafana-xyz" },
+        detail: fakeDetail,
+        detailLoading: false,
+      },
+    }));
+    const { getByRole, getByTestId, queryByTestId } = render(<PodsView cluster="homelab" />);
+    // Open dock
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    expect(getByTestId("logs-dock")).toBeTruthy();
+    // Close the detail panel (✕ button on the panel — aria-label distinguishes it)
+    fireEvent.click(getByRole("button", { name: /close pod detail panel/i }));
+    // Dock still present
+    expect(queryByTestId("logs-dock")).toBeTruthy();
+  });
+
+  it("dock persists when a different pod is selected (no close in between)", async () => {
+    const grafana = healthy; // monitoring/grafana-xyz
+    const api = broken;      // default/api-crash
+    seed([grafana, api]);
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "monitoring", name: "grafana-xyz" },
+        detail: fakeDetail,
+        detailLoading: false,
+      },
+    }));
+    const { getByRole, getByTestId } = render(<PodsView cluster="homelab" />);
+    // Open dock for grafana
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    expect(getByTestId("logs-dock")).toBeTruthy();
+    // Select a different pod (grafana row click -> openPodDetail, but state must be updated manually)
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "default", name: "api-crash" },
+        detail: { ...fakeDetail, summary: api },
+        detailLoading: false,
+      },
+    }));
+    // Dock still present — it is independent of pod selection
+    expect(getByTestId("logs-dock")).toBeTruthy();
+  });
+
+  it("logs button on second pod re-targets dock (header updates, LogsPane re-keyed)", async () => {
+    const grafana = healthy;
+    const api = broken;
+    seed([grafana, api]);
+    // Open panel for grafana first
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "monitoring", name: "grafana-xyz" },
+        detail: fakeDetail,
+        detailLoading: false,
+      },
+    }));
+    const apiDetail: typeof fakeDetail = { ...fakeDetail, summary: api };
+    const { getByRole, getByTestId, rerender } = render(<PodsView cluster="homelab" />);
+    // Open dock for grafana
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    {
+      const dockText = getByTestId("logs-dock").textContent ?? "";
+      expect(dockText).toContain("grafana-xyz");
+      expect(dockText).toContain("monitoring");
+    }
+    // Switch panel to api-crash
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "default", name: "api-crash" },
+        detail: apiDetail,
+        detailLoading: false,
+      },
+    }));
+    rerender(<PodsView cluster="homelab" />);
+    // Re-target dock via logs button for api-crash
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    // Dock header now shows api-crash's ns/name
+    const dock = getByTestId("logs-dock");
+    const dockText = dock.textContent ?? "";
+    expect(dockText).toContain("api-crash");
+    expect(dockText).toContain("default");
+    // grafana-xyz is no longer in the dock header
+    expect(dockText).not.toContain("grafana-xyz");
+  });
+
+  it("dock close button (✕) closes the dock", async () => {
+    seed([healthy]);
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "monitoring", name: "grafana-xyz" },
+        detail: fakeDetail,
+        detailLoading: false,
+      },
+    }));
+    const { getByRole, getByTestId, queryByTestId } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    expect(getByTestId("logs-dock")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: /close logs dock/i }));
+    expect(queryByTestId("logs-dock")).toBeNull();
   });
 
   it("yaml tab renders yaml content", () => {
@@ -180,8 +317,8 @@ describe("PodsView", () => {
         detailLoading: false,
       },
     }));
-    const { getByText } = render(<PodsView cluster="homelab" />);
-    fireEvent.click(getByText("✕"));
+    const { getByRole } = render(<PodsView cluster="homelab" />);
+    fireEvent.click(getByRole("button", { name: /close pod detail panel/i }));
     expect(useFleet.getState().pods.selected).toBeNull();
   });
 
