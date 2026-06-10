@@ -25,6 +25,7 @@ import (
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/helmcli"
 	"github.com/moomora/klyx/internal/metrics"
 	"github.com/moomora/klyx/internal/routemetrics"
 	"github.com/moomora/klyx/internal/workloads"
@@ -69,6 +70,10 @@ type Conn interface {
 	ExecCommand(namespace, pod, container string) ([]string, error)
 	PortForward(ctx context.Context, namespace, pod string, localPort, targetPort int) (stop func(), actualLocal int, done <-chan error, err error)
 	ResolveServicePod(ctx context.Context, namespace, service string, port int) (pod string, targetPort int, err error)
+	HelmReleases(ctx context.Context) ([]helmcli.Release, error)
+	HelmHistory(ctx context.Context, namespace, release string) ([]helmcli.HistoryEntry, error)
+	HelmValues(ctx context.Context, namespace, release string) (string, error)
+	HelmRollback(ctx context.Context, namespace, release string, revision int) error
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

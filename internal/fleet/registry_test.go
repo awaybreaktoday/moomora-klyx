@@ -14,6 +14,7 @@ import (
 	"github.com/moomora/klyx/internal/crd"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/helmcli"
 	"github.com/moomora/klyx/internal/metrics"
 	"github.com/moomora/klyx/internal/routemetrics"
 	"github.com/moomora/klyx/internal/workloads"
@@ -116,6 +117,12 @@ func (f *fakeConn) PortForward(context.Context, string, string, int, int) (func(
 func (f *fakeConn) ResolveServicePod(context.Context, string, string, int) (string, int, error) {
 	return "", 0, nil
 }
+func (f *fakeConn) HelmReleases(context.Context) ([]helmcli.Release, error) { return nil, nil }
+func (f *fakeConn) HelmHistory(context.Context, string, string) ([]helmcli.HistoryEntry, error) {
+	return nil, nil
+}
+func (f *fakeConn) HelmValues(context.Context, string, string) (string, error) { return "", nil }
+func (f *fakeConn) HelmRollback(context.Context, string, string, int) error    { return nil }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{
