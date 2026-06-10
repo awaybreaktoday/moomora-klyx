@@ -16,6 +16,8 @@ function message(section: ClusterSection, c: ClusterDTO): string {
       return "Inline metrics arrive with the Prometheus client (M7).";
     case "overview":
       return "";
+    case "helm":
+      return "";
     case "workloads":
       return "";
     case "pods":
