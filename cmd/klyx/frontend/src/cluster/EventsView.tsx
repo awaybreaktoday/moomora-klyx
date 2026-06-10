@@ -3,6 +3,7 @@ import { useFleet } from "../store/fleet";
 import type { EventRowDTO } from "../store/fleet";
 import { listEvents } from "../bridge/events";
 import { openPodDetail } from "../bridge/pods";
+import { VirtualList } from "../chrome/VirtualList";
 
 function ago(unix: number): string {
   const s = Math.floor(Date.now() / 1000) - unix;
@@ -87,21 +88,33 @@ export function EventsView({ cluster }: { cluster: string }) {
             : "No events match the current filter."}
         </div>
       ) : (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, flex: 1, overflowY: "auto" }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
             <span /><span>×</span><span>age</span><span>namespace</span><span>involved</span><span>reason</span><span>message</span>
           </div>
-          {/* Rows */}
-          {filtered.map((e, i) => (
-            <EventRow
-              key={`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`}
-              event={e}
-              cluster={cluster}
-              expanded={expanded.has(`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`)}
-              onToggle={() => toggleExpand(`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`)}
-            />
-          ))}
+          {/*
+           * VirtualList for >=100 rows with no expansions.
+           * When any row is expanded, the expanded message block has variable
+           * height which breaks fixed-row virtualization math. In that case we
+           * bail to plain rendering. In practice users expand rows to read
+           * details at which point the list is short (after filtering), so the
+           * plain path is fast and correct.
+           */}
+          <VirtualList
+            items={filtered}
+            rowHeight={30}
+            style={{ flex: 1, minHeight: 0, ...(expanded.size > 0 ? { overflowY: "auto" } : {}) }}
+            render={(e, i) => (
+              <EventRow
+                key={`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`}
+                event={e}
+                cluster={cluster}
+                expanded={expanded.has(`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`)}
+                onToggle={() => toggleExpand(`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`)}
+              />
+            )}
+          />
         </div>
       )}
     </div>

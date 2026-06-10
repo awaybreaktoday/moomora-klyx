@@ -5,6 +5,7 @@ import { Header } from "../chrome/Header";
 import { FleetView } from "../fleet/FleetView";
 import { ClusterDetail } from "../cluster/ClusterDetail";
 import { CommandPalette } from "../chrome/CommandPalette";
+import { ActionToast } from "../chrome/ActionToast";
 
 export function AppShell() {
   const route = useFleet((s) => s.route);
@@ -21,6 +22,7 @@ export function AppShell() {
           </div>
         </div>
       </div>
+      <ActionToast />
     </div>
   );
 }

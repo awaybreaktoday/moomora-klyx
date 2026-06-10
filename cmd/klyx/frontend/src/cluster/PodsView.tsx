@@ -7,6 +7,8 @@ import { copyExecCommand, openExecTerminal } from "../bridge/exec";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 import { ForwardPopover } from "./ForwardPopover";
+import { VirtualList } from "../chrome/VirtualList";
+import { useResizablePanel } from "../chrome/useResizablePanel";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -30,8 +32,6 @@ const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px";
 export function PodsView({ cluster }: { cluster: string }) {
   const pods = useFleet((s) => s.pods);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const actionStatus = useFleet((s) => s.actionStatus);
-  const clearActionStatus = useFleet((s) => s.clearActionStatus);
 
   useEffect(() => {
     void listPods(cluster, "");
@@ -84,54 +84,59 @@ export function PodsView({ cluster }: { cluster: string }) {
               : "No pods match the current filter."}
           </div>
         ) : (
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
             {/* Header */}
-            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
               <span /><span>pod</span><span>ready</span><span>phase</span><span>restarts</span><span>node</span><span>age</span>
             </div>
-            {/* Rows */}
-            {filtered.map((p) => {
-              const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
-              const nonInitContainers = p.containers.filter((c) => !c.init);
-              const readyCount = nonInitContainers.filter((c) => c.ready).length;
-              return (
-                <div
-                  key={`${p.namespace}/${p.name}`}
-                  onClick={() => void openPodDetail(cluster, p.namespace, p.name)}
-                  style={{
-                    display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
-                    padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
-                    cursor: "pointer",
-                    background: isSelected ? "var(--color-background-secondary)" : undefined,
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
-                  <span>
-                    <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
-                    {" / "}
-                    <span style={{ fontWeight: 500 }}>{p.name}</span>
-                  </span>
-                  <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
-                    {readyCount}/{nonInitContainers.length}
-                  </span>
-                  <span>
-                    <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
-                      {p.phase}
+            {/* Rows — VirtualList for >=100 items, plain render for smaller lists */}
+            <VirtualList
+              items={filtered}
+              rowHeight={32}
+              style={{ flex: 1, minHeight: 0 }}
+              render={(p) => {
+                const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
+                const nonInitContainers = p.containers.filter((c) => !c.init);
+                const readyCount = nonInitContainers.filter((c) => c.ready).length;
+                return (
+                  <div
+                    key={`${p.namespace}/${p.name}`}
+                    onClick={() => void openPodDetail(cluster, p.namespace, p.name)}
+                    style={{
+                      display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+                      padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                      cursor: "pointer",
+                      background: isSelected ? "var(--color-background-secondary)" : undefined,
+                    }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
+                    <span>
+                      <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
+                      {" / "}
+                      <span style={{ fontWeight: 500 }}>{p.name}</span>
                     </span>
-                    {p.reason && (
-                      <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
-                        {p.reason}
+                    <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
+                      {readyCount}/{nonInitContainers.length}
+                    </span>
+                    <span>
+                      <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
+                        {p.phase}
                       </span>
-                    )}
-                  </span>
-                  <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
-                    {p.restarts}
-                  </span>
-                  <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
-                  <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
-                </div>
-              );
-            })}
+                      {p.reason && (
+                        <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
+                          {p.reason}
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
+                      {p.restarts}
+                    </span>
+                    <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
+                    <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
+                  </div>
+                );
+              }}
+            />
           </div>
         )}
       </div>
@@ -145,8 +150,6 @@ export function PodsView({ cluster }: { cluster: string }) {
           detail={pods.detail}
           loading={pods.detailLoading}
           isProtected={isProtected}
-          actionStatus={actionStatus}
-          clearActionStatus={clearActionStatus}
           onClose={() => useFleet.getState().selectPod(null)}
         />
       )}
@@ -157,7 +160,7 @@ export function PodsView({ cluster }: { cluster: string }) {
 type PodPendingAction = { verb: "restart" | "delete"; summary: PodSummaryDTO };
 
 function PodDetailPanel({
-  cluster, namespace, name, detail, loading, isProtected, actionStatus, clearActionStatus, onClose,
+  cluster, namespace, name, detail, loading, isProtected, onClose,
 }: {
   cluster: string;
   namespace: string;
@@ -165,12 +168,11 @@ function PodDetailPanel({
   detail: PodDetailDTO | null;
   loading: boolean;
   isProtected: boolean;
-  actionStatus: import("../store/fleet").ActionStatus | null;
-  clearActionStatus: () => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"info" | "logs" | "yaml">("info");
   const [pending, setPending] = useState<PodPendingAction | null>(null);
+  const { width, handleProps } = useResizablePanel();
 
   // Close on Escape
   const handleKey = useCallback((e: KeyboardEvent) => {
@@ -183,7 +185,7 @@ function PodDetailPanel({
 
   return (
     <div style={{
-      width: 480, flexShrink: 0,
+      width, flexShrink: 0, position: "relative",
       borderLeft: "0.5px solid var(--color-border-tertiary)",
       overflowY: "auto",
       fontFamily: "var(--font-mono)",
@@ -191,6 +193,9 @@ function PodDetailPanel({
       paddingLeft: 16,
       marginLeft: 16,
     }}>
+      {/* Resize handle — drag left edge */}
+      <div {...handleProps} />
+
       {/* Panel header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, position: "sticky", top: 0, background: "var(--color-background-primary)", paddingTop: 2, paddingBottom: 6, borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
         <span style={{ fontWeight: 500, ...ellipsis, flex: 1 }} title={`${namespace}/${name}`}>
@@ -214,19 +219,6 @@ function PodDetailPanel({
           >{t}</button>
         ))}
       </div>
-
-      {/* Action status toast */}
-      {actionStatus && (
-        <div
-          onClick={clearActionStatus}
-          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
-            background: "var(--color-background-secondary)",
-            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
-            border: "0.5px solid var(--color-border-tertiary)" }}
-        >
-          {actionStatus.message}
-        </div>
-      )}
 
       {loading && !detail ? (
         <div style={{ color: "var(--color-text-secondary)" }}>Loading detail…</div>

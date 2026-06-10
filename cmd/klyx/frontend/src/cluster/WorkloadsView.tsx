@@ -56,8 +56,6 @@ type Pending = PendingRestart | PendingScale | PendingScaleInput;
 export function WorkloadsView({ cluster }: { cluster: string }) {
   const wl = useFleet((s) => s.workloads);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const actionStatus = useFleet((s) => s.actionStatus);
-  const clearActionStatus = useFleet((s) => s.clearActionStatus);
   const [pending, setPending] = useState<Pending | null>(null);
 
   useEffect(() => {
@@ -96,19 +94,6 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
         )}
         <button onClick={onRefresh} style={btn}>refresh</button>
       </div>
-
-      {/* Action status toast */}
-      {actionStatus && (
-        <div
-          onClick={clearActionStatus}
-          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
-            background: "var(--color-background-secondary)",
-            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
-            border: "0.5px solid var(--color-border-tertiary)" }}
-        >
-          {actionStatus.message}
-        </div>
-      )}
 
       {wl.loading && wl.items.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading workloads…</div>
