@@ -3,6 +3,7 @@ package appbridge
 import (
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // WindowOpener abstracts native window creation so WindowsService is testable
@@ -55,6 +56,31 @@ func (s *WindowsService) OpenLogsWindow(cluster, namespace, pod, container strin
 
 	target := "/?" + q.Encode()
 	title := fmt.Sprintf("logs · %s/%s", namespace, pod)
+
+	s.opener.OpenWindow(title, target, logsWindowWidth, logsWindowHeight)
+	return ActionResultDTO{OK: true}
+}
+
+// OpenWorkloadLogsWindow opens a native window tailing the AGGREGATE logs of a
+// workload (all its pods, fan-in with pod prefixes - see OpenWorkloadLogStream).
+// Same boot mechanism as OpenLogsWindow with mode=workload; the frontend passes
+// the workload target to the log pane, which opens the aggregate stream.
+func (s *WindowsService) OpenWorkloadLogsWindow(cluster, namespace, kind, name, container string) ActionResultDTO {
+	if cluster == "" || namespace == "" || kind == "" || name == "" {
+		return ActionResultDTO{Error: "cluster, namespace, kind and name are required"}
+	}
+
+	q := url.Values{}
+	q.Set("logswin", "1")
+	q.Set("mode", "workload")
+	q.Set("cluster", cluster)
+	q.Set("ns", namespace)
+	q.Set("kind", kind)
+	q.Set("name", name)
+	q.Set("container", container)
+
+	target := "/?" + q.Encode()
+	title := fmt.Sprintf("logs · %s/%s (%s)", namespace, name, strings.ToLower(kind))
 
 	s.opener.OpenWindow(title, target, logsWindowWidth, logsWindowHeight)
 	return ActionResultDTO{OK: true}

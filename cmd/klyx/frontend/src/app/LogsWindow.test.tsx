@@ -22,10 +22,12 @@ vi.mock("@wailsio/runtime", () => ({
 }));
 
 const mockOpenLogStream = vi.fn();
+const mockOpenWorkloadLogStream = vi.fn();
 const mockCloseLogStream = vi.fn();
 vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
   LogsService: {
     OpenLogStream: (...args: unknown[]) => mockOpenLogStream(...args),
+    OpenWorkloadLogStream: (...args: unknown[]) => mockOpenWorkloadLogStream(...args),
     CloseLogStream: (...args: unknown[]) => mockCloseLogStream(...args),
     CloseAll: vi.fn().mockResolvedValue(undefined),
   },
@@ -35,9 +37,11 @@ describe("LogsWindow", () => {
   beforeEach(() => {
     for (const k of Object.keys(eventHandlers)) delete eventHandlers[k];
     mockOpenLogStream.mockReset();
+    mockOpenWorkloadLogStream.mockReset();
     mockCloseLogStream.mockReset();
     mockCloseLogStream.mockResolvedValue(undefined);
     mockOpenLogStream.mockResolvedValue({ streamId: "s1", error: undefined });
+    mockOpenWorkloadLogStream.mockResolvedValue({ streamId: "s-agg", error: undefined });
   });
   afterEach(() => vi.clearAllMocks());
 
@@ -70,5 +74,26 @@ describe("LogsWindow", () => {
     const { queryByRole } = renderWindow(seeded());
     await waitFor(() => expect(mockOpenLogStream).toHaveBeenCalled());
     expect(queryByRole("button", { name: /expand logs/i })).toBeNull();
+  });
+
+  it("mode=workload opens the aggregate stream with kind and workload name", async () => {
+    renderWindow(new URLSearchParams(
+      "?logswin=1&mode=workload&cluster=prod-aks&ns=monitoring&kind=Deployment&name=grafana&container=",
+    ));
+    await waitFor(() => expect(mockOpenWorkloadLogStream).toHaveBeenCalledTimes(1));
+    expect(mockOpenWorkloadLogStream).toHaveBeenCalledWith(
+      "prod-aks", "monitoring", "Deployment", "grafana", "", 500,
+    );
+    expect(mockOpenLogStream).not.toHaveBeenCalled();
+  });
+
+  it("mode=workload renders the workload name in the identity line", async () => {
+    const { getByTestId } = renderWindow(new URLSearchParams(
+      "?logswin=1&mode=workload&cluster=prod-aks&ns=monitoring&kind=Deployment&name=grafana&container=",
+    ));
+    await waitFor(() => expect(mockOpenWorkloadLogStream).toHaveBeenCalled());
+    const win = getByTestId("logs-window");
+    expect(win.textContent).toContain("monitoring");
+    expect(win.textContent).toContain("grafana");
   });
 });

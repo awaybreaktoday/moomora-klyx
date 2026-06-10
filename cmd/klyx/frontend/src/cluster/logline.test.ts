@@ -141,3 +141,37 @@ describe("splitHighlight", () => {
     expect(splitHighlight("hello", "xyz")).toEqual([{ value: "hello", match: false }]);
   });
 });
+
+describe("parseLine - aggregate pod prefixes", () => {
+  it("pod-prefixed klog line: combined dim covers pod prefix + klog stamp, level from klog", () => {
+    const podPrefix = "7d4b9c6f9-x2x9k › ";
+    const klog = "E0609 22:26:09.484068       1 controller.go:75]"; // dim runs through "]" (house convention)
+    const r = parseLine(podPrefix + klog + ' "starting"');
+    expect(r.level).toBe("error");
+    expect(r.dimPrefixLen).toBe(podPrefix.length + klog.length);
+  });
+
+  it("plain pod-prefixed line: dim covers only the pod prefix, level none", () => {
+    const podPrefix = "abc-123 › ";
+    const r = parseLine(podPrefix + "hello world");
+    expect(r.level).toBe("none");
+    expect(r.dimPrefixLen).toBe(podPrefix.length);
+  });
+
+  it("pod-prefixed structured level= line detects level after the prefix", () => {
+    const r = parseLine("web-1 › time=\"2026\" level=warn msg=\"x\"");
+    expect(r.level).toBe("warn");
+  });
+
+  it("marker line is fully dim with level none", () => {
+    const raw = "… showing 10 of 12 pods";
+    const r = parseLine(raw);
+    expect(r.level).toBe("none");
+    expect(r.dimPrefixLen).toBe(raw.length);
+  });
+
+  it("no-prefix lines unchanged by the pre-pass", () => {
+    const r = parseLine("I0609 22:26:09.484068       1 c.go:1] \"m\"");
+    expect(r.level).toBe("info");
+  });
+});

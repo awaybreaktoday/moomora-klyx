@@ -18,3 +18,20 @@ export async function openLogsWindow(
     return false;
   }
 }
+
+// openWorkloadLogsWindow opens a native window tailing the AGGREGATE logs of a
+// workload (all pods, fan-in with prefixes). Same false-on-failure contract.
+export async function openWorkloadLogsWindow(
+  cluster: string,
+  namespace: string,
+  kind: string,
+  name: string,
+  container: string,
+): Promise<boolean> {
+  try {
+    const r = (await WindowsService.OpenWorkloadLogsWindow(cluster, namespace, kind, name, container)) as ActionResultDTO;
+    return !!r?.ok;
+  } catch {
+    return false;
+  }
+}

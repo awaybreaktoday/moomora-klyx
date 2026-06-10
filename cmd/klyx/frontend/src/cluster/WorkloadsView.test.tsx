@@ -11,7 +11,17 @@ vi.mock("../bridge/workloads", () => ({
   scaleWorkload: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../bridge/workload-metrics", () => ({ getWorkloadMetrics: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../bridge/windows", () => ({ openWorkloadLogsWindow: vi.fn().mockResolvedValue(true) }));
+// Stub LogsPane — its real implementation drags in the Wails runtime and the
+// stream lifecycle, both covered by LogsPane.test.tsx. Here we only assert the
+// dock plumbing: what target it gets and in which mode.
+vi.mock("./LogsPane", () => ({
+  LogsPane: ({ pod, workload }: { pod: { namespace: string; name: string }; workload?: { kind: string; name: string } }) => (
+    <div data-testid="logs-pane-stub">{workload ? `${workload.kind}:${pod.namespace}/${workload.name}` : `pod:${pod.namespace}/${pod.name}`}</div>
+  ),
+}));
 import { rolloutRestart, scaleWorkload, openLiveWorkloads } from "../bridge/workloads";
+import { openWorkloadLogsWindow } from "../bridge/windows";
 
 const noResources = { cpu: { usage: null, request: null, limit: null }, mem: { usage: null, request: null, limit: null } };
 const broken: WorkloadDTO = { kind: "Deployment", namespace: "ollama-prod", name: "ollama", desired: 1, ready: 0, available: 0, updated: 1, restarts: 7, reason: "CrashLoopBackOff", rank: "unhealthy", gitops: { kind: "Kustomization", namespace: "flux-system", name: "ollama" }, pods: [{ name: "ollama-x", ready: false, restarts: 7, reason: "CrashLoopBackOff", node: "node-3", ageSeconds: 720 }], resources: noResources };
@@ -216,5 +226,50 @@ describe("WorkloadsView", () => {
     useFleet.setState((s) => ({ workloads: { ...s.workloads, live: false } }));
     const { getByText } = render(<WorkloadsView cluster="homelab-nelli" />);
     expect(getByText("○ manual")).toBeTruthy();
+  });
+
+  // --- Aggregate logs dock ---
+
+  it("row terminal icon opens the aggregate-logs dock in workload mode", () => {
+    seed([broken]);
+    const { getByRole, getByTestId } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByRole("button", { name: /aggregate logs for ollama-prod\/ollama/i }));
+    expect(getByTestId("workload-logs-dock")).toBeTruthy();
+    expect(getByTestId("logs-pane-stub").textContent).toBe("Deployment:ollama-prod/ollama");
+  });
+
+  it("clicking the logs icon does not expand the row", () => {
+    seed([broken]);
+    const { getByRole, queryByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByRole("button", { name: /aggregate logs for ollama-prod\/ollama/i }));
+    expect(queryByText("ollama-x")).toBeNull(); // expanded pod table absent
+  });
+
+  it("l key opens the dock for the keyboard-selected row", () => {
+    seed([broken, healthy]);
+    const { getByTestId } = render(<WorkloadsView cluster="homelab-nelli" />);
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "l", bubbles: true, cancelable: true })); });
+    expect(getByTestId("logs-pane-stub").textContent).toBe("Deployment:ollama-prod/ollama");
+  });
+
+  it("✕ closes the dock", () => {
+    seed([broken]);
+    const { getByRole, queryByTestId } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByRole("button", { name: /aggregate logs for ollama-prod\/ollama/i }));
+    expect(queryByTestId("workload-logs-dock")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: /close logs dock/i }));
+    expect(queryByTestId("workload-logs-dock")).toBeNull();
+  });
+
+  it("pop-out calls openWorkloadLogsWindow and closes the dock on success", async () => {
+    seed([broken]);
+    const { getByRole, queryByTestId, findByTestId } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByRole("button", { name: /aggregate logs for ollama-prod\/ollama/i }));
+    await findByTestId("workload-logs-dock");
+    fireEvent.click(getByRole("button", { name: /open logs in window/i }));
+    expect(openWorkloadLogsWindow).toHaveBeenCalledWith("homelab-nelli", "ollama-prod", "Deployment", "ollama", "");
+    await act(async () => {}); // flush the resolved promise
+    expect(queryByTestId("workload-logs-dock")).toBeNull();
   });
 });

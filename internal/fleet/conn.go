@@ -53,6 +53,7 @@ type Conn interface {
 	WatchDirty(ctx context.Context, namespace string, kinds []string, onDirty func(), onLive func(bool)) (stop func(), err error)
 	PodDetail(ctx context.Context, namespace, name string) (PodDetail, error)
 	PodLogStream(ctx context.Context, namespace, pod, container string, previous bool, tailLines int64) (io.ReadCloser, error)
+	WorkloadPods(ctx context.Context, kind, namespace, name string) ([]string, error)
 	WorkloadMetrics(ctx context.Context, namespace string) (map[string]workloads.Usage, workloads.UsageStatus)
 	RolloutRestart(ctx context.Context, kind, namespace, name string) error
 	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
