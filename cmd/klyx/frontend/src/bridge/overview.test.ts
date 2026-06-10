@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useFleet } from "../store/fleet";
 
-// Mock all five services before importing the bridge module.
+// Mock all six services before importing the bridge module.
 vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
   WorkloadsService: {
     ListWorkloads: vi.fn(),
@@ -18,6 +18,9 @@ vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", ()
   HelmService: {
     ListHelmReleases: vi.fn(),
   },
+  GitOpsService: {
+    GetGitOpsSummary: vi.fn(),
+  },
 }));
 
 import {
@@ -26,6 +29,7 @@ import {
   EventsService,
   NodesService,
   HelmService,
+  GitOpsService,
 } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
 import { summarise, fetchOverviewSummary, SummariseInput } from "./overview";
@@ -46,6 +50,7 @@ describe("summarise", () => {
       nodes: [],
       helmAvailable: false,
       releases: [],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.unhealthyWorkloads).toBe(2);
@@ -63,6 +68,7 @@ describe("summarise", () => {
       nodes: [],
       helmAvailable: false,
       releases: [],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.podsNotReady).toBe(1);
@@ -80,6 +86,7 @@ describe("summarise", () => {
       nodes: [],
       helmAvailable: false,
       releases: [],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.warningEvents).toBe(2);
@@ -98,6 +105,7 @@ describe("summarise", () => {
       ],
       helmAvailable: false,
       releases: [],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.nodeProblems).toBe(3);
@@ -108,6 +116,7 @@ describe("summarise", () => {
       workloads: [], pods: [], events: [], nodes: [],
       helmAvailable: false,
       releases: [{ status: "failed" }],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.failedReleases).toBeNull();
@@ -118,6 +127,7 @@ describe("summarise", () => {
       workloads: [], pods: [], events: [], nodes: [],
       helmAvailable: true,
       releases: [{ status: "failed" }, { status: "deployed" }, { status: "failed" }],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.failedReleases).toBe(2);
@@ -127,6 +137,7 @@ describe("summarise", () => {
     const input: SummariseInput = {
       workloads: [], pods: [], events: [], nodes: [],
       helmAvailable: true, releases: [],
+      flux: null,
     };
     const out = summarise(input, new Set());
     expect(out.unhealthyWorkloads).toBe(0);
@@ -140,10 +151,41 @@ describe("summarise", () => {
     const input: SummariseInput = {
       workloads: [], pods: [], events: [], nodes: [],
       helmAvailable: false, releases: [],
+      flux: null,
     };
     const ns = new Set(["kube-system", "monitoring", "default"]);
     const out = summarise(input, ns);
     expect(out.namespaces).toBe(3);
+  });
+
+  it("passes flux through when present=true", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: false, releases: [],
+      flux: { present: true, notReady: 2, suspended: 1 },
+    };
+    const out = summarise(input, new Set());
+    expect(out.flux).toEqual({ present: true, notReady: 2, suspended: 1 });
+  });
+
+  it("returns null flux when input flux is null", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: false, releases: [],
+      flux: null,
+    };
+    const out = summarise(input, new Set());
+    expect(out.flux).toBeNull();
+  });
+
+  it("returns null flux when present=false", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: false, releases: [],
+      flux: { present: false, notReady: 0, suspended: 0 },
+    };
+    const out = summarise(input, new Set());
+    expect(out.flux).toBeNull();
   });
 });
 
@@ -165,6 +207,7 @@ describe("fetchOverviewSummary stale guard", () => {
     (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], events: [] });
     (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [] });
     (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({ available: false, releases: [] });
+    (GitOpsService.GetGitOpsSummary as ReturnType<typeof vi.fn>).mockResolvedValue({ fluxPresent: false, total: 0, notReady: 0, suspended: 0 });
 
     // Start fetch for cluster-a — don't await yet.
     const fetchA = fetchOverviewSummary("cluster-a");
@@ -213,6 +256,9 @@ describe("fetchOverviewSummary integration", () => {
     (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({
       available: true, releases: [{ status: "failed" }, { status: "deployed" }],
     });
+    (GitOpsService.GetGitOpsSummary as ReturnType<typeof vi.fn>).mockResolvedValue({
+      fluxPresent: true, total: 3, notReady: 1, suspended: 1,
+    });
 
     await fetchOverviewSummary("homelab");
 
@@ -226,6 +272,7 @@ describe("fetchOverviewSummary integration", () => {
     expect(s.helmAvailable).toBe(true);
     expect(s.failedReleases).toBe(1);
     expect(s.namespaces).toBe(2); // "default" + "kube-system"
+    expect(s.flux).toEqual({ present: true, notReady: 1, suspended: 1 });
   });
 
   it("shows null counts for tiles that fail to load", async () => {
@@ -234,11 +281,36 @@ describe("fetchOverviewSummary integration", () => {
     (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], events: [] });
     (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [] });
     (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({ available: false, releases: [] });
+    (GitOpsService.GetGitOpsSummary as ReturnType<typeof vi.fn>).mockResolvedValue({ fluxPresent: false, total: 0, notReady: 0, suspended: 0 });
 
     await fetchOverviewSummary("homelab");
 
     const s = useFleet.getState().overviewSummary;
     expect(s.unhealthyWorkloads).toBeNull(); // workloads fetch rejected
     expect(s.podsNotReady).toBe(0);         // pods fetch succeeded
+  });
+
+  it("flux tile is null when fluxPresent is false", async () => {
+    (WorkloadsService.ListWorkloads as ReturnType<typeof vi.fn>).mockResolvedValue({ fluxPresent: false, namespaces: [], workloads: [] });
+    (PodsService.ListPods as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], pods: [] });
+    (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], events: [] });
+    (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [] });
+    (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({ available: false, releases: [] });
+    (GitOpsService.GetGitOpsSummary as ReturnType<typeof vi.fn>).mockResolvedValue({ fluxPresent: false, total: 0, notReady: 0, suspended: 0 });
+
+    await fetchOverviewSummary("homelab");
+    expect(useFleet.getState().overviewSummary.flux).toBeNull();
+  });
+
+  it("flux tile is null when GetGitOpsSummary rejects", async () => {
+    (WorkloadsService.ListWorkloads as ReturnType<typeof vi.fn>).mockResolvedValue({ fluxPresent: false, namespaces: [], workloads: [] });
+    (PodsService.ListPods as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], pods: [] });
+    (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], events: [] });
+    (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [] });
+    (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({ available: false, releases: [] });
+    (GitOpsService.GetGitOpsSummary as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("rpc"));
+
+    await fetchOverviewSummary("homelab");
+    expect(useFleet.getState().overviewSummary.flux).toBeNull();
   });
 });

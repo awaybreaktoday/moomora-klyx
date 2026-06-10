@@ -74,6 +74,8 @@ type Conn interface {
 	HelmHistory(ctx context.Context, namespace, release string) ([]helmcli.HistoryEntry, error)
 	HelmValues(ctx context.Context, namespace, release string) (string, error)
 	HelmRollback(ctx context.Context, namespace, release string, revision int) error
+	GitOpsSummary(ctx context.Context) (GitOpsSummary, error)
+	GitOpsSummaryFlux(ctx context.Context) (fluxPresent bool, total, notReady, suspended int, err error)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}

@@ -123,6 +123,12 @@ func (f *fakeConn) HelmHistory(context.Context, string, string) ([]helmcli.Histo
 }
 func (f *fakeConn) HelmValues(context.Context, string, string) (string, error) { return "", nil }
 func (f *fakeConn) HelmRollback(context.Context, string, string, int) error    { return nil }
+func (f *fakeConn) GitOpsSummary(context.Context) (GitOpsSummary, error) {
+	return GitOpsSummary{}, nil
+}
+func (f *fakeConn) GitOpsSummaryFlux(context.Context) (bool, int, int, int, error) {
+	return false, 0, 0, 0, nil
+}
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {
 	cfg := &config.Config{Clusters: []config.ClusterConfig{

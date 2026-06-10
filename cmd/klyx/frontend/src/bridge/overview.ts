@@ -5,6 +5,7 @@ import {
   EventsService,
   NodesService,
   HelmService,
+  GitOpsService,
 } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
 // ---- pure summary math (exported for unit tests) --------------------------------
@@ -13,6 +14,7 @@ type RankedRow = { rank: string };
 type EventRow = { type: string };
 type NodeRow = { ready: boolean; problems: string[]; unschedulable: boolean };
 type HelmRow = { status: string };
+type FluxSummaryInput = { present: boolean; notReady: number; suspended: number } | null;
 
 export type SummariseInput = {
   workloads: RankedRow[];
@@ -21,6 +23,7 @@ export type SummariseInput = {
   nodes: NodeRow[];
   helmAvailable: boolean;
   releases: HelmRow[];
+  flux: FluxSummaryInput;
 };
 
 export type SummariseOutput = {
@@ -31,6 +34,7 @@ export type SummariseOutput = {
   helmAvailable: boolean;
   failedReleases: number | null; // null when helm unavailable
   namespaces: number;
+  flux: { present: boolean; notReady: number; suspended: number } | null;
 };
 
 /**
@@ -59,6 +63,10 @@ export function summarise(
     ? input.releases.filter((r) => r.status === "failed").length
     : null;
 
+  const flux = input.flux && input.flux.present
+    ? { present: true, notReady: input.flux.notReady, suspended: input.flux.suspended }
+    : null;
+
   return {
     unhealthyWorkloads,
     podsNotReady,
@@ -67,6 +75,7 @@ export function summarise(
     helmAvailable: input.helmAvailable,
     failedReleases,
     namespaces: distinctNamespaces.size,
+    flux,
   };
 }
 
@@ -81,13 +90,14 @@ export function summarise(
 export async function fetchOverviewSummary(cluster: string): Promise<void> {
   useFleet.getState().setOverviewSummaryLoading(cluster);
 
-  const [workloadsResult, podsResult, eventsResult, nodesResult, helmResult] =
+  const [workloadsResult, podsResult, eventsResult, nodesResult, helmResult, fluxResult] =
     await Promise.allSettled([
       WorkloadsService.ListWorkloads(cluster, ""),
       PodsService.ListPods(cluster, ""),
       EventsService.ListEvents(cluster, ""),
       NodesService.ListNodes(cluster),
       HelmService.ListHelmReleases(cluster),
+      GitOpsService.GetGitOpsSummary(cluster),
     ]);
 
   // Stale guard — cluster may have changed while requests were in flight.
@@ -101,6 +111,7 @@ export async function fetchOverviewSummary(cluster: string): Promise<void> {
   let helmAvailable = false;
   let failedReleases: number | null = null;
   let namespaces: number | null = null;
+  let flux: { present: boolean; notReady: number; suspended: number } | null = null;
   const nsSet = new Set<string>();
 
   // Pods — also source for namespace derivation.
@@ -144,6 +155,15 @@ export async function fetchOverviewSummary(cluster: string): Promise<void> {
     }
   }
 
+  if (fluxResult.status === "fulfilled" && fluxResult.value) {
+    const fr = fluxResult.value as { fluxPresent: boolean; notReady: number; suspended: number };
+    if (fr.fluxPresent) {
+      flux = { present: true, notReady: fr.notReady ?? 0, suspended: fr.suspended ?? 0 };
+    }
+    // fluxPresent=false → flux stays null → tile is hidden
+  }
+  // fluxResult rejected → flux stays null → tile hides (same as "absent")
+
   const summary: OverviewSummary = {
     cluster,
     loading: false,
@@ -154,6 +174,7 @@ export async function fetchOverviewSummary(cluster: string): Promise<void> {
     helmAvailable,
     failedReleases,
     namespaces,
+    flux,
   };
 
   useFleet.getState().setOverviewSummary(summary);

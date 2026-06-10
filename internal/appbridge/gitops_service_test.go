@@ -58,6 +58,10 @@ func (f *fakeGitOpsConn) SourceURL(ctx context.Context, kind, ns, name string) (
 	return f.sourceURL, true
 }
 
+func (f *fakeGitOpsConn) GitOpsSummaryFlux(ctx context.Context) (bool, int, int, int, error) {
+	return false, 0, 0, 0, nil
+}
+
 func TestResolveGitLinkDeepLink(t *testing.T) {
 	ks := &unstructured.Unstructured{Object: map[string]interface{}{
 		"metadata": map[string]interface{}{"name": "app", "namespace": "flux-system"},
