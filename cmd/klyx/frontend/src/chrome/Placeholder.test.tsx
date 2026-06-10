@@ -18,12 +18,13 @@ describe("Placeholder", () => {
     const { getByText } = render(<Placeholder section="gitops" c={dto({ gitopsTier: "Healthy" })} />);
     expect(getByText(/arrives in M3/i)).toBeTruthy();
   });
-  it("resources says Built-in resource catalog arrives in M4", () => {
-    const { getByText } = render(<Placeholder section="resources" c={dto({})} />);
-    expect(getByText(/Built-in resource catalog arrives in M4/i)).toBeTruthy();
-  });
-  it("crds says CRD browser arrives in M4", () => {
-    const { getByText } = render(<Placeholder section="crds" c={dto({})} />);
-    expect(getByText(/CRD browser arrives in M4/i)).toBeTruthy();
+  it("implemented sections (resources, crds) render empty placeholder text", () => {
+    // Both sections have real views; the placeholder string is dead text and
+    // must stay empty per the implemented-section convention.
+    for (const section of ["resources", "crds"] as const) {
+      const { container, unmount } = render(<Placeholder section={section} c={dto({})} />);
+      expect(container.textContent).toBe("");
+      unmount();
+    }
   });
 });
