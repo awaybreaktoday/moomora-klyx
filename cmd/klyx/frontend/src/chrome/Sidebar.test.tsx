@@ -24,13 +24,13 @@ describe("Sidebar nav", () => {
 
   it("a section button is disabled at the fleet root", () => {
     const { getByLabelText } = render(<Sidebar />);
-    expect((getByLabelText("GitOps") as HTMLButtonElement).disabled).toBe(true);
+    expect((getByLabelText("Flux") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("a section button sets the section in cluster scope", () => {
     useFleet.getState().openCluster("x");
     const { getByLabelText } = render(<Sidebar />);
-    getByLabelText("GitOps").click();
+    getByLabelText("Flux").click();
     expect(useFleet.getState().route).toMatchObject({ name: "cluster", section: "gitops" });
   });
 
@@ -46,7 +46,7 @@ describe("Sidebar nav", () => {
 // --- daily-driver section order ---
 
 describe("Sidebar section order", () => {
-  it("renders sections in daily-driver triage order when expanded", () => {
+  it("renders sections in triage-first grouped order when expanded", () => {
     localStorage.setItem("klyx-sidebar-expanded", "1");
     const { getAllByRole } = render(<Sidebar />);
     // Collect visible text labels from buttons (expanded mode shows text spans).
@@ -54,16 +54,30 @@ describe("Sidebar section order", () => {
     const labels = buttons
       .map((b) => b.textContent?.trim())
       .filter(Boolean);
-    // Fleet is first; then the 11 sections; then Terminal, Settings, collapse sidebar.
+    // Fleet is first; then the 10 sections (grouped); then Terminal, Settings, collapse sidebar.
     const expectedOrder = [
       "Fleet",
-      "Overview", "Workloads", "Pods", "Events", "Nodes",
-      "Resources", "CRDs", "Network", "GitOps", "Helm", "Observability",
+      "Overview",
+      "Workloads", "Pods", "Events",
+      "Flux", "Helm",
+      "Network", "Nodes",
+      "Resources", "CRDs",
       "Terminal", "Settings",
     ];
     expectedOrder.forEach((label, i) => {
       expect(labels[i]).toBe(label);
     });
+  });
+
+  it("gitops section button is labelled Flux (design principle 8)", () => {
+    const { getByLabelText } = render(<Sidebar />);
+    expect(getByLabelText("Flux")).toBeTruthy();
+  });
+
+  it("renders 4 dividers between the 5 section groups", () => {
+    const { getAllByRole } = render(<Sidebar />);
+    const dividers = getAllByRole("separator");
+    expect(dividers).toHaveLength(4);
   });
 });
 

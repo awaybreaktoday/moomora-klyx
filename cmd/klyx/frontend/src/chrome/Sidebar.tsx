@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   IconLayoutGrid, IconLayoutDashboard, IconStack2, IconGitBranch,
-  IconRoute, IconChartLine, IconTerminal2, IconSettings, IconBox, IconCircleDot,
+  IconRoute, IconTerminal2, IconSettings, IconBox, IconCircleDot,
   IconAlertTriangle, IconServer, IconAnchor, IconChevronRight, IconChevronLeft,
   IconComponents,
 } from "@tabler/icons-react";
@@ -11,19 +11,29 @@ import { BUILTIN_CATALOG } from "../cluster/builtins";
 const COLLAPSED_WIDTH = 46;
 const EXPANDED_WIDTH = 190;
 
-// daily-driver triage order
-const SECTION_ICONS: { section: ClusterSection; Icon: typeof IconLayoutDashboard }[] = [
-  { section: "overview",      Icon: IconLayoutDashboard },
-  { section: "workloads",     Icon: IconBox },
-  { section: "pods",          Icon: IconCircleDot },
-  { section: "events",        Icon: IconAlertTriangle },
-  { section: "nodes",         Icon: IconServer },
-  { section: "resources",     Icon: IconStack2 },
-  { section: "crds",          Icon: IconComponents },
-  { section: "network",       Icon: IconRoute },
-  { section: "gitops",        Icon: IconGitBranch },
-  { section: "helm",          Icon: IconAnchor },
-  { section: "observability", Icon: IconChartLine },
+// Grouped triage-first order (design principle 2: GitOps in the top five).
+// Each inner array is a visual group separated by a thin divider.
+const SECTION_GROUPS: { section: ClusterSection; Icon: typeof IconLayoutDashboard }[][] = [
+  [
+    { section: "overview",  Icon: IconLayoutDashboard },
+  ],
+  [
+    { section: "workloads", Icon: IconBox },
+    { section: "pods",      Icon: IconCircleDot },
+    { section: "events",    Icon: IconAlertTriangle },
+  ],
+  [
+    { section: "gitops",    Icon: IconGitBranch },
+    { section: "helm",      Icon: IconAnchor },
+  ],
+  [
+    { section: "network",   Icon: IconRoute },
+    { section: "nodes",     Icon: IconServer },
+  ],
+  [
+    { section: "resources", Icon: IconStack2 },
+    { section: "crds",      Icon: IconComponents },
+  ],
 ];
 
 function readPersistedExpanded(): boolean {
@@ -83,48 +93,59 @@ export function Sidebar() {
         <IconLayoutGrid size={16} stroke={1.5} />
       </RailButton>
 
-      {/* Section nav */}
-      {SECTION_ICONS.map(({ section, Icon }) => (
-        <div key={section}>
-          <RailButton
-            label={SECTION_LABELS[section]}
-            disabled={!inCluster}
-            active={inCluster && route.section === section}
-            onClick={() => setSection(section)}
-            expanded={expanded}
-          >
-            <Icon size={16} stroke={1.5} />
-          </RailButton>
-          {expanded && inCluster && route.section === section && section === "resources" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {BUILTIN_CATALOG.map((cat) => (
-                <button
-                  key={cat.label}
-                  aria-label={`category ${cat.label}`}
-                  onClick={() => { setSection("resources"); setBuiltinCategory(builtinCategory === cat.label ? null : cat.label); }}
-                  style={{
-                    display: "flex", alignItems: "center",
-                    width: "calc(100% - 18px)",
-                    height: 24,
-                    margin: "0 9px",
-                    paddingLeft: 28,
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    background: builtinCategory === cat.label ? "var(--color-background-primary)" : "transparent",
-                    border: builtinCategory === cat.label ? "0.5px solid var(--color-border-secondary)" : "0.5px solid transparent",
-                    color: builtinCategory === cat.label ? "var(--color-text-primary)" : "var(--color-text-secondary)",
-                    fontSize: 11,
-                    textAlign: "left",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {cat.label}
-                </button>
-              ))}
-            </div>
+      {/* Section nav — grouped with semantic dividers */}
+      {SECTION_GROUPS.map((group, gi) => (
+        <div key={gi}>
+          {gi > 0 && (
+            <div role="separator" style={{
+              height: 0,
+              borderTop: "0.5px solid var(--color-border-tertiary)",
+              margin: "6px 8px",
+            }} />
           )}
+          {group.map(({ section, Icon }) => (
+            <div key={section}>
+              <RailButton
+                label={SECTION_LABELS[section]}
+                disabled={!inCluster}
+                active={inCluster && route.section === section}
+                onClick={() => setSection(section)}
+                expanded={expanded}
+              >
+                <Icon size={16} stroke={1.5} />
+              </RailButton>
+              {expanded && inCluster && route.section === section && section === "resources" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {BUILTIN_CATALOG.map((cat) => (
+                    <button
+                      key={cat.label}
+                      aria-label={`category ${cat.label}`}
+                      onClick={() => { setSection("resources"); setBuiltinCategory(builtinCategory === cat.label ? null : cat.label); }}
+                      style={{
+                        display: "flex", alignItems: "center",
+                        width: "calc(100% - 18px)",
+                        height: 24,
+                        margin: "0 9px",
+                        paddingLeft: 28,
+                        borderRadius: 4,
+                        cursor: "pointer",
+                        background: builtinCategory === cat.label ? "var(--color-background-primary)" : "transparent",
+                        border: builtinCategory === cat.label ? "0.5px solid var(--color-border-secondary)" : "0.5px solid transparent",
+                        color: builtinCategory === cat.label ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                        fontSize: 11,
+                        textAlign: "left",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       ))}
 

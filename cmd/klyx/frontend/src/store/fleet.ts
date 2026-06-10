@@ -67,7 +67,9 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "helm" | "network" | "resources" | "crds" | "observability" | "workloads" | "pods" | "events" | "nodes";
+// "observability" removed 2026-06-10: metrics ship inline in overview/workloads/network lanes
+// (design principle 5); a dedicated surface can return when it has real content.
+export type ClusterSection = "overview" | "gitops" | "helm" | "network" | "resources" | "crds" | "workloads" | "pods" | "events" | "nodes";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -145,12 +147,13 @@ export type Route =
 
 export const SECTION_LABELS: Record<ClusterSection, string> = {
   overview: "Overview",
-  gitops: "GitOps",
+  // "Flux" not "GitOps": design principle 8 (speak the tool's vocabulary).
+  // The view is Flux-specific; an Argo provider would get its own section.
+  gitops: "Flux",
   helm: "Helm",
   network: "Network",
   resources: "Resources",
   crds: "CRDs",
-  observability: "Observability",
   workloads: "Workloads",
   pods: "Pods",
   events: "Events",
