@@ -34,6 +34,23 @@ const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadi
 
 const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px 28px";
 
+// Containers table in the detail panel: state must fit "terminated" untruncated
+// and image gets real flexible space (it shares the title-attr full ref).
+const containerGridCols = "minmax(0,1.1fr) 76px minmax(0,1fr) 28px";
+
+// imageShort strips the registry/repository path from an image ref, keeping the
+// final segment with its tag ("docker.io/grafana/grafana:12.4.1" -> "grafana:12.4.1").
+// The registry prefix is the least informative part at a glance; the full ref
+// stays available via the cell's title attribute. Long sha256 digests are
+// shortened to their first 12 hex chars.
+export function imageShort(image: string): string {
+  const lastSlash = image.lastIndexOf("/");
+  let s = lastSlash >= 0 ? image.slice(lastSlash + 1) : image;
+  const at = s.indexOf("@sha256:");
+  if (at >= 0) s = s.slice(0, at + "@sha256:".length + 12) + "…";
+  return s;
+}
+
 export function PodsView({ cluster }: { cluster: string }) {
   const pods = useFleet((s) => s.pods);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
@@ -621,17 +638,17 @@ function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
 
       {/* Containers */}
       <Section title={`Containers (${p.containers.length})`}>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 60px 64px 40px", gap: 6, fontSize: 9, marginBottom: 2, color: "var(--color-text-tertiary)", textTransform: "uppercase" }}>
+        <div style={{ display: "grid", gridTemplateColumns: containerGridCols, gap: 6, fontSize: 9, marginBottom: 2, color: "var(--color-text-tertiary)", textTransform: "uppercase" }}>
           <span>name</span><span>state</span><span>image</span><span>rst</span>
         </div>
         {p.containers.map((c) => (
-          <div key={c.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 60px 64px 40px", gap: 6, fontSize: 11, padding: "2px 0", alignItems: "center" }}>
+          <div key={c.name} style={{ display: "grid", gridTemplateColumns: containerGridCols, gap: 6, fontSize: 11, padding: "2px 0", alignItems: "center" }}>
             <span style={{ ...ellipsis }} title={c.name}>
               {c.name}
               {c.init && <span style={{ marginLeft: 4, fontSize: 9, color: "var(--color-text-tertiary)", background: "var(--color-background-secondary)", padding: "0 4px", borderRadius: 3 }}>init</span>}
             </span>
             <span style={{ color: c.ready ? "var(--color-text-success)" : "var(--color-text-danger)", ...ellipsis }} title={c.state}>{c.state || "—"}</span>
-            <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={c.image}>{c.image}</span>
+            <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={c.image}>{imageShort(c.image)}</span>
             <span style={{ color: c.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>{c.restarts}</span>
           </div>
         ))}

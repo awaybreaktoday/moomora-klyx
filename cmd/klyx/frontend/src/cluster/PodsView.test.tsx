@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
-import { PodsView } from "./PodsView";
+import { PodsView, imageShort } from "./PodsView";
 import { useFleet } from "../store/fleet";
 import type { PodSummaryDTO, PodDetailDTO } from "../store/fleet";
 
@@ -552,5 +552,24 @@ describe("PodsView", () => {
     const confirmBtns = getAllByRole("button", { name: "Restart" });
     fireEvent.click(confirmBtns[confirmBtns.length - 1]);
     expect(rolloutRestart).toHaveBeenCalledWith("homelab", "StatefulSet", "db", "postgres");
+  });
+});
+
+describe("imageShort", () => {
+  it("strips the registry/repository path, keeping name:tag", () => {
+    expect(imageShort("docker.io/grafana/grafana:12.4.1")).toBe("grafana:12.4.1");
+    expect(imageShort("quay.io/kiwigrid/k8s-sidecar:1.30.10")).toBe("k8s-sidecar:1.30.10");
+    expect(imageShort("registry.k8s.io/ingress-nginx/controller:v1.11.2")).toBe("controller:v1.11.2");
+  });
+
+  it("leaves bare image names untouched", () => {
+    expect(imageShort("busybox:1.36")).toBe("busybox:1.36");
+    expect(imageShort("nginx")).toBe("nginx");
+  });
+
+  it("shortens sha256 digests to 12 hex chars", () => {
+    expect(
+      imageShort("ghcr.io/org/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+    ).toBe("app@sha256:0123456789ab…");
   });
 });
