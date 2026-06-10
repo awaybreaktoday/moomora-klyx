@@ -24,12 +24,26 @@ export function LogsWindow({ params }: { params?: URLSearchParams }) {
         boxSizing: "border-box",
         background: "var(--color-background-primary)",
         color: "var(--color-text-primary)",
-        padding: 12,
-        gap: 8,
       }}
     >
-      {/* Slim header: mono ns/pod + muted cluster name. No close button. */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexShrink: 0 }}>
+      {/* Titlebar: the window uses MacTitleBarHiddenInset, so this bar IS the
+          titlebar. It declares the Wails drag region (the window is otherwise
+          immovable) and pads left past the macOS traffic lights, mirroring the
+          main window's TopBar. No interactive children, so no no-drag opt-outs
+          are needed. */}
+      <div
+        style={{
+          "--wails-draggable": "drag",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          height: 40,
+          flexShrink: 0,
+          paddingLeft: 84,
+          paddingRight: 12,
+          borderBottom: "0.5px solid var(--color-border-tertiary)",
+        } as React.CSSProperties}
+      >
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 500 }}>
           <span style={{ color: "var(--color-text-tertiary)" }}>{namespace}</span>/{name}
         </span>
@@ -38,7 +52,7 @@ export function LogsWindow({ params }: { params?: URLSearchParams }) {
 
       {/* LogsPane fills the rest. containers:[] + initialContainer drives the
           static-container path (the window has no pod summary). */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "8px 12px 12px" }}>
         <LogsPane
           cluster={cluster}
           pod={{ namespace, name, containers: [] }}
