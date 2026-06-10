@@ -123,20 +123,20 @@ Branch: `feat/dd2-standard-resources`
 - [x] T6 Gate + verify on nelli (configmap/secret fixtures, node cordon/uncordon on
       a homelab node, drain dry-run), cleanup, merge.
 
-### DD3 — Day-2 ops: scale, port-forward, exec escape hatch
+### DD3 — Day-2 ops: scale, port-forward, exec escape hatch — MERGED to main 2026-06-10
 Branch: `feat/dd3-day2-ops`
 
-- [ ] T1 Scale workload (Deployment/STS replicas patch) from WorkloadsView row menu
+- [x] T1 Scale workload (Deployment/STS replicas patch) from WorkloadsView row menu
       + confirm; shows desired change.
-- [ ] T2 Port-forward manager: client-go portforward (SPDY) per target (pod or
+- [x] T2 Port-forward manager: client-go portforward (SPDY) per target (pod or
       svc→pod resolution), local port auto/choose, active-forwards panel in
       TopBar/sidebar with stop buttons; survives view nav, dies with app; status
       events on broken pipe. ADVERSARIAL REVIEW (lifecycle/ports).
-- [ ] T3 Exec escape hatch: "Open shell" on pod/container → launches OS terminal
+- [x] T3 Exec escape hatch: "Open shell" on pod/container → launches OS terminal
       running `kubectl exec -it` with the right context/ns/container (macOS
       Terminal.app via `open`/osascript; document Linux/Windows fallback). Copy
       kubectl command button alongside.
-- [ ] T4 Gate + verify (forward to a homelab svc and curl it locally; exec opens
+- [x] T4 Gate + verify (forward to a homelab svc and curl it locally; exec opens
       terminal), merge.
 
 ### DD4 — Helm releases (CLI-backed)
@@ -194,3 +194,10 @@ DD2 (standard resources):
 - Secret detail: yaml shows <masked>; data section reveals/copies per key only on click.
 - Nodes section: list problem-first; detail shows taints/conditions/pods-on-node; cordon/uncordon + drain (streamed modal) behind confirm.
 - Service detail: backing section shows ready/not-ready endpoints; pod links jump to the pod.
+
+DD3 (day-2 ops):
+- Workloads: scale button (deploy/sts only) opens popover with number input; protected clusters still demand typed confirm.
+- Pod detail: "forward" popover starts a port-forward; TopBar shows an active-forwards chip with a stop panel; broken forwards go amber.
+- Service detail: per-port forward buttons.
+- Pod detail: "open shell" pops Terminal.app with kubectl exec (bash if available); "copy exec" copies the command.
+- Quit the app with forwards/log tails running: nothing should linger (no orphaned kubectl/ports).
