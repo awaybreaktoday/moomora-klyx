@@ -142,9 +142,10 @@ function SecretDataSection({
 // line (ready/notReady counts), port list, address list (with pod cross-links
 // for Pod-targeted endpoints), and selector chips.
 function ServiceBackingSection({
-  cluster, backing,
+  cluster, ns, backing,
 }: {
   cluster: string;
+  ns: string; // the service's namespace - endpoint pods always live in it
   backing: ServiceBackingDTO;
 }) {
   const summaryColor = backing.ready > 0 ? "var(--color-text-success)" : "var(--color-text-danger)";
@@ -152,7 +153,7 @@ function ServiceBackingSection({
     ? `${backing.ready} ready / ${backing.notReady} not ready`
     : `no ready endpoints (${backing.notReady} not ready)`;
 
-  const handlePodLink = (ns: string, name: string) => {
+  const handlePodLink = (name: string) => {
     useFleet.getState().setSection("pods");
     void openPodDetail(cluster, ns, name);
   };
@@ -184,7 +185,7 @@ function ServiceBackingSection({
             );
             const target = a.targetKind === "Pod" ? (
               <button
-                onClick={() => handlePodLink(/* pod is in same ns as service */ "", a.targetName)}
+                onClick={() => handlePodLink(a.targetName)}
                 style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-info)", fontFamily: "var(--font-mono)", fontSize: 11, textAlign: "left" }}
                 title={`${a.targetKind}/${a.targetName}`}
                 data-testid={`pod-link-${a.targetName}`}
@@ -264,7 +265,7 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
 
           {/* Service backing section — rendered ABOVE yaml, ONLY for v1 Services */}
           {d.serviceBacking != null && (
-            <ServiceBackingSection cluster={cluster} backing={d.serviceBacking} />
+            <ServiceBackingSection cluster={cluster} ns={instance.namespace} backing={d.serviceBacking} />
           )}
 
           {/* Secret data section — rendered ABOVE yaml, ONLY for Secrets */}
