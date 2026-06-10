@@ -3,6 +3,7 @@ import { Overview } from "./Overview";
 import { GitOps } from "./GitOps";
 import { HelmView } from "./HelmView";
 import { CRDBrowser } from "./CRDBrowser";
+import { BuiltinsView } from "./BuiltinsView";
 import { InstanceList } from "./InstanceList";
 import { InstanceDetail } from "./InstanceDetail";
 import { NetworkView } from "./NetworkView";
@@ -32,6 +33,11 @@ export function ClusterDetail() {
   if (route.section === "gitops") return <GitOps cluster={cluster.name} />;
   if (route.section === "helm") return <HelmView cluster={cluster.name} />;
   if (route.section === "resources") {
+    if (route.resource && route.instance) return <InstanceDetail cluster={cluster.name} resource={route.resource} instance={route.instance} />;
+    if (route.resource) return <InstanceList cluster={cluster.name} resource={route.resource} />;
+    return <BuiltinsView cluster={cluster.name} />;
+  }
+  if (route.section === "crds") {
     if (route.resource && route.instance) return <InstanceDetail cluster={cluster.name} resource={route.resource} instance={route.instance} />;
     if (route.resource) return <InstanceList cluster={cluster.name} resource={route.resource} />;
     return <CRDBrowser cluster={cluster.name} />;

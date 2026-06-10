@@ -11,6 +11,8 @@ function message(section: ClusterSection, c: ClusterDTO): string {
         ? "No Gateway API or Cilium installed on this cluster."
         : "Gateway topology arrives in M5.";
     case "resources":
+      return "Built-in resource catalog arrives in M4.";
+    case "crds":
       return "CRD browser arrives in M4.";
     case "observability":
       return "Inline metrics arrive with the Prometheus client (M7).";

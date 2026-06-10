@@ -18,8 +18,12 @@ describe("Placeholder", () => {
     const { getByText } = render(<Placeholder section="gitops" c={dto({ gitopsTier: "Healthy" })} />);
     expect(getByText(/arrives in M3/i)).toBeTruthy();
   });
-  it("resources says CRD browser arrives in M4", () => {
+  it("resources says Built-in resource catalog arrives in M4", () => {
     const { getByText } = render(<Placeholder section="resources" c={dto({})} />);
+    expect(getByText(/Built-in resource catalog arrives in M4/i)).toBeTruthy();
+  });
+  it("crds says CRD browser arrives in M4", () => {
+    const { getByText } = render(<Placeholder section="crds" c={dto({})} />);
     expect(getByText(/CRD browser arrives in M4/i)).toBeTruthy();
   });
 });

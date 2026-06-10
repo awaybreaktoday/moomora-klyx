@@ -50,11 +50,11 @@ describe("Sidebar section order", () => {
     const labels = buttons
       .map((b) => b.textContent?.trim())
       .filter(Boolean);
-    // Fleet is first; then the 10 sections; then Terminal, Settings, collapse sidebar.
+    // Fleet is first; then the 11 sections; then Terminal, Settings, collapse sidebar.
     const expectedOrder = [
       "Fleet",
       "Overview", "Workloads", "Pods", "Events", "Nodes",
-      "Resources", "Network", "GitOps", "Helm", "Observability",
+      "Resources", "CRDs", "Network", "GitOps", "Helm", "Observability",
       "Terminal", "Settings",
     ];
     expectedOrder.forEach((label, i) => {

@@ -3,6 +3,7 @@ import {
   IconLayoutGrid, IconLayoutDashboard, IconStack2, IconGitBranch,
   IconRoute, IconChartLine, IconTerminal2, IconSettings, IconBox, IconCircleDot,
   IconAlertTriangle, IconServer, IconAnchor, IconChevronRight, IconChevronLeft,
+  IconComponents,
 } from "@tabler/icons-react";
 import { useFleet, ClusterSection, SECTION_LABELS } from "../store/fleet";
 
@@ -17,6 +18,7 @@ const SECTION_ICONS: { section: ClusterSection; Icon: typeof IconLayoutDashboard
   { section: "events",        Icon: IconAlertTriangle },
   { section: "nodes",         Icon: IconServer },
   { section: "resources",     Icon: IconStack2 },
+  { section: "crds",          Icon: IconComponents },
   { section: "network",       Icon: IconRoute },
   { section: "gitops",        Icon: IconGitBranch },
   { section: "helm",          Icon: IconAnchor },
