@@ -14,7 +14,8 @@ describe("Breadcrumb", () => {
     useFleet.setState({ route: { name: "cluster", cluster: "homelab-nelli", section: "gitops" } });
     const { getByText } = render(<Breadcrumb />);
     expect(getByText("homelab-nelli")).toBeTruthy();
-    expect(getByText("GitOps")).toBeTruthy();
+    // gitops section label is "Flux" (design principle 8)
+    expect(getByText("Flux")).toBeTruthy();
     getByText("Fleet").click();
     expect(useFleet.getState().route).toEqual({ name: "fleet" });
   });

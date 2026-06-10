@@ -20,19 +20,18 @@ export type Command = {
   run: () => void;
 };
 
-// Section display order mirrors the sidebar.
+// Section display order mirrors the sidebar groups (triage-first, GitOps in top five).
 const SECTION_ORDER: ClusterSection[] = [
   "overview",
   "workloads",
   "pods",
   "events",
+  "gitops",
+  "helm",
+  "network",
   "nodes",
   "resources",
   "crds",
-  "network",
-  "gitops",
-  "helm",
-  "observability",
 ];
 
 export function buildCommands(s: FleetStore): Command[] {
