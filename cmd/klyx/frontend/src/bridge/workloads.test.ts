@@ -204,15 +204,16 @@ describe("openLiveWorkloads bridge", () => {
     expect(WorkloadsService.CloseLiveWorkloads).toHaveBeenCalledWith("homelab", "");
   });
 
-  it("stale-guard: data event for wrong namespace is dropped", () => {
-    seedWorkloads("homelab", "monitoring");
+  it("stale-guard: emit from a replaced sub (old namespace) is dropped", () => {
+    // Open kube-system, then switch to monitoring: the new open claims the
+    // slice. A late emit from the old namespace's handler must be dropped.
     openLiveWorkloads("homelab", "kube-system");
+    const oldHandler = eventHandlers["liveWorkloads:homelab:kube-system"];
+    openLiveWorkloads("homelab", "monitoring");
 
-    const handler = eventHandlers["liveWorkloads:homelab:kube-system"];
-    expect(handler).toBeDefined();
-    handler({ data: { fluxPresent: false, namespaces: ["kube-system"], workloads: [] } });
+    oldHandler({ data: { fluxPresent: false, namespaces: ["kube-system"], workloads: [] } });
 
-    // Store is seeded as "monitoring" — update for "kube-system" must be dropped.
     expect(useFleet.getState().workloads.namespace).toBe("monitoring");
+    expect(useFleet.getState().workloads.items).toHaveLength(0);
   });
 });
