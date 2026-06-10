@@ -12,6 +12,19 @@ function initial(): Theme {
   return saved === "dark" ? "dark" : "light";
 }
 
+// toggleTheme flips the active theme using the same storage key and DOM
+// attribute the provider manages, for callers outside the React tree (e.g. the
+// command palette). The provider, when mounted, picks up the persisted value on
+// next read; both paths agree on STORAGE_KEY + data-theme so state stays
+// consistent. Returns the new theme.
+export function toggleTheme(): Theme {
+  const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  const next: Theme = current === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem(STORAGE_KEY, next);
+  return next;
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(initial);
 

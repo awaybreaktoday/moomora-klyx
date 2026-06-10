@@ -1,0 +1,292 @@
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useFleet } from "../store/fleet";
+import { buildCommands, Command } from "./commands";
+import { fuzzyMatch } from "./fuzzy";
+
+// CommandPalette is the ⌘K primary-nav surface (design principle #6). It mounts
+// once in AppShell and installs a single window keydown handler:
+//   ⌘K / Ctrl+K  toggle
+//   Esc          close
+// On open it reads buildCommands(useFleet.getState()) fresh — no stale index —
+// indexing only what's already loaded (footer: "showing loaded data").
+
+type Ranked = { cmd: Command; positions: number[] };
+
+const LIMIT = 50;
+
+// Returns true when the event originated in a text input we should not hijack
+// — unless it's the palette's own search box (data-palette-input).
+function inEditable(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el) return false;
+  if (el.getAttribute?.("data-palette-input") === "true") return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable === true;
+}
+
+// Rank commands against the query. Empty query keeps source order (every command
+// matches with score 0). Title is full-weight; hint contributes at half weight.
+function rank(commands: Command[], query: string): Ranked[] {
+  if (query.trim() === "") {
+    return commands.slice(0, LIMIT).map((cmd) => ({ cmd, positions: [] }));
+  }
+  const q = query.trim();
+  const scored: { cmd: Command; positions: number[]; score: number }[] = [];
+  for (const cmd of commands) {
+    const t = fuzzyMatch(q, cmd.title);
+    const h = cmd.hint ? fuzzyMatch(q, cmd.hint) : null;
+    if (!t && !h) continue;
+    const score = (t?.score ?? 0) + (h ? h.score * 0.5 : 0);
+    scored.push({ cmd, positions: t?.positions ?? [], score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, LIMIT).map(({ cmd, positions }) => ({ cmd, positions }));
+}
+
+// Splits a title into <mark>-highlighted runs at the matched positions.
+function Highlighted({ text, positions }: { text: string; positions: number[] }) {
+  if (positions.length === 0) return <>{text}</>;
+  const set = new Set(positions);
+  const out: React.ReactNode[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (set.has(i)) {
+      out.push(
+        <mark key={i} style={{ background: "transparent", color: "var(--color-text-info)", fontWeight: 600 }}>
+          {text[i]}
+        </mark>,
+      );
+    } else {
+      out.push(<span key={i}>{text[i]}</span>);
+    }
+  }
+  return <>{out}</>;
+}
+
+export function CommandPalette() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [sel, setSel] = useState(0);
+  const [commands, setCommands] = useState<Command[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+    setSel(0);
+  }, []);
+
+  const openPalette = useCallback(() => {
+    setCommands(buildCommands(useFleet.getState())); // fresh index, no stale data
+    setQuery("");
+    setSel(0);
+    setOpen(true);
+  }, []);
+
+  // Global hotkeys: ⌘K / Ctrl+K toggle, Esc close.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isToggle = (e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K");
+      if (isToggle) {
+        if (inEditable(e.target) === false || open) {
+          e.preventDefault();
+          if (open) close();
+          else openPalette();
+        }
+        return;
+      }
+      if (e.key === "Escape" && open) {
+        e.preventDefault();
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, close, openPalette]);
+
+  // Focus the input whenever the palette opens.
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  const results = useMemo(() => rank(commands, query), [commands, query]);
+
+  // Keep selection in range as the result set shrinks/grows.
+  useEffect(() => {
+    if (sel >= results.length) setSel(results.length === 0 ? 0 : results.length - 1);
+  }, [results.length, sel]);
+
+  const run = useCallback(
+    (i: number) => {
+      const r = results[i];
+      if (!r) return;
+      close();
+      r.cmd.run();
+    },
+    [results, close],
+  );
+
+  // Within-list keyboard nav: Arrow up/down wrap, Enter runs.
+  const onInputKey = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSel((s) => (results.length === 0 ? 0 : (s + 1) % results.length));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSel((s) => (results.length === 0 ? 0 : (s - 1 + results.length) % results.length));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      run(sel);
+    }
+  };
+
+  if (!open) return null;
+
+  // Group results in first-appearance order, preserving the flat selection index.
+  const groups: { group: string; rows: { r: Ranked; idx: number }[] }[] = [];
+  results.forEach((r, idx) => {
+    let g = groups.find((x) => x.group === r.cmd.group);
+    if (!g) {
+      g = { group: r.cmd.group, rows: [] };
+      groups.push(g);
+    }
+    g.rows.push({ r, idx });
+  });
+
+  return (
+    <div
+      data-testid="command-palette"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(0,0,0,0.3)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        paddingTop: "12vh",
+      }}
+    >
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          width: 560,
+          maxWidth: "92vw",
+          background: "var(--color-background-primary)",
+          border: "0.5px solid var(--color-border-secondary)",
+          borderRadius: 10,
+          boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <input
+          ref={inputRef}
+          data-palette-input="true"
+          data-testid="command-palette-input"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setSel(0);
+          }}
+          onKeyDown={onInputKey}
+          placeholder="jump to cluster, section, pod, release…"
+          spellCheck={false}
+          autoComplete="off"
+          style={{
+            border: "none",
+            borderBottom: "0.5px solid var(--color-border-tertiary)",
+            outline: "none",
+            background: "transparent",
+            color: "var(--color-text-primary)",
+            fontSize: 15,
+            padding: "14px 16px",
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        />
+
+        <div ref={listRef} style={{ maxHeight: "50vh", overflowY: "auto", padding: "4px 0" }}>
+          {results.length === 0 ? (
+            <div style={{ padding: "16px", fontSize: 13, color: "var(--color-text-tertiary)" }}>
+              No matches.
+            </div>
+          ) : (
+            groups.map((g) => (
+              <div key={g.group}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.6,
+                    color: "var(--color-text-tertiary)",
+                    padding: "8px 16px 4px",
+                  }}
+                >
+                  {g.group}
+                </div>
+                {g.rows.map(({ r, idx }) => {
+                  const selected = idx === sel;
+                  return (
+                    <div
+                      key={r.cmd.id}
+                      data-testid={`command-row-${r.cmd.id}`}
+                      data-selected={selected ? "true" : "false"}
+                      onMouseMove={() => setSel(idx)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        run(idx);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "7px 16px",
+                        cursor: "pointer",
+                        fontSize: 13,
+                        color: "var(--color-text-primary)",
+                        background: selected ? "var(--color-background-secondary)" : "transparent",
+                      }}
+                    >
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <Highlighted text={r.cmd.title} positions={r.positions} />
+                      </span>
+                      {r.cmd.hint && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--color-text-tertiary)",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {r.cmd.hint}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div
+          style={{
+            fontSize: 10,
+            color: "var(--color-text-tertiary)",
+            padding: "7px 16px",
+            borderTop: "0.5px solid var(--color-border-tertiary)",
+            background: "var(--color-background-secondary)",
+          }}
+        >
+          ↑↓ navigate · ↵ open · esc close · showing loaded data
+        </div>
+      </div>
+    </div>
+  );
+}
