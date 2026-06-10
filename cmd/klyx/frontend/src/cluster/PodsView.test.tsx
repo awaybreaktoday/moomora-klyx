@@ -13,8 +13,12 @@ vi.mock("../bridge/workloads", () => ({
   listWorkloads: vi.fn().mockResolvedValue(undefined),
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("../bridge/windows", () => ({
+  openLogsWindow: vi.fn().mockResolvedValue(true),
+}));
 import { openPodDetail, deletePod } from "../bridge/pods";
 import { rolloutRestart } from "../bridge/workloads";
+import { openLogsWindow } from "../bridge/windows";
 
 // LogsPane uses LogsService and Wails Events — stub them out so PodsView tests
 // don't need a Wails runtime.
@@ -483,6 +487,34 @@ describe("PodsView", () => {
     const dockText = dock.textContent ?? "";
     expect(dockText).toContain("pod-second");
     expect(dockText).toContain("default");
+  });
+
+  // --- Pop-out log window ---
+
+  it("dock 'open in window' button calls openLogsWindow with pod + container and closes dock", async () => {
+    seed([healthy]);
+    useFleet.setState((s) => ({
+      pods: {
+        ...s.pods,
+        selected: { namespace: "monitoring", name: "grafana-xyz" },
+        detail: fakeDetail,
+        detailLoading: false,
+      },
+    }));
+    const { getByRole, getByTestId, queryByTestId, findByRole } = render(<PodsView cluster="homelab" />);
+    // Open the dock.
+    fireEvent.click(getByRole("button", { name: /open logs dock/i }));
+    expect(getByTestId("logs-dock")).toBeTruthy();
+
+    // LogsPane reports the active container ("app") via onContainerChange on mount.
+    const popOutBtn = await findByRole("button", { name: /open logs in window/i });
+    await act(async () => {
+      fireEvent.click(popOutBtn);
+    });
+
+    expect(openLogsWindow).toHaveBeenCalledWith("homelab", "monitoring", "grafana-xyz", "app");
+    // On success the dock closes (tail moved to the native window).
+    expect(queryByTestId("logs-dock")).toBeNull();
   });
 
   it("StatefulSet owner calls rolloutRestart directly without name transformation", () => {

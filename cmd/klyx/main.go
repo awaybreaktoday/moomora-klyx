@@ -49,6 +49,7 @@ func main() {
 	svc := appbridge.NewFleetService(reg, cfg, time.Now)
 
 	em := &emitterAdapter{}
+	winOpener := &windowOpener{}
 
 	gitopsSvc := appbridge.NewGitOpsService(
 		func(name string) (appbridge.GitOpsConn, bool) {
@@ -220,6 +221,8 @@ func main() {
 		return c, true
 	})
 
+	windowsSvc := appbridge.NewWindowsService(winOpener)
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -239,6 +242,7 @@ func main() {
 			application.NewService(forwardsSvc),
 			application.NewService(execSvc),
 			application.NewService(helmSvc),
+			application.NewService(windowsSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -257,6 +261,7 @@ func main() {
 	})
 
 	em.app = app
+	winOpener.app = app
 
 	go svc.Run(ctx, em, time.Second)
 
@@ -284,4 +289,30 @@ func (e *emitterAdapter) Emit(name string, data any) {
 		return
 	}
 	e.app.Event.Emit(name, data)
+}
+
+// windowOpener adapts the Wails window API to appbridge.WindowOpener. It opens
+// auxiliary windows (pop-out log tails) on the same app handle as the main
+// window. NewWithOptions is safe to call after Run has started: Wails queues the
+// creation onto the main thread internally (runOrDeferToAppRun), so callers do
+// not need to dispatch. New windows boot the same embedded SPA; the frontend
+// branches on the `logswin` query flag to render only the log pane.
+type windowOpener struct{ app *application.App }
+
+func (w *windowOpener) OpenWindow(title, url string, width, height int) {
+	if w.app == nil {
+		return
+	}
+	w.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:  title,
+		URL:    url,
+		Width:  width,
+		Height: height,
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 0,
+			Backdrop:                application.MacBackdropTranslucent,
+			TitleBar:                application.MacTitleBarHiddenInset,
+		},
+		BackgroundColour: application.NewRGB(15, 20, 30),
+	})
 }

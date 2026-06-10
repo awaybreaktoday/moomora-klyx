@@ -423,4 +423,52 @@ describe("LogsPane", () => {
     });
     await waitFor(() => getByText(/1\/3/));
   });
+
+  // -------------------------------------------------------------------------
+  // New tests: pop-out hosting (hostedInWindow / initialContainer)
+  // -------------------------------------------------------------------------
+
+  it("hostedInWindow hides the expand button", async () => {
+    mockOpenLogStream.mockImplementation(() => openSuccess("s-host"));
+    const { queryByRole } = render(
+      <LogsPane cluster="homelab" pod={defaultPod} hostedInWindow />,
+    );
+    await waitFor(() => expect(mockOpenLogStream).toHaveBeenCalled());
+    expect(queryByRole("button", { name: /expand logs/i })).toBeNull();
+  });
+
+  it("initialContainer with empty containers streams that container as static text", async () => {
+    mockOpenLogStream.mockImplementation(() => openSuccess("s-static"));
+    const { getByText, queryByRole } = render(
+      <LogsPane
+        cluster="prod"
+        pod={{ namespace: "monitoring", name: "grafana-1", containers: [] }}
+        initialContainer="grafana"
+        hostedInWindow
+      />,
+    );
+    await waitFor(() => expect(mockOpenLogStream).toHaveBeenCalledTimes(1));
+    // Stream opened on the explicit container.
+    expect(mockOpenLogStream).toHaveBeenCalledWith(
+      "prod", "monitoring", "grafana-1", "grafana", false, 500,
+    );
+    // Rendered as static text, not a select.
+    expect(queryByRole("combobox", { name: /container/i })).toBeNull();
+    expect(getByText("grafana")).toBeTruthy();
+  });
+
+  it("onContainerChange fires with the active container on mount and switch", async () => {
+    mockOpenLogStream.mockImplementation(() => openSuccess("s-cc"));
+    const onContainerChange = vi.fn();
+    const { getByRole } = render(
+      <LogsPane cluster="homelab" pod={defaultPod} onContainerChange={onContainerChange} />,
+    );
+    await waitFor(() => expect(onContainerChange).toHaveBeenCalledWith("app"));
+
+    const select = getByRole("combobox", { name: /container/i });
+    act(() => {
+      fireEvent.change(select, { target: { value: "sidecar" } });
+    });
+    await waitFor(() => expect(onContainerChange).toHaveBeenLastCalledWith("sidecar"));
+  });
 });

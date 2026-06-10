@@ -29,12 +29,38 @@ interface PodRef {
   containers: ContainerSummaryDTO[];
 }
 
-export function LogsPane({ cluster, pod }: { cluster: string; pod: PodRef }) {
+export function LogsPane({
+  cluster,
+  pod,
+  initialContainer,
+  hostedInWindow = false,
+  onContainerChange,
+}: {
+  cluster: string;
+  pod: PodRef;
+  // initialContainer is used when the containers list is empty (the pop-out
+  // window has no pod summary, only the container param). When set with an empty
+  // containers list, the picker is replaced by static text and the stream opens
+  // on this container directly.
+  initialContainer?: string;
+  // hostedInWindow hides the expand affordance (fixed-overlay expand is
+  // meaningless in a dedicated OS window) and arms a beforeunload best-effort
+  // stream close.
+  hostedInWindow?: boolean;
+  // onContainerChange notifies the host of the active container so a parent (the
+  // dock) can carry it into a pop-out. Fired on initial select and every switch.
+  onContainerChange?: (container: string) => void;
+}) {
   // -- container picker --
   const regular = pod.containers.filter((c) => !c.init);
   const init = pod.containers.filter((c) => c.init);
   const ordered = [...regular, ...init];
-  const firstRegular = regular[0]?.name ?? ordered[0]?.name ?? "";
+  // Default selection: first regular container, else first of any, else the
+  // explicit initialContainer (the pop-out case with no containers list).
+  const firstRegular = regular[0]?.name ?? ordered[0]?.name ?? initialContainer ?? "";
+  // staticContainer: no picker options but an explicit container was provided
+  // (pop-out). Render it as static text rather than an empty select.
+  const staticContainer = pod.containers.length === 0 && (initialContainer ?? "") !== "";
 
   const [container, setContainer] = useState(firstRegular);
   const [previous, setPrevious] = useState(false);
@@ -211,6 +237,29 @@ export function LogsPane({ cluster, pod }: { cluster: string; pod: PodRef }) {
     };
   }, [cluster, pod.namespace, pod.name, container, previous, tailLines]);
 
+  // Notify the host of the active container (initial + every switch) so a parent
+  // can carry the selection into a pop-out window.
+  useEffect(() => {
+    onContainerChange?.(container);
+  }, [container]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -- pop-out unload: best-effort close of the live stream --
+  // When hosted in a dedicated OS window, the React unmount cleanup does NOT run
+  // on window close (the webview is torn down without a normal React lifecycle),
+  // so wire a beforeunload to close the apiserver stream. This is best-effort:
+  // if the window is killed (force-quit) the close may be missed, but the
+  // per-stream concurrency cap (oldest evicted on new open) and the app-quit
+  // CloseAll() drain in OnShutdown are the backstops that bound leaked streams.
+  useEffect(() => {
+    if (!hostedInWindow) return;
+    const onUnload = () => {
+      const sid = streamIdRef.current;
+      if (sid) LogsService.CloseLogStream(sid).catch(() => undefined);
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [hostedInWindow]);
+
   // -- Esc: collapse if expanded, stop propagation so panel/list Esc handlers don't fire --
   useEffect(() => {
     if (!expanded) return;
@@ -297,16 +346,23 @@ export function LogsPane({ cluster, pod }: { cluster: string; pod: PodRef }) {
 
   const controlsBar = (
     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
-      {/* Container picker */}
-      <select
-        value={container}
-        onChange={(e) => setContainer(e.target.value)}
-        style={selectStyle}
-        aria-label="container"
-      >
-        {regular.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
-        {init.map((c) => <option key={c.name} value={c.name}>init: {c.name}</option>)}
-      </select>
+      {/* Container picker — or static text when hosted with no containers list */}
+      {staticContainer ? (
+        <span
+          style={{ fontSize: 11, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
+          aria-label="container"
+        >{container}</span>
+      ) : (
+        <select
+          value={container}
+          onChange={(e) => setContainer(e.target.value)}
+          style={selectStyle}
+          aria-label="container"
+        >
+          {regular.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+          {init.map((c) => <option key={c.name} value={c.name}>init: {c.name}</option>)}
+        </select>
+      )}
 
       {/* Tail lines */}
       <select
@@ -374,17 +430,20 @@ export function LogsPane({ cluster, pod }: { cluster: string; pod: PodRef }) {
         {copyState === "copied" ? "copied!" : "copy"}
       </button>
 
-      {/* Expand / collapse */}
-      <button
-        style={iconBtnStyle}
-        onClick={() => setExpanded((v) => !v)}
-        aria-label={expanded ? "collapse logs" : "expand logs"}
-        title={expanded ? "collapse (Esc)" : "expand"}
-      >
-        {expanded
-          ? <IconArrowsDiagonalMinimize size={13} stroke={1.5} />
-          : <IconArrowsDiagonal size={13} stroke={1.5} />}
-      </button>
+      {/* Expand / collapse — hidden in a pop-out window (fixed-overlay expand is
+          meaningless when the pane already owns the whole window). */}
+      {!hostedInWindow && (
+        <button
+          style={iconBtnStyle}
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "collapse logs" : "expand logs"}
+          title={expanded ? "collapse (Esc)" : "expand"}
+        >
+          {expanded
+            ? <IconArrowsDiagonalMinimize size={13} stroke={1.5} />
+            : <IconArrowsDiagonal size={13} stroke={1.5} />}
+        </button>
+      )}
 
       {/* Status (right-aligned) */}
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, fontSize: 10 }}>

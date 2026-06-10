@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { IconTerminal2 } from "@tabler/icons-react";
+import { IconTerminal2, IconExternalLink } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { PodDetailDTO, PodSummaryDTO, ContainerSummaryDTO } from "../store/fleet";
 import { listPods, openPodDetail, deletePod } from "../bridge/pods";
+import { openLogsWindow } from "../bridge/windows";
 import { rolloutRestart } from "../bridge/workloads";
 import { copyExecCommand, openExecTerminal } from "../bridge/exec";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
@@ -198,6 +199,12 @@ export function PodsView({ cluster }: { cluster: string }) {
           cluster={cluster}
           target={logsTarget}
           onClose={() => setLogsTarget(null)}
+          onPopOut={async (container) => {
+            const ok = await openLogsWindow(cluster, logsTarget.namespace, logsTarget.name, container);
+            // On success the tail moved to the native window; close the dock so we
+            // don't double-tail the same container. On failure keep the dock open.
+            if (ok) setLogsTarget(null);
+          }}
         />
       )}
     </div>
@@ -453,12 +460,17 @@ function LogsDock({
   cluster,
   target,
   onClose,
+  onPopOut,
 }: {
   cluster: string;
   target: { namespace: string; name: string; containers: ContainerSummaryDTO[] };
   onClose: () => void;
+  onPopOut: (container: string) => void;
 }) {
   const { height, handleProps } = useResizableDock();
+  // Track the container currently selected inside LogsPane so the pop-out opens
+  // the same tail. LogsPane owns container state; it reports via onContainerChange.
+  const [container, setContainer] = useState("");
 
   return (
     <div
@@ -496,7 +508,15 @@ function LogsDock({
           <span style={{ color: "var(--color-text-tertiary)" }}>{target.namespace}</span>/{target.name}
         </span>
         <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>logs</span>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            onClick={() => onPopOut(container)}
+            style={{ ...btn, padding: "2px 6px", fontSize: 12, display: "flex", alignItems: "center" }}
+            aria-label="open logs in window"
+            title="Open logs in a separate window"
+          >
+            <IconExternalLink size={13} stroke={1.5} />
+          </button>
           <button
             onClick={onClose}
             style={{ ...btn, padding: "2px 8px", fontSize: 12 }}
@@ -513,6 +533,7 @@ function LogsDock({
           key={`${target.namespace}/${target.name}`}
           cluster={cluster}
           pod={target}
+          onContainerChange={setContainer}
         />
       </div>
     </div>
