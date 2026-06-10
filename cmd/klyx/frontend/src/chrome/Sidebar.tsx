@@ -6,6 +6,7 @@ import {
   IconComponents,
 } from "@tabler/icons-react";
 import { useFleet, ClusterSection, SECTION_LABELS } from "../store/fleet";
+import { BUILTIN_CATALOG } from "../cluster/builtins";
 
 const COLLAPSED_WIDTH = 46;
 const EXPANDED_WIDTH = 190;
@@ -33,6 +34,8 @@ export function Sidebar() {
   const route = useFleet((s) => s.route);
   const openFleet = useFleet((s) => s.openFleet);
   const setSection = useFleet((s) => s.setSection);
+  const builtinCategory = useFleet((s) => s.crd.builtinCategory);
+  const setBuiltinCategory = useFleet((s) => s.setBuiltinCategory);
   const inCluster = route.name === "cluster";
 
   const [expanded, setExpanded] = useState<boolean>(readPersistedExpanded);
@@ -82,16 +85,47 @@ export function Sidebar() {
 
       {/* Section nav */}
       {SECTION_ICONS.map(({ section, Icon }) => (
-        <RailButton
-          key={section}
-          label={SECTION_LABELS[section]}
-          disabled={!inCluster}
-          active={inCluster && route.section === section}
-          onClick={() => setSection(section)}
-          expanded={expanded}
-        >
-          <Icon size={16} stroke={1.5} />
-        </RailButton>
+        <div key={section}>
+          <RailButton
+            label={SECTION_LABELS[section]}
+            disabled={!inCluster}
+            active={inCluster && route.section === section}
+            onClick={() => setSection(section)}
+            expanded={expanded}
+          >
+            <Icon size={16} stroke={1.5} />
+          </RailButton>
+          {expanded && inCluster && route.section === section && section === "resources" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {BUILTIN_CATALOG.map((cat) => (
+                <button
+                  key={cat.label}
+                  aria-label={`category ${cat.label}`}
+                  onClick={() => { setSection("resources"); setBuiltinCategory(builtinCategory === cat.label ? null : cat.label); }}
+                  style={{
+                    display: "flex", alignItems: "center",
+                    width: "calc(100% - 18px)",
+                    height: 24,
+                    margin: "0 9px",
+                    paddingLeft: 28,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    background: builtinCategory === cat.label ? "var(--color-background-primary)" : "transparent",
+                    border: builtinCategory === cat.label ? "0.5px solid var(--color-border-secondary)" : "0.5px solid transparent",
+                    color: builtinCategory === cat.label ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                    fontSize: 11,
+                    textAlign: "left",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       ))}
 
       <div style={{ flex: 1 }} />

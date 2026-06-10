@@ -1,11 +1,15 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { useFleet } from "../store/fleet";
 import { Sidebar } from "./Sidebar";
 
 beforeEach(() => {
   localStorage.clear();
-  useFleet.setState({ clusters: [], route: { name: "fleet" } });
+  useFleet.setState({
+    clusters: [],
+    route: { name: "fleet" },
+    crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
+  });
 });
 
 // --- legacy nav tests (preserved) ---
@@ -114,5 +118,69 @@ describe("Sidebar active state", () => {
     const workloads = getByLabelText("Workloads") as HTMLButtonElement;
     const labelSpan = workloads.querySelector("span:last-child") as HTMLElement;
     expect(labelSpan.style.fontWeight).toBe("400");
+  });
+});
+
+// --- category sub-nav ---
+
+describe("Sidebar category sub-nav", () => {
+  it("expanded + resources active shows six category sub-items", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.getState().openCluster("x");
+    useFleet.getState().setSection("resources");
+    const { getByLabelText } = render(<Sidebar />);
+    expect(getByLabelText("category Workloads")).toBeTruthy();
+    expect(getByLabelText("category Config")).toBeTruthy();
+    expect(getByLabelText("category Network")).toBeTruthy();
+    expect(getByLabelText("category Storage")).toBeTruthy();
+    expect(getByLabelText("category Cluster")).toBeTruthy();
+    expect(getByLabelText("category Access")).toBeTruthy();
+  });
+
+  it("clicking a sub-item sets builtinCategory in the store", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.getState().openCluster("x");
+    useFleet.getState().setSection("resources");
+    const setBuiltinCategory = vi.spyOn(useFleet.getState(), "setBuiltinCategory");
+    const { getByLabelText } = render(<Sidebar />);
+    fireEvent.click(getByLabelText("category Config"));
+    expect(useFleet.getState().crd.builtinCategory).toBe("Config");
+    setBuiltinCategory.mockRestore();
+  });
+
+  it("collapsed mode does not show sub-items even when resources is active", () => {
+    // Default is collapsed (no localStorage entry)
+    useFleet.getState().openCluster("x");
+    useFleet.getState().setSection("resources");
+    const { queryByLabelText } = render(<Sidebar />);
+    expect(queryByLabelText("category Config")).toBeNull();
+  });
+
+  it("expanded + non-resources section active does not show sub-items", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.getState().openCluster("x");
+    useFleet.getState().setSection("workloads");
+    const { queryByLabelText } = render(<Sidebar />);
+    expect(queryByLabelText("category Config")).toBeNull();
+  });
+
+  it("active category sub-item gets active background when builtinCategory matches", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.getState().openCluster("x");
+    useFleet.getState().setSection("resources");
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config" } });
+    const { getByLabelText } = render(<Sidebar />);
+    const btn = getByLabelText("category Config") as HTMLButtonElement;
+    expect(btn.style.background).toContain("--color-background-primary");
+  });
+
+  it("no sub-item highlighted when builtinCategory is null", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.getState().openCluster("x");
+    useFleet.getState().setSection("resources");
+    const { getByLabelText } = render(<Sidebar />);
+    const btn = getByLabelText("category Config") as HTMLButtonElement;
+    // background should be transparent (not the active color)
+    expect(btn.style.background).toBe("transparent");
   });
 });

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useFleet, ResourceRef, crdCountKey } from "../store/fleet";
 import { countKind } from "../bridge/crd";
 import { BUILTIN_CATALOG } from "./builtins";
+import { Chip } from "../chrome/Chip";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
@@ -14,18 +15,19 @@ function matchesBuiltin(ref: ResourceRef, q: string): boolean {
 export function BuiltinsView({ cluster }: { cluster: string }) {
   const search = useFleet((s) => s.crd.search);
   const setSearch = useFleet((s) => s.setCRDSearch);
+  const builtinCategory = useFleet((s) => s.crd.builtinCategory);
+  const setBuiltinCategory = useFleet((s) => s.setBuiltinCategory);
 
   const categories = BUILTIN_CATALOG
+    .filter((cat) => builtinCategory === null || cat.label === builtinCategory)
     .map((cat) => ({ ...cat, kinds: cat.kinds.filter((ref) => matchesBuiltin(ref, search)) }))
     .filter((cat) => cat.kinds.length > 0);
 
-  if (categories.length === 0) {
-    return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>No built-in resources match your search.</div>;
-  }
+  const isEmpty = categories.length === 0;
 
   return (
     <div style={{ padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
           Built-in resource catalog
         </div>
@@ -38,11 +40,29 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
         />
       </div>
 
-      <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
-        {categories.map((cat) => (
-          <BuiltinCategory key={cat.label} cluster={cluster} label={cat.label} kinds={cat.kinds} />
+      {/* Category chip row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        <Chip on={builtinCategory === null} onClick={() => setBuiltinCategory(null)}>all</Chip>
+        {BUILTIN_CATALOG.map((cat) => (
+          <Chip
+            key={cat.label}
+            on={builtinCategory === cat.label}
+            onClick={() => setBuiltinCategory(builtinCategory === cat.label ? null : cat.label)}
+          >
+            {cat.label}
+          </Chip>
         ))}
       </div>
+
+      {isEmpty ? (
+        <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>No built-in resources match your search.</div>
+      ) : (
+        <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
+          {categories.map((cat) => (
+            <BuiltinCategory key={cat.label} cluster={cluster} label={cat.label} kinds={cat.kinds} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
