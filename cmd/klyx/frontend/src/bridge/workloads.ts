@@ -3,6 +3,19 @@ import { WorkloadsService } from "../../bindings/github.com/moomora/klyx/interna
 
 type ActionResultDTO = { ok: boolean; error: string };
 
+export async function scaleWorkload(cluster: string, kind: string, namespace: string, name: string, replicas: number): Promise<void> {
+  const r = (await WorkloadsService.ScaleWorkload(cluster, kind, namespace, name, replicas)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok
+      ? { kind: "success", message: `scaled ${kind.toLowerCase()} ${namespace}/${name} to ${replicas}` }
+      : { kind: "error", message: r.error || "Scale failed" },
+  );
+  if (r.ok) {
+    const cur = useFleet.getState().workloads;
+    void listWorkloads(cluster, cur.namespace);
+  }
+}
+
 export async function rolloutRestart(cluster: string, kind: string, namespace: string, name: string): Promise<void> {
   const r = (await WorkloadsService.RolloutRestart(cluster, kind, namespace, name)) as ActionResultDTO;
   useFleet.getState().setActionStatus(

@@ -196,6 +196,22 @@ func main() {
 		return c, true
 	}, em)
 
+	forwardsSvc := appbridge.NewForwardsService(func(name string) (appbridge.ForwardsConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	}, em)
+
+	execSvc := appbridge.NewExecService(func(name string) (appbridge.ExecConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -212,12 +228,22 @@ func main() {
 			application.NewService(eventsSvc),
 			application.NewService(nodesSvc),
 			application.NewService(nodeOpsSvc),
+			application.NewService(forwardsSvc),
+			application.NewService(execSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+		// Drain every long-lived resource on quit: port-forwards bind local OS
+		// sockets/SPDY tunnels, log tails hold apiserver streams, and drains own
+		// child kubectl processes - none may outlive the app.
+		OnShutdown: func() {
+			forwardsSvc.StopAll()
+			logsSvc.CloseAll()
+			nodeOpsSvc.CancelAll()
 		},
 	})
 

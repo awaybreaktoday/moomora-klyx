@@ -2,11 +2,33 @@ package appbridge
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
 	"github.com/moomora/klyx/internal/workloads"
 )
+
+const maxScaleReplicas = 10000
+
+// ScaleWorkload sets the replica count on a Deployment or StatefulSet. replicas
+// must be in [0, 10000]; negative or out-of-range values are rejected here
+// before the network round-trip. kind must be Deployment or StatefulSet.
+func (s *WorkloadsService) ScaleWorkload(cluster, kind, namespace, name string, replicas int) ActionResultDTO {
+	if replicas < 0 || replicas > maxScaleReplicas {
+		return ActionResultDTO{Error: fmt.Sprintf("replicas %d out of range [0, %d]", replicas, maxScaleReplicas)}
+	}
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.ScaleWorkload(ctx, kind, namespace, name, int32(replicas)); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
+}
 
 // RolloutRestart triggers a rolling restart for a workload by patching the
 // pod-template restartedAt annotation. kind must be Deployment, StatefulSet,
@@ -30,6 +52,7 @@ type WorkloadsConn interface {
 	ListWorkloads(ctx context.Context, namespace string) ([]workloads.Workload, bool, error)
 	WorkloadMetrics(ctx context.Context, namespace string) (map[string]workloads.Usage, workloads.UsageStatus)
 	RolloutRestart(ctx context.Context, kind, namespace, name string) error
+	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
 }
 
 type WorkloadsService struct {

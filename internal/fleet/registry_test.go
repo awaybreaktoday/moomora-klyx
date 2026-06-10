@@ -72,6 +72,9 @@ func (f *fakeConn) WorkloadMetrics(context.Context, string) (map[string]workload
 	return nil, workloads.UsageStatus{}
 }
 func (f *fakeConn) RolloutRestart(context.Context, string, string, string) error { return nil }
+func (f *fakeConn) ScaleWorkload(context.Context, string, string, string, int32) error {
+	return nil
+}
 func (f *fakeConn) CountResource(ctx context.Context, group, version, plural string) (int, bool, error) {
 	return 0, false, nil
 }
@@ -103,6 +106,15 @@ func (f *fakeConn) RevealSecretKey(ctx context.Context, ns, name, key string) (s
 func (f *fakeConn) SetCordon(context.Context, string, bool) error { return nil }
 func (f *fakeConn) DrainNodeCmd(nodeName string) (*exec.Cmd, error) {
 	return exec.Command("true"), nil
+}
+func (f *fakeConn) ExecCommand(namespace, pod, container string) ([]string, error) {
+	return []string{"kubectl", "exec", pod}, nil
+}
+func (f *fakeConn) PortForward(context.Context, string, string, int, int) (func(), int, <-chan error, error) {
+	return func() {}, 0, nil, nil
+}
+func (f *fakeConn) ResolveServicePod(context.Context, string, string, int) (string, int, error) {
+	return "", 0, nil
 }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {

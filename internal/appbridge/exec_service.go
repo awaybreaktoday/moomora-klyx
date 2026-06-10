@@ -1,0 +1,126 @@
+package appbridge
+
+import (
+	"fmt"
+	"os/exec"
+	"runtime"
+	"strings"
+)
+
+// ExecConn is the per-cluster surface ExecService needs (lookup seam).
+type ExecConn interface {
+	ExecCommand(namespace, pod, container string) ([]string, error)
+}
+
+// ExecCommandDTO is the response from GetExecCommand.
+type ExecCommandDTO struct {
+	// Command is the display/copy string: argv joined with shell quoting applied
+	// to any argument that contains shell-special characters.
+	Command string `json:"command"`
+	// Argv is the raw unquoted argument vector, suitable for os/exec.Command.
+	Argv  []string `json:"argv"`
+	Error string   `json:"error"`
+}
+
+// ExecService is bound to JS. It provides two operations:
+//   - GetExecCommand: returns the kubectl exec argv and a display/copy command string.
+//   - OpenExecTerminal: launches the OS terminal running the kubectl exec command.
+type ExecService struct {
+	lookup func(string) (ExecConn, bool)
+}
+
+// NewExecService creates an ExecService with the given cluster-lookup function.
+func NewExecService(lookup func(string) (ExecConn, bool)) *ExecService {
+	return &ExecService{lookup: lookup}
+}
+
+// GetExecCommand returns the kubectl exec argv and a shell-quoted display command
+// for the given cluster/namespace/pod/container. container may be "" (omitted).
+func (s *ExecService) GetExecCommand(cluster, ns, pod, container string) ExecCommandDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ExecCommandDTO{Error: "cluster not connected: " + cluster}
+	}
+	argv, err := conn.ExecCommand(ns, pod, container)
+	if err != nil {
+		return ExecCommandDTO{Error: err.Error()}
+	}
+	return ExecCommandDTO{
+		Command: shellQuoteArgv(argv),
+		Argv:    argv,
+	}
+}
+
+// OpenExecTerminal launches the OS terminal with the kubectl exec command.
+// On macOS it uses osascript to open Terminal.app; on other platforms it
+// returns an error asking the user to copy and paste the command.
+//
+// The process is started but not waited on (fire-and-forget). A goroutine
+// calls cmd.Wait() to reap the osascript child and avoid zombies; the
+// terminal process itself is detached and lives beyond osascript's exit.
+func (s *ExecService) OpenExecTerminal(cluster, ns, pod, container string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	argv, err := conn.ExecCommand(ns, pod, container)
+	if err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+
+	if runtime.GOOS != "darwin" {
+		return ActionResultDTO{Error: "open-terminal not supported on this platform yet - use copy command"}
+	}
+
+	// Build the AppleScript. The inner do script argument is the quoted kubectl
+	// command; we escape double quotes for the AppleScript string context.
+	cmdStr := shellQuoteArgv(argv)
+	// Escape double quotes and backslashes for embedding in an AppleScript string.
+	escaped := strings.ReplaceAll(cmdStr, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	script := fmt.Sprintf(
+		`tell application "Terminal" to do script "%s"`,
+		escaped,
+	) + "\n" +
+		`tell application "Terminal" to activate`
+
+	cmd := exec.Command("osascript", "-e", script) //nolint:gosec // argv built internally
+	if err := cmd.Start(); err != nil {
+		return ActionResultDTO{Error: "open terminal: " + err.Error()}
+	}
+	// Reap the osascript child to avoid zombies. Terminal itself is detached.
+	go func() { _ = cmd.Wait() }()
+
+	return ActionResultDTO{OK: true}
+}
+
+// shellQuoteArgv joins argv into a single string, wrapping any argument that
+// contains shell-special characters in single quotes and escaping embedded
+// single quotes as '\”.
+//
+// Characters that trigger quoting: space, $, &, |, ;, <, >, *, ?, ', ", `.
+func shellQuoteArgv(argv []string) string {
+	parts := make([]string, len(argv))
+	for i, arg := range argv {
+		parts[i] = shellQuoteArg(arg)
+	}
+	return strings.Join(parts, " ")
+}
+
+// shellSpecial contains the characters that require single-quote wrapping.
+const shellSpecial = " \t$&|;<>*?'\"`"
+
+func shellQuoteArg(arg string) string {
+	needsQuote := false
+	for _, ch := range shellSpecial {
+		if strings.ContainsRune(arg, ch) {
+			needsQuote = true
+			break
+		}
+	}
+	if !needsQuote {
+		return arg
+	}
+	// Single-quote the whole argument; escape embedded single quotes as '\''.
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+}

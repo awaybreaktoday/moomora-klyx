@@ -158,6 +158,20 @@ func (s *NodeOpsService) StartDrain(cluster, node string) OpenLogStreamResultDTO
 	return OpenLogStreamResultDTO{StreamID: streamID}
 }
 
+// CancelAll cancels every running drain (app shutdown: child kubectl
+// processes must not outlive the app). Idempotent.
+func (s *NodeOpsService) CancelAll() {
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.drains))
+	for id := range s.drains {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		s.CancelDrain(id)
+	}
+}
+
 // CancelDrain kills the running drain process and waits briefly for the reader
 // to exit. Idempotent: unknown or already-finished ids are no-ops.
 func (s *NodeOpsService) CancelDrain(streamID string) {
