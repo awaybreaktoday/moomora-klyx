@@ -175,3 +175,102 @@ describe("BuiltinsView - category chips", () => {
     expect(useFleet.getState().crd.builtinCategory).toBeNull();
   });
 });
+
+describe("BuiltinsView - lens links in Workloads", () => {
+  it("Workloads category shows Deployments, StatefulSets, DaemonSets, Pods before Job/CronJob", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Workloads" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    expect(getByText("Deployments")).toBeTruthy();
+    expect(getByText("StatefulSets")).toBeTruthy();
+    expect(getByText("DaemonSets")).toBeTruthy();
+    expect(getByText("Pods")).toBeTruthy();
+    // gvr entries still present
+    expect(getByText("Job")).toBeTruthy();
+    expect(getByText("CronJob")).toBeTruthy();
+    expect(getByText("ReplicaSet")).toBeTruthy();
+  });
+
+  it("lens entries show the hint text", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Workloads" } });
+    const { getAllByText } = render(<BuiltinsView cluster="x" />);
+    // "health lens →" appears for each of the four lens entries
+    expect(getAllByText("health lens →").length).toBe(4);
+  });
+
+  it("clicking Deployments calls setSection('workloads')", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("Deployments"));
+    const r = useFleet.getState().route;
+    expect(r.name).toBe("cluster");
+    if (r.name === "cluster") {
+      expect(r.section).toBe("workloads");
+      // lens navigation must not set a resource ref
+      expect(r.resource).toBeUndefined();
+    }
+  });
+
+  it("clicking StatefulSets calls setSection('workloads')", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("StatefulSets"));
+    const r = useFleet.getState().route;
+    if (r.name === "cluster") {
+      expect(r.section).toBe("workloads");
+    }
+  });
+
+  it("clicking DaemonSets calls setSection('workloads')", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("DaemonSets"));
+    const r = useFleet.getState().route;
+    if (r.name === "cluster") {
+      expect(r.section).toBe("workloads");
+    }
+  });
+
+  it("clicking Pods calls setSection('pods')", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("Pods"));
+    const r = useFleet.getState().route;
+    expect(r.name).toBe("cluster");
+    if (r.name === "cluster") {
+      expect(r.section).toBe("pods");
+      expect(r.resource).toBeUndefined();
+    }
+  });
+
+  it("gvr rows still drill to instance list (Job)", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("Job"));
+    const r = useFleet.getState().route;
+    if (r.name === "cluster") {
+      expect(r.resource?.kind).toBe("Job");
+    }
+  });
+
+  it("search matches lens entry by label (deploy)", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "deploy", builtinCategory: null } });
+    const { getByText, queryByText } = render(<BuiltinsView cluster="x" />);
+    expect(getByText("Deployments")).toBeTruthy();
+    // unrelated entries absent
+    expect(queryByText("ConfigMap")).toBeNull();
+  });
+
+  it("lens entries do not trigger countKind", () => {
+    const mockCountKind = countKind as ReturnType<typeof vi.fn>;
+    mockCountKind.mockClear();
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Workloads" } });
+    render(<BuiltinsView cluster="x" />);
+    // countKind should only be called for the gvr entries (jobs, cronjobs, replicasets)
+    const calls = (mockCountKind as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => c[3]);
+    expect(calls).not.toContain("deployments");
+    expect(calls).not.toContain("pods");
+    expect(calls).toContain("jobs");
+    expect(calls).toContain("cronjobs");
+    expect(calls).toContain("replicasets");
+  });
+});
