@@ -139,18 +139,18 @@ Branch: `feat/dd3-day2-ops`
 - [x] T4 Gate + verify (forward to a homelab svc and curl it locally; exec opens
       terminal), merge.
 
-### DD4 — Helm releases (CLI-backed)
+### DD4 — Helm releases (CLI-backed) — MERGED to main 2026-06-10
 Branch: `feat/dd4-helm`
 
-- [ ] T1 helm CLI adapter in Go: detect binary, `helm list -A -o json`,
+- [x] T1 helm CLI adapter in Go: detect binary, `helm list -A -o json`,
       `helm history/status/get values/get manifest -o json` per release; parse;
       capability = binary present (degrade honestly when absent).
-- [ ] T2 appbridge HelmService + "helm" inside GitOps section or own section
+- [x] T2 appbridge HelmService + "helm" inside GitOps section or own section
       (decide: it complements Flux HelmReleases — show BOTH the Flux object and the
       underlying helm release state; vocabulary stays helm's: revision, status).
-- [ ] T3 Rollback verb (confirm + Protected); uninstall deliberately EXCLUDED
+- [x] T3 Rollback verb (confirm + Protected); uninstall deliberately EXCLUDED
       (authoring/destruction of desired state stays in Git).
-- [ ] T4 Gate + verify on nelli (kube-prometheus-stack history renders; values
+- [x] T4 Gate + verify on nelli (kube-prometheus-stack history renders; values
       readable), merge.
 
 ### DD5 — Command palette + layout finish
@@ -201,3 +201,6 @@ DD3 (day-2 ops):
 - Service detail: per-port forward buttons.
 - Pod detail: "open shell" pops Terminal.app with kubectl exec (bash if available); "copy exec" copies the command.
 - Quit the app with forwards/log tails running: nothing should linger (no orphaned kubectl/ports).
+
+DD4 (helm):
+- Helm section: 15 releases listed on nelli with status dots; history shows revisions; values pane renders (with sensitive-data hint); rollback button only on non-current revisions and demands confirm.
