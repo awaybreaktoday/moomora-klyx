@@ -53,30 +53,42 @@ type WorkloadsConn interface {
 	WorkloadMetrics(ctx context.Context, namespace string) (map[string]workloads.Usage, workloads.UsageStatus)
 	RolloutRestart(ctx context.Context, kind, namespace, name string) error
 	ScaleWorkload(ctx context.Context, kind, namespace, name string, replicas int32) error
+	WatchDirty(ctx context.Context, namespace string, kinds []string, onDirty func(), onLive func(bool)) (stop func(), err error)
 }
 
 type WorkloadsService struct {
 	lookup func(string) (WorkloadsConn, bool)
+	em     Emitter
+	live   *liveRegistry
 }
 
-func NewWorkloadsService(lookup func(string) (WorkloadsConn, bool)) *WorkloadsService {
-	return &WorkloadsService{lookup: lookup}
+func NewWorkloadsService(lookup func(string) (WorkloadsConn, bool), em Emitter) *WorkloadsService {
+	return &WorkloadsService{lookup: lookup, em: em, live: newLiveRegistry()}
 }
 
 // ListWorkloads returns the health-ranked workloads for a cluster, scoped to
 // namespace ("" = all). Namespaces is the sorted distinct set of workload
 // namespaces, populated ONLY on the all-namespaces load (dropdown source).
 func (s *WorkloadsService) ListWorkloads(cluster, namespace string) WorkloadsResultDTO {
-	out := WorkloadsResultDTO{Namespaces: []string{}, Workloads: []WorkloadDTO{}}
 	conn, ok := s.lookup(cluster)
 	if !ok {
-		return out
+		return WorkloadsResultDTO{Namespaces: []string{}, Workloads: []WorkloadDTO{}}
 	}
+	out, _ := computeWorkloads(conn, namespace)
+	return out
+}
+
+// computeWorkloads lists workloads on conn and builds the WorkloadsResultDTO
+// with the same flux-present, namespace-set, and mapping rules ListWorkloads
+// uses. ok=false means the list failed (returns non-nil empties); the live
+// runner uses ok to gate emit/liveness.
+func computeWorkloads(conn WorkloadsConn, namespace string) (WorkloadsResultDTO, bool) {
+	out := WorkloadsResultDTO{Namespaces: []string{}, Workloads: []WorkloadDTO{}}
 	ctx, cancel := context.WithTimeout(context.Background(), workloadsTimeout)
 	defer cancel()
 	wl, fluxPresent, err := conn.ListWorkloads(ctx, namespace)
 	if err != nil {
-		return out
+		return out, false
 	}
 	out.FluxPresent = fluxPresent
 
@@ -91,8 +103,45 @@ func (s *WorkloadsService) ListWorkloads(cluster, namespace string) WorkloadsRes
 		}
 		sort.Strings(out.Namespaces)
 	}
-	return out
+	return out, true
 }
+
+// workloadWatchKinds are the resource kinds a live workloads subscription
+// watches: the controllers plus pods (a pod flip changes a workload's ready/
+// reason without touching the controller object).
+var workloadWatchKinds = []string{"pods", "deployments", "statefulsets", "daemonsets"}
+
+// OpenLiveWorkloads starts (or replaces) a watch-backed live subscription for
+// the cluster+namespace. It emits liveWorkloads:<cluster>:<ns>
+// (WorkloadsResultDTO) on each debounced change and liveWorkloadsStatus:...
+// ({live:bool}) on liveness edges. Cluster miss returns an error.
+func (s *WorkloadsService) OpenLiveWorkloads(cluster, namespace string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	key := "workloads:" + cluster + ":" + namespace
+	dataEvent := "liveWorkloads:" + cluster + ":" + namespace
+	liveEvent := "liveWorkloadsStatus:" + cluster + ":" + namespace
+
+	s.live.open(key,
+		func(onDirty func(), onLive func(bool)) (func(), error) {
+			return conn.WatchDirty(context.Background(), namespace, workloadWatchKinds, onDirty, onLive)
+		},
+		func() (any, bool) { return computeWorkloads(conn, namespace) },
+		func(payload any) { s.em.Emit(dataEvent, payload) },
+		func(live bool) { s.em.Emit(liveEvent, liveStatusDTO{Live: live}) },
+	)
+	return ActionResultDTO{OK: true}
+}
+
+// CloseLiveWorkloads stops the live subscription. Idempotent.
+func (s *WorkloadsService) CloseLiveWorkloads(cluster, namespace string) {
+	s.live.close("workloads:" + cluster + ":" + namespace)
+}
+
+// CloseAll stops every live workload subscription. Called on app shutdown.
+func (s *WorkloadsService) CloseAll() { s.live.closeAll() }
 
 func toWorkloadDTO(w workloads.Workload) WorkloadDTO {
 	d := WorkloadDTO{

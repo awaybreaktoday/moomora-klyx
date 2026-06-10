@@ -17,10 +17,14 @@ func (f *fakeEventsConn) ListEvents(_ context.Context, _ string) ([]workloads.Ev
 	return f.events, f.err
 }
 
+func (f *fakeEventsConn) WatchDirty(context.Context, string, []string, func(), func(bool)) (func(), error) {
+	return func() {}, nil
+}
+
 // --- cluster miss ---
 
 func TestEventsService_ClusterMiss_NonNilEmpties(t *testing.T) {
-	svc := NewEventsService(func(string) (EventsConn, bool) { return nil, false })
+	svc := NewEventsService(func(string) (EventsConn, bool) { return nil, false }, nil)
 	dto := svc.ListEvents("nope", "")
 	if dto.Events == nil || dto.Namespaces == nil {
 		t.Fatal("slices must be non-nil on cluster miss")
@@ -46,7 +50,7 @@ func TestEventsService_ListEvents_Mapping(t *testing.T) {
 		},
 	}
 	conn := &fakeEventsConn{events: events}
-	svc := NewEventsService(func(string) (EventsConn, bool) { return conn, true })
+	svc := NewEventsService(func(string) (EventsConn, bool) { return conn, true }, nil)
 
 	all := svc.ListEvents("c", "")
 	if len(all.Events) != 2 {
@@ -92,7 +96,7 @@ func TestEventsService_Namespaces_OnlyOnAllNs(t *testing.T) {
 		{Type: "Normal", Reason: "Y", Namespace: "a", Kind: "Pod", Name: "p2", Count: 1},
 	}
 	conn := &fakeEventsConn{events: events}
-	svc := NewEventsService(func(string) (EventsConn, bool) { return conn, true })
+	svc := NewEventsService(func(string) (EventsConn, bool) { return conn, true }, nil)
 
 	all := svc.ListEvents("c", "")
 	if len(all.Namespaces) != 2 {
@@ -112,7 +116,7 @@ func TestEventsService_Namespaces_OnlyOnAllNs(t *testing.T) {
 
 func TestEventsService_Error_ReturnsEmpties(t *testing.T) {
 	conn := &fakeEventsConn{err: context.DeadlineExceeded}
-	svc := NewEventsService(func(string) (EventsConn, bool) { return conn, true })
+	svc := NewEventsService(func(string) (EventsConn, bool) { return conn, true }, nil)
 	dto := svc.ListEvents("c", "")
 	if dto.Events == nil || dto.Namespaces == nil {
 		t.Fatal("slices must be non-nil on error")

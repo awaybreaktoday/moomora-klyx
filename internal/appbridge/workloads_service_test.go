@@ -38,9 +38,13 @@ func (f *fakeWLConn) ScaleWorkload(_ context.Context, kind, _, _ string, replica
 	return f.scaleErr
 }
 
+func (f *fakeWLConn) WatchDirty(context.Context, string, []string, func(), func(bool)) (func(), error) {
+	return func() {}, nil
+}
+
 func TestListWorkloadsDTO(t *testing.T) {
 	t.Run("cluster miss -> empty non-nil", func(t *testing.T) {
-		s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false })
+		s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false }, nil)
 		dto := s.ListWorkloads("nope", "")
 		if dto.Workloads == nil || dto.Namespaces == nil {
 			t.Fatal("slices must be non-nil")
@@ -53,7 +57,7 @@ func TestListWorkloadsDTO(t *testing.T) {
 				Pods:   []workloads.Pod{{Name: "x-1", Ready: false, Restarts: 5, Reason: "CrashLoopBackOff", Node: "n1", AgeSeconds: 30}}},
 			{Kind: "DaemonSet", Namespace: "a", Name: "y", Desired: 3, Ready: 3, Rank: workloads.Healthy},
 		}}
-		s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+		s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true }, nil)
 
 		all := s.ListWorkloads("c", "")
 		if !all.FluxPresent {
@@ -85,7 +89,7 @@ func TestGetWorkloadMetricsDTO(t *testing.T) {
 			return &fakeWLConn{}, true
 		}
 		return nil, false
-	})
+	}, nil)
 
 	t.Run("cluster miss returns non-nil empty + unavailable", func(t *testing.T) {
 		r := s.GetWorkloadMetrics("nope", "")
@@ -112,7 +116,7 @@ func TestGetWorkloadMetricsDTO(t *testing.T) {
 // --- RolloutRestart tests ---
 
 func TestWorkloadsService_RolloutRestart_ClusterMiss(t *testing.T) {
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false }, nil)
 	r := s.RolloutRestart("ghost", "Deployment", "ns", "api")
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure for unknown cluster, got %+v", r)
@@ -124,7 +128,7 @@ func TestWorkloadsService_RolloutRestart_ClusterMiss(t *testing.T) {
 
 func TestWorkloadsService_RolloutRestart_Success(t *testing.T) {
 	conn := &fakeWLConn{}
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true }, nil)
 	r := s.RolloutRestart("c", "Deployment", "default", "api")
 	if !r.OK || r.Error != "" {
 		t.Fatalf("want OK, got %+v", r)
@@ -136,7 +140,7 @@ func TestWorkloadsService_RolloutRestart_Success(t *testing.T) {
 
 func TestWorkloadsService_RolloutRestart_ErrorSurfaced(t *testing.T) {
 	conn := &fakeWLConn{rolloutErr: errors.New("unsupported kind \"Job\"")}
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true }, nil)
 	r := s.RolloutRestart("c", "Job", "default", "migrate")
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure surfaced, got %+v", r)
@@ -146,7 +150,7 @@ func TestWorkloadsService_RolloutRestart_ErrorSurfaced(t *testing.T) {
 // --- ScaleWorkload tests ---
 
 func TestWorkloadsService_ScaleWorkload_ClusterMiss(t *testing.T) {
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return nil, false }, nil)
 	r := s.ScaleWorkload("ghost", "Deployment", "ns", "api", 3)
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure for unknown cluster, got %+v", r)
@@ -158,7 +162,7 @@ func TestWorkloadsService_ScaleWorkload_ClusterMiss(t *testing.T) {
 
 func TestWorkloadsService_ScaleWorkload_Success(t *testing.T) {
 	conn := &fakeWLConn{}
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true }, nil)
 	r := s.ScaleWorkload("c", "Deployment", "prod", "api", 5)
 	if !r.OK || r.Error != "" {
 		t.Fatalf("want OK, got %+v", r)
@@ -173,7 +177,7 @@ func TestWorkloadsService_ScaleWorkload_Success(t *testing.T) {
 
 func TestWorkloadsService_ScaleWorkload_StatefulSet(t *testing.T) {
 	conn := &fakeWLConn{}
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true }, nil)
 	r := s.ScaleWorkload("c", "StatefulSet", "db", "pg", 3)
 	if !r.OK || r.Error != "" {
 		t.Fatalf("want OK for StatefulSet, got %+v", r)
@@ -185,7 +189,7 @@ func TestWorkloadsService_ScaleWorkload_StatefulSet(t *testing.T) {
 
 func TestWorkloadsService_ScaleWorkload_ErrorSurfaced(t *testing.T) {
 	conn := &fakeWLConn{scaleErr: errors.New("unsupported kind \"DaemonSet\"")}
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return conn, true }, nil)
 	r := s.ScaleWorkload("c", "DaemonSet", "kube-system", "cilium", 1)
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure surfaced, got %+v", r)
@@ -193,7 +197,7 @@ func TestWorkloadsService_ScaleWorkload_ErrorSurfaced(t *testing.T) {
 }
 
 func TestWorkloadsService_ScaleWorkload_NegativeBoundsRejected(t *testing.T) {
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return &fakeWLConn{}, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return &fakeWLConn{}, true }, nil)
 	r := s.ScaleWorkload("c", "Deployment", "ns", "api", -1)
 	if r.OK || r.Error == "" {
 		t.Fatalf("want bounds error, got %+v", r)
@@ -201,7 +205,7 @@ func TestWorkloadsService_ScaleWorkload_NegativeBoundsRejected(t *testing.T) {
 }
 
 func TestWorkloadsService_ScaleWorkload_UpperBoundsRejected(t *testing.T) {
-	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return &fakeWLConn{}, true })
+	s := NewWorkloadsService(func(string) (WorkloadsConn, bool) { return &fakeWLConn{}, true }, nil)
 	r := s.ScaleWorkload("c", "Deployment", "ns", "api", maxScaleReplicas+1)
 	if r.OK || r.Error == "" {
 		t.Fatalf("want bounds error for replicas > %d, got %+v", maxScaleReplicas, r)

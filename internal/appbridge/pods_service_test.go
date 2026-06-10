@@ -32,10 +32,14 @@ func (f *fakePodConn) DeletePod(_ context.Context, namespace, name string) error
 	return f.deleteErr
 }
 
+func (f *fakePodConn) WatchDirty(context.Context, string, []string, func(), func(bool)) (func(), error) {
+	return func() {}, nil
+}
+
 // --- ListPods tests ---
 
 func TestPodsService_ClusterMiss_NonNilEmpties(t *testing.T) {
-	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false }, nil)
 	dto := svc.ListPods("nope", "")
 	if dto.Pods == nil || dto.Namespaces == nil {
 		t.Fatal("slices must be non-nil on cluster miss")
@@ -68,7 +72,7 @@ func TestPodsService_ListPods_MappingAndRankString(t *testing.T) {
 		},
 	}
 	conn := &fakePodConn{pods: pods}
-	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true }, nil)
 
 	all := svc.ListPods("c", "")
 	if len(all.Pods) != 2 {
@@ -107,7 +111,7 @@ func TestPodsService_ListPods_MappingAndRankString(t *testing.T) {
 // --- GetPodDetail tests ---
 
 func TestPodsService_GetPodDetail_ClusterMiss_NonNilEmpties(t *testing.T) {
-	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false }, nil)
 	d := svc.GetPodDetail("nope", "ns", "pod")
 	if d.Labels == nil || d.Conditions == nil || d.Events == nil {
 		t.Fatal("collections must be non-nil on cluster miss")
@@ -131,7 +135,7 @@ func TestPodsService_GetPodDetail_Mapping(t *testing.T) {
 		ServiceAccount: "web-sa",
 	}
 	conn := &fakePodConn{detail: detail}
-	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true }, nil)
 
 	d := svc.GetPodDetail("c", "ns", "web")
 	if d.Summary.Name != "web" || d.Summary.Rank != "healthy" {
@@ -156,7 +160,7 @@ func TestPodsService_GetPodDetail_Mapping(t *testing.T) {
 
 func TestPodsService_GetPodDetail_ErrorReturnsEmpties(t *testing.T) {
 	conn := &fakePodConn{detErr: context.DeadlineExceeded}
-	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true }, nil)
 	d := svc.GetPodDetail("c", "ns", "missing")
 	if d.Labels == nil || d.Conditions == nil || d.Events == nil {
 		t.Fatal("collections must be non-nil on error")
@@ -169,7 +173,7 @@ func TestPodsService_GetPodDetail_ErrorReturnsEmpties(t *testing.T) {
 // --- DeletePod tests ---
 
 func TestPodsService_DeletePod_ClusterMiss(t *testing.T) {
-	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return nil, false }, nil)
 	r := svc.DeletePod("ghost", "ns", "pod")
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure for unknown cluster, got %+v", r)
@@ -181,7 +185,7 @@ func TestPodsService_DeletePod_ClusterMiss(t *testing.T) {
 
 func TestPodsService_DeletePod_Success(t *testing.T) {
 	conn := &fakePodConn{}
-	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true }, nil)
 	r := svc.DeletePod("c", "default", "web-xyz")
 	if !r.OK || r.Error != "" {
 		t.Fatalf("want OK, got %+v", r)
@@ -193,7 +197,7 @@ func TestPodsService_DeletePod_Success(t *testing.T) {
 
 func TestPodsService_DeletePod_ErrorSurfaced(t *testing.T) {
 	conn := &fakePodConn{deleteErr: context.DeadlineExceeded}
-	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true })
+	svc := NewPodsService(func(string) (PodsConn, bool) { return conn, true }, nil)
 	r := svc.DeletePod("c", "ns", "pod")
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure surfaced, got %+v", r)
