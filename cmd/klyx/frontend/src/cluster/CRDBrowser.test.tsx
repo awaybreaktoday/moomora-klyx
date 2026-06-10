@@ -51,106 +51,46 @@ describe("CRDBrowser - CRD groups", () => {
     expect(getAllByText("Namespaced").length).toBeGreaterThan(0);
   });
 
-  it("shows the empty state when there are no CRDs and search matches nothing", () => {
-    // A search term that matches no CRD and no builtin kind renders the empty state.
-    useFleet.setState({ crd: { ...useFleet.getState().crd, groups: [], search: "zzznomatch" } });
+  it("shows the empty state when there are no CRDs", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, groups: [] } });
+    const { getByText } = render(<CRDBrowser cluster="x" />);
+    expect(getByText(/No custom resources/i)).toBeTruthy();
+  });
+
+  it("shows the empty state when search matches no CRD group", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "zzznomatch" } });
     const { getByText } = render(<CRDBrowser cluster="x" />);
     expect(getByText(/No custom resources/i)).toBeTruthy();
   });
 
   it("clicking a kind opens the resource drill-in", () => {
-    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" }, crd: { ...useFleet.getState().crd, expanded: ["cilium.io"] } });
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "crds" }, crd: { ...useFleet.getState().crd, expanded: ["cilium.io"] } });
     const { getByText } = render(<CRDBrowser cluster="x" />);
     fireEvent.click(getByText("CiliumEndpoint"));
     const r = useFleet.getState().route;
     expect(r.name === "cluster" && r.resource?.kind).toBe("CiliumEndpoint");
     expect(r.name === "cluster" && r.resource?.plural).toBe("ciliumendpoints");
   });
-});
 
-describe("CRDBrowser - Built-in catalog", () => {
-  it("renders the Built-in section header", () => {
+  it("drill from crds section stays in crds section", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "crds" }, crd: { ...useFleet.getState().crd, expanded: ["cilium.io"] } });
     const { getByText } = render(<CRDBrowser cluster="x" />);
-    expect(getByText("Built-in")).toBeTruthy();
-  });
-
-  it("renders expected builtin categories", () => {
-    const { getByText } = render(<CRDBrowser cluster="x" />);
-    expect(getByText("Workloads")).toBeTruthy();
-    expect(getByText("Config")).toBeTruthy();
-    expect(getByText("Network")).toBeTruthy();
-    expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("Cluster")).toBeTruthy();
-    expect(getByText("Access")).toBeTruthy();
-  });
-
-  it("renders builtin kind names inside their categories", () => {
-    const { getByText } = render(<CRDBrowser cluster="x" />);
-    expect(getByText("ConfigMap")).toBeTruthy();
-    expect(getByText("Secret")).toBeTruthy();
-    expect(getByText("Service")).toBeTruthy();
-    expect(getByText("Namespace")).toBeTruthy();
-  });
-
-  it("clicking ConfigMap navigates with the correct ResourceRef", () => {
-    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
-    const { getByText } = render(<CRDBrowser cluster="x" />);
-    fireEvent.click(getByText("ConfigMap"));
+    fireEvent.click(getByText("CiliumEndpoint"));
     const r = useFleet.getState().route;
-    expect(r.name).toBe("cluster");
     if (r.name === "cluster") {
-      expect(r.resource?.kind).toBe("ConfigMap");
-      expect(r.resource?.plural).toBe("configmaps");
-      expect(r.resource?.group).toBe("");
-      expect(r.resource?.version).toBe("v1");
-      expect(r.resource?.scope).toBe("Namespaced");
+      expect(r.section).toBe("crds");
     }
   });
 
-  it("clicking a Cluster-scoped builtin navigates with scope=Cluster", () => {
-    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources" } });
-    const { getByText } = render(<CRDBrowser cluster="x" />);
-    fireEvent.click(getByText("Namespace"));
-    const r = useFleet.getState().route;
-    if (r.name === "cluster") {
-      expect(r.resource?.kind).toBe("Namespace");
-      expect(r.resource?.scope).toBe("Cluster");
-    }
-  });
-
-  it("search filters builtin rows - matching kind visible, others hidden", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "configmap" } });
-    const { getByText, queryByText } = render(<CRDBrowser cluster="x" />);
-    expect(getByText("ConfigMap")).toBeTruthy();
-    // Secret should not appear when searching for configmap
-    expect(queryByText("Secret")).toBeNull();
-  });
-
-  it("search filters builtin categories - empty categories are hidden", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "configmap" } });
-    const { queryByText } = render(<CRDBrowser cluster="x" />);
-    // "Storage" category has no match for "configmap"
-    expect(queryByText("Storage")).toBeNull();
-  });
-
-  it("builtin counts are loaded lazily via countKind", () => {
-    const mockCountKind = countKind as ReturnType<typeof vi.fn>;
-    mockCountKind.mockClear();
-    render(<CRDBrowser cluster="x" />);
-    // countKind should have been called for at least one builtin (ConfigMap)
-    expect(mockCountKind).toHaveBeenCalledWith("x", "", "v1", "configmaps");
-  });
-
-  it("builtin renders existing count from store", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, counts: { [crdCountKey("", "v1", "configmaps")]: { count: 42, capped: false } } } });
-    const { getByText } = render(<CRDBrowser cluster="x" />);
-    expect(getByText("42")).toBeTruthy();
-  });
-
-  it("search also filters CRD groups - cert-manager visible but cilium hidden", () => {
+  it("search filters CRD groups - cert-manager visible but cilium hidden", () => {
     useFleet.setState({ crd: { ...useFleet.getState().crd, search: "certificate" } });
     const { queryByText } = render(<CRDBrowser cluster="x" />);
     expect(queryByText("cilium.io")).toBeNull();
     expect(queryByText("cert-manager.io")).toBeTruthy();
+  });
+
+  it("does not render the Built-in section header", () => {
+    const { queryByText } = render(<CRDBrowser cluster="x" />);
+    expect(queryByText("Built-in")).toBeNull();
   });
 });

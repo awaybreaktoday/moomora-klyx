@@ -23,15 +23,16 @@ export type Command = {
 // Section display order mirrors the sidebar.
 const SECTION_ORDER: ClusterSection[] = [
   "overview",
-  "gitops",
-  "helm",
-  "network",
-  "resources",
-  "observability",
   "workloads",
   "pods",
   "events",
   "nodes",
+  "resources",
+  "crds",
+  "network",
+  "gitops",
+  "helm",
+  "observability",
 ];
 
 export function buildCommands(s: FleetStore): Command[] {

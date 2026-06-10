@@ -67,7 +67,7 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "helm" | "network" | "resources" | "observability" | "workloads" | "pods" | "events" | "nodes";
+export type ClusterSection = "overview" | "gitops" | "helm" | "network" | "resources" | "crds" | "observability" | "workloads" | "pods" | "events" | "nodes";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -149,6 +149,7 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   helm: "Helm",
   network: "Network",
   resources: "Resources",
+  crds: "CRDs",
   observability: "Observability",
   workloads: "Workloads",
   pods: "Pods",
@@ -370,15 +371,21 @@ export const useFleet = create<FleetState>((set) => ({
   setSection: (section) =>
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section } } : {})),
   openResource: (resource) =>
-    set((s) =>
-      s.route.name === "cluster"
-        ? {
-            route: { name: "cluster", cluster: s.route.cluster, section: "resources", resource },
-            instances: { ref: resource, rows: [], nextToken: "", loading: true, filter: "" },
-          }
-        : {}),
+    set((s) => {
+      if (s.route.name !== "cluster") return {};
+      // Preserve the current section if it is a resource-browsing section; otherwise default to "resources".
+      const section: ClusterSection = (s.route.section === "crds" || s.route.section === "resources") ? s.route.section : "resources";
+      return {
+        route: { name: "cluster", cluster: s.route.cluster, section, resource },
+        instances: { ref: resource, rows: [], nextToken: "", loading: true, filter: "" },
+      };
+    }),
   closeResource: () =>
-    set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section: "resources" } } : {})),
+    set((s) => {
+      if (s.route.name !== "cluster") return {};
+      const section: ClusterSection = (s.route.section === "crds" || s.route.section === "resources") ? s.route.section : "resources";
+      return { route: { name: "cluster", cluster: s.route.cluster, section } };
+    }),
   instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" },
   setInstancesLoading: (ref) => set({ instances: { ref, rows: [], nextToken: "", loading: true, filter: "" } }),
   setInstancePage: (items, nextToken) => set((s) => ({ instances: { ...s.instances, rows: items, nextToken, loading: false } })),
@@ -386,13 +393,14 @@ export const useFleet = create<FleetState>((set) => ({
   setInstanceFilter: (filter) => set((s) => ({ instances: { ...s.instances, filter } })),
   clearInstances: () => set({ instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" } }),
   openInstance: (namespace, name) =>
-    set((s) =>
-      s.route.name === "cluster" && s.route.resource
-        ? {
-            route: { name: "cluster", cluster: s.route.cluster, section: "resources", resource: s.route.resource, instance: { namespace, name } },
-            instanceDetail: { ref: { namespace, name }, detail: null, loading: true },
-          }
-        : {}),
+    set((s) => {
+      if (s.route.name !== "cluster" || !s.route.resource) return {};
+      const section: ClusterSection = (s.route.section === "crds" || s.route.section === "resources") ? s.route.section : "resources";
+      return {
+        route: { name: "cluster", cluster: s.route.cluster, section, resource: s.route.resource, instance: { namespace, name } },
+        instanceDetail: { ref: { namespace, name }, detail: null, loading: true },
+      };
+    }),
   closeInstance: () =>
     set((s) =>
       s.route.name === "cluster"

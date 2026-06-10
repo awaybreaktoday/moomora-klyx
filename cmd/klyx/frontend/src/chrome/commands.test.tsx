@@ -67,7 +67,7 @@ describe("buildCommands", () => {
     const setSection = vi.fn();
     const s = makeStore({ route: { name: "cluster", cluster: "dev", section: "overview" } as never, setSection });
     const sections = buildCommands(s).filter((c) => c.group === "Sections");
-    expect(sections.length).toBe(10);
+    expect(sections.length).toBe(11);
     expect(sections[0].hint).toBe("dev");
     sections.find((c) => c.id === "section:gitops")!.run();
     expect(setSection).toHaveBeenCalledWith("gitops");
