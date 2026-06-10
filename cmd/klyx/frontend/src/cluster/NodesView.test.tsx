@@ -1,14 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, act } from "@testing-library/react";
 import { NodesView } from "./NodesView";
 import { useFleet } from "../store/fleet";
 import type { NodeSummaryDTO, NodeDetailDTO } from "../store/fleet";
 
+// Mock the bridge/nodes module. cordonNode and startDrain/cancelDrain are
+// also mocked so no Wails runtime is needed.
 vi.mock("../bridge/nodes", () => ({
   listNodes: vi.fn().mockResolvedValue(undefined),
   openNodeDetail: vi.fn().mockResolvedValue(undefined),
+  cordonNode: vi.fn().mockResolvedValue(undefined),
+  startDrain: vi.fn().mockResolvedValue({ streamId: "test-stream-1" }),
+  cancelDrain: vi.fn().mockResolvedValue(undefined),
 }));
-import { openNodeDetail } from "../bridge/nodes";
+import { openNodeDetail, cordonNode, startDrain, cancelDrain } from "../bridge/nodes";
+
+// Mock the Wails Events.On used by DrainModal.
+vi.mock("@wailsio/runtime", () => ({
+  Events: {
+    On: vi.fn().mockReturnValue(() => {}),
+  },
+}));
+import { Events } from "@wailsio/runtime";
 
 const healthy: NodeSummaryDTO = {
   name: "node-healthy",
@@ -82,6 +95,11 @@ const fakeDetail: NodeDetailDTO = {
   ],
 };
 
+const cordonedDetail: NodeDetailDTO = {
+  ...fakeDetail,
+  summary: cordoned,
+};
+
 function seed(items: NodeSummaryDTO[]) {
   useFleet.setState((s) => ({
     nodes: {
@@ -89,6 +107,20 @@ function seed(items: NodeSummaryDTO[]) {
       cluster: "homelab",
       items,
       loading: false,
+    },
+  }));
+}
+
+function seedWithDetail(summary: NodeSummaryDTO, detail: NodeDetailDTO) {
+  useFleet.setState((s) => ({
+    nodes: {
+      ...s.nodes,
+      cluster: "homelab",
+      items: [summary],
+      loading: false,
+      selected: { name: summary.name },
+      detail,
+      detailLoading: false,
     },
   }));
 }
@@ -232,5 +264,134 @@ describe("NodesView", () => {
     const { getByText } = render(<NodesView cluster="homelab" />);
     fireEvent.click(getByText("coredns-abc"));
     expect(useFleet.getState().route).toMatchObject({ section: "pods" });
+  });
+
+  // --- Cordon / Uncordon action tests ---
+
+  it("cordon button appears for schedulable node, shows confirm dialog on click", () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    // Actions row shows "cordon" button (healthy node is schedulable)
+    fireEvent.click(getByLabelText("cordon"));
+    // Confirm dialog should appear
+    expect(getByText("Cordon node")).toBeTruthy();
+    expect(getByText("Cordon")).toBeTruthy();
+  });
+
+  it("confirming cordon calls cordonNode bridge", () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("cordon"));
+    // Click the confirm button in the dialog
+    fireEvent.click(getByText("Cordon"));
+    expect(cordonNode).toHaveBeenCalledWith("homelab", "node-healthy", true);
+  });
+
+  it("cancelling cordon dialog does not call cordonNode", () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("cordon"));
+    fireEvent.click(getByText("Cancel"));
+    expect(cordonNode).not.toHaveBeenCalled();
+  });
+
+  it("uncordon button appears for cordoned node", () => {
+    seedWithDetail(cordoned, cordonedDetail);
+    const { getByLabelText } = render(<NodesView cluster="homelab" />);
+    expect(getByLabelText("uncordon")).toBeTruthy();
+  });
+
+  it("confirming uncordon calls cordonNode with cordon=false", () => {
+    seedWithDetail(cordoned, cordonedDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("uncordon"));
+    fireEvent.click(getByText("Uncordon"));
+    expect(cordonNode).toHaveBeenCalledWith("homelab", "b-cordoned", false);
+  });
+
+  // --- Drain action tests ---
+
+  it("drain button appears in actions row", () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText } = render(<NodesView cluster="homelab" />);
+    expect(getByLabelText("drain")).toBeTruthy();
+  });
+
+  it("drain button shows confirm dialog on click", () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("drain"));
+    expect(getByText("Drain node")).toBeTruthy();
+    expect(getByText("Drain")).toBeTruthy();
+  });
+
+  it("confirming drain opens drain modal and calls startDrain", async () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("drain"));
+    await act(async () => {
+      fireEvent.click(getByText("Drain"));
+    });
+    expect(startDrain).toHaveBeenCalledWith("homelab", "node-healthy");
+    // Drain modal title should be visible
+    expect(getByText(/Drain node:/)).toBeTruthy();
+  });
+
+  it("drain modal: Events.On subscribes to nodedrain:<streamId>", async () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("drain"));
+    await act(async () => {
+      fireEvent.click(getByText("Drain"));
+    });
+    // After startDrain resolves, Events.On should be called with nodedrain:test-stream-1
+    expect(Events.On).toHaveBeenCalledWith(
+      "nodedrain:test-stream-1",
+      expect.any(Function),
+    );
+  });
+
+  it("drain modal: cancel button calls cancelDrain", async () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("drain"));
+    await act(async () => {
+      fireEvent.click(getByText("Drain"));
+    });
+    // Cancel drain button is in the modal
+    await act(async () => {
+      fireEvent.click(getByText("Cancel drain"));
+    });
+    expect(cancelDrain).toHaveBeenCalledWith("test-stream-1");
+  });
+
+  it("drain modal: appended log lines appear when event fires", async () => {
+    // Make Events.On capture the callback so we can fire it
+    let capturedCb: ((ev: { data: { lines: string[]; eof: boolean } }) => void) | null = null;
+    vi.mocked(Events.On).mockImplementation((_name, cb) => {
+      capturedCb = cb as typeof capturedCb;
+      return () => {};
+    });
+
+    seedWithDetail(healthy, fakeDetail);
+    const { getByLabelText, getByText, queryByText } = render(<NodesView cluster="homelab" />);
+    fireEvent.click(getByLabelText("drain"));
+    await act(async () => {
+      fireEvent.click(getByText("Drain"));
+    });
+
+    // Fire a log chunk event
+    await act(async () => {
+      capturedCb!({ data: { lines: ["evicting pod foo/bar", "evicting pod foo/baz"], eof: false } });
+    });
+    expect(getByText("evicting pod foo/bar")).toBeTruthy();
+    expect(getByText("evicting pod foo/baz")).toBeTruthy();
+
+    // Fire EOF
+    await act(async () => {
+      capturedCb!({ data: { lines: [], eof: true } });
+    });
+    expect(queryByText("Cancel drain")).toBeNull();
+    expect(getByText("Close")).toBeTruthy();
   });
 });

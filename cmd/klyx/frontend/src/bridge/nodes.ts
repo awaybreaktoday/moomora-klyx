@@ -1,5 +1,8 @@
 import { useFleet, NodesResultDTO, NodeDetailDTO } from "../store/fleet";
-import { NodesService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
+import { NodesService, NodeOpsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
+
+type ActionResultDTO = { ok: boolean; error: string };
+type OpenLogStreamResultDTO = { streamId: string; error?: string };
 
 export async function listNodes(cluster: string): Promise<void> {
   useFleet.getState().setNodesLoading(cluster);
@@ -15,6 +18,26 @@ export async function listNodes(cluster: string): Promise<void> {
       useFleet.setState((s) => ({ nodes: { ...s.nodes, loading: false } }));
     }
   }
+}
+
+export async function cordonNode(cluster: string, node: string, cordon: boolean): Promise<void> {
+  const r = (await NodeOpsService.Cordon(cluster, node, cordon)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok
+      ? { kind: "success", message: `node ${node} ${cordon ? "cordoned" : "uncordoned"}` }
+      : { kind: "error", message: r.error || (cordon ? "Cordon failed" : "Uncordon failed") },
+  );
+  if (r.ok) {
+    void listNodes(cluster);
+  }
+}
+
+export async function startDrain(cluster: string, node: string): Promise<OpenLogStreamResultDTO> {
+  return (await NodeOpsService.StartDrain(cluster, node)) as OpenLogStreamResultDTO;
+}
+
+export async function cancelDrain(streamId: string): Promise<void> {
+  await NodeOpsService.CancelDrain(streamId);
 }
 
 export async function openNodeDetail(cluster: string, name: string): Promise<void> {

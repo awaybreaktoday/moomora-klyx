@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -98,6 +99,10 @@ func (f *fakeConn) RouteMetrics(context.Context, []string) (map[string]routemetr
 }
 func (f *fakeConn) RevealSecretKey(ctx context.Context, ns, name, key string) (string, error) {
 	return "", nil
+}
+func (f *fakeConn) SetCordon(context.Context, string, bool) error { return nil }
+func (f *fakeConn) DrainNodeCmd(nodeName string) (*exec.Cmd, error) {
+	return exec.Command("true"), nil
 }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {

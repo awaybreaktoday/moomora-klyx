@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"io"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -61,6 +62,8 @@ type Conn interface {
 	HasGlobalService(ctx context.Context, ns, name string) bool
 	ClusterMetrics(ctx context.Context, forceReprobe bool) (metrics.ClusterMetrics, metrics.MetricsCapability)
 	RouteMetrics(ctx context.Context, routeKeys []string) (map[string]routemetrics.RouteMetrics, routemetrics.Status)
+	SetCordon(ctx context.Context, nodeName string, cordon bool) error
+	DrainNodeCmd(nodeName string) (*exec.Cmd, error)
 }
 
 var podGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
@@ -69,12 +72,13 @@ const defaultResync = 5 * time.Minute
 const defaultConnectTimeout = 30 * time.Second
 
 type ClusterConn struct {
-	name     string
-	typed    kubernetes.Interface
-	meta     metadata.Interface
-	dyn      dynamic.Interface
-	detector *capability.Detector
-	clk      clock.Clock
+	name        string
+	kubeContext string // kubeconfig context name for kubectl exec (e.g. drain)
+	typed       kubernetes.Interface
+	meta        metadata.Interface
+	dyn         dynamic.Interface
+	detector    *capability.Detector
+	clk         clock.Clock
 
 	mu             sync.RWMutex
 	state          ConnState
@@ -112,6 +116,17 @@ func NewClusterConn(name string, typed kubernetes.Interface, meta metadata.Inter
 		refresh:        make(chan struct{}, 1),
 	}
 }
+
+// WithKubeContext sets the kubeconfig context name used for kubectl-based
+// operations (e.g. drain). Call this right after NewClusterConn in the
+// factory; it is not threadsafe after Start.
+func (c *ClusterConn) WithKubeContext(ctx string) *ClusterConn {
+	c.kubeContext = ctx
+	return c
+}
+
+// KubeContext returns the kubeconfig context name.
+func (c *ClusterConn) KubeContext() string { return c.kubeContext }
 
 func (c *ClusterConn) Name() string { return c.name }
 
