@@ -31,12 +31,18 @@ interface VirtualListProps<T> {
   render: (item: T, index: number) => React.ReactNode;
   /** Optional style applied to the outer container div (height/flex-1 etc.) */
   style?: React.CSSProperties;
+  /**
+   * Force the plain (non-windowed) path regardless of item count. Callers use
+   * this when row heights become variable (e.g. an expanded row), which breaks
+   * fixed-row windowing math.
+   */
+  forcePlain?: boolean;
 }
 
 // forwardRef with generics requires the inner function to be typed carefully.
 // We export a wrapper that re-asserts the generic so call sites remain typed.
 function VirtualListInner<T>(
-  { items, rowHeight, overscan = 8, render, style }: VirtualListProps<T>,
+  { items, rowHeight, overscan = 8, render, style, forcePlain = false }: VirtualListProps<T>,
   ref: React.Ref<VirtualListHandle>,
 ) {
   const [scrollTop, setScrollTop] = useState(0);
@@ -56,7 +62,7 @@ function VirtualListInner<T>(
     scrollToIndex(idx: number) {
       const el = containerRef.current;
       if (!el) return;
-      if (items.length < PLAIN_THRESHOLD) {
+      if (forcePlain || items.length < PLAIN_THRESHOLD) {
         // Plain path: rows are direct children; find by data-vl-idx attribute.
         const row = el.querySelector(`[data-vl-idx="${idx}"]`);
         if (row && typeof (row as HTMLElement).scrollIntoView === "function") {
@@ -67,10 +73,10 @@ function VirtualListInner<T>(
         el.scrollTop = idx * rowHeight;
       }
     },
-  }), [items.length, rowHeight]);
+  }), [items.length, rowHeight, forcePlain]);
 
-  // Plain render for short lists — no virtualization overhead.
-  if (items.length < PLAIN_THRESHOLD) {
+  // Plain render for short lists or variable-height rows.
+  if (forcePlain || items.length < PLAIN_THRESHOLD) {
     return (
       <div ref={containerRef} style={style}>
         {items.map((item, i) => (

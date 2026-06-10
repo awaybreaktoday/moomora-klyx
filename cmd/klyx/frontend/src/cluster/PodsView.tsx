@@ -238,12 +238,19 @@ function PodDetailPanel({
   const [pending, setPending] = useState<PodPendingAction | null>(null);
   const { width, handleProps } = useResizablePanel();
 
-  // Close on Escape — the panel's own handler takes priority; useListKeys in
-  // the parent also calls onEscape which calls selectPod(null) but only when
-  // the panel is open, so there is no double-handling: both paths end up doing
-  // the same selectPod(null) call which is idempotent.
+  // Close on Escape. With a confirm pending, Esc cancels ONLY the confirm:
+  // stopPropagation keeps the event from reaching the window-level useListKeys
+  // handler (which would also close the whole panel). Without a pending confirm
+  // both handlers resolve to the same idempotent selectPod(null).
   const handleKey = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") { if (pending) setPending(null); else onClose(); }
+    if (e.key === "Escape") {
+      if (pending) {
+        e.stopPropagation();
+        setPending(null);
+      } else {
+        onClose();
+      }
+    }
   }, [onClose, pending]);
   useEffect(() => {
     document.addEventListener("keydown", handleKey);

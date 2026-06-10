@@ -144,17 +144,16 @@ export function EventsView({ cluster }: { cluster: string }) {
             <span /><span>×</span><span>age</span><span>namespace</span><span>involved</span><span>reason</span><span>message</span>
           </div>
           {/*
-           * VirtualList for >=100 rows with no expansions.
-           * When any row is expanded, the expanded message block has variable
-           * height which breaks fixed-row virtualization math. In that case we
-           * bail to plain rendering. In practice users expand rows to read
-           * details at which point the list is short (after filtering), so the
-           * plain path is fast and correct.
+           * VirtualList windows >=100 rows. An expanded row has variable height
+           * which breaks fixed-row windowing math, so any expansion forces the
+           * plain path (forcePlain) - users expand rows to read details, at
+           * which point full rendering is the correct tradeoff.
            */}
           <VirtualList
             ref={listRef}
             items={filtered}
             rowHeight={30}
+            forcePlain={expanded.size > 0}
             style={{ flex: 1, minHeight: 0, ...(expanded.size > 0 ? { overflowY: "auto" } : {}) }}
             render={(e, i) => {
               const key = rowKey(e, i);
