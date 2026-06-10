@@ -31,6 +31,7 @@ function seedSummary(cluster: string, partial: Partial<OverviewSummary> = {}) {
       helmAvailable: false,
       failedReleases: null,
       namespaces: null,
+      flux: null,
       ...partial,
     },
   });
@@ -92,7 +93,7 @@ describe("Overview attention strip", () => {
   });
 
   it("shows — (muted) for all tiles while loading", () => {
-    useFleet.setState({ overviewSummary: { cluster: "homelab-nelli", loading: true, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, helmAvailable: false, failedReleases: null, namespaces: null } });
+    useFleet.setState({ overviewSummary: { cluster: "homelab-nelli", loading: true, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, helmAvailable: false, failedReleases: null, namespaces: null, flux: null } });
     const { getAllByText } = render(<Overview c={dto} />);
     // During loading, all tiles show "—".
     const dashes = getAllByText("—");
@@ -160,6 +161,55 @@ describe("Overview attention strip", () => {
     seedSummary("homelab-nelli", { unhealthyWorkloads: null });
     const { getByTitle } = render(<Overview c={dto} />);
     expect(getByTitle("failed to load")).toBeTruthy();
+  });
+});
+
+
+// ---- Flux attention strip tile -------------------------------------------------
+
+describe("Overview flux tile", () => {
+  beforeEach(() => {
+    useFleet.setState({ metrics: { cluster: null, dto: null, loading: false } });
+    useFleet.getState().clearOverviewSummary();
+  });
+
+  it("flux tile is hidden when flux is null", () => {
+    seedSummary("homelab-nelli", { flux: null });
+    const { queryByText } = render(<Overview c={dto} />);
+    expect(queryByText("flux not ready")).toBeNull();
+  });
+
+  it("flux tile is visible when flux.present=true", () => {
+    seedSummary("homelab-nelli", { flux: { present: true, notReady: 0, suspended: 0 } });
+    const { getByText } = render(<Overview c={dto} />);
+    expect(getByText("flux not ready")).toBeTruthy();
+  });
+
+  it("flux tile renders notReady count when >0", () => {
+    seedSummary("homelab-nelli", { flux: { present: true, notReady: 3, suspended: 0 } });
+    const { getByText } = render(<Overview c={dto} />);
+    expect(getByText("3")).toBeTruthy();
+  });
+
+  it("flux tile click navigates to gitops section", () => {
+    useFleet.getState().openCluster("homelab-nelli");
+    seedSummary("homelab-nelli", { flux: { present: true, notReady: 1, suspended: 0 } });
+    const { getByText } = render(<Overview c={dto} />);
+    fireEvent.click(getByText("flux not ready"));
+    const state = useFleet.getState();
+    expect(state.route).toMatchObject({ name: "cluster", section: "gitops" });
+  });
+
+  it("flux tile shows suspended count in title when >0", () => {
+    seedSummary("homelab-nelli", { flux: { present: true, notReady: 1, suspended: 2 } });
+    const { getByTitle } = render(<Overview c={dto} />);
+    expect(getByTitle("2 suspended")).toBeTruthy();
+  });
+
+  it("flux tile has no title when suspended is 0", () => {
+    seedSummary("homelab-nelli", { flux: { present: true, notReady: 0, suspended: 0 } });
+    const { queryByTitle } = render(<Overview c={dto} />);
+    expect(queryByTitle(/suspended/)).toBeNull();
   });
 });
 

@@ -19,6 +19,17 @@ type GitOpsConn interface {
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
+	// GitOpsSummaryFlux performs a cluster-wide on-demand LIST and returns counts.
+	// Separated from fleet.GitOpsSummary to keep GitOpsConn free of fleet types.
+	GitOpsSummaryFlux(ctx context.Context) (fluxPresent bool, total, notReady, suspended int, err error)
+}
+
+// GitOpsSummaryDTO is the serialised form of GitOpsSummary for the JS bridge.
+type GitOpsSummaryDTO struct {
+	FluxPresent bool `json:"fluxPresent"`
+	Total       int  `json:"total"`
+	NotReady    int  `json:"notReady"`
+	Suspended   int  `json:"suspended"`
 }
 
 // GitOpsUpdatedEvent is emitted with { cluster, resources }.
@@ -135,6 +146,26 @@ func (s *GitOpsService) GetResourceDetail(cluster, kind, namespace, name string)
 		return ResourceDetailDTO{}
 	}
 	return toDetailDTO(flux.ParseDetail(u))
+}
+
+// GetGitOpsSummary returns a point-in-time Flux summary for the named cluster.
+// Cluster miss or list error → {FluxPresent: false} (the strip tile will hide).
+// A thrown error from the binding is intentionally NOT surfaced here so the
+// per-tile failure convention ("—") is handled by fetchOverviewSummary's
+// Promise.allSettled path; returning {fluxPresent:false} on miss keeps the tile
+// hidden on a cluster with no Flux, which is semantically correct.
+func (s *GitOpsService) GetGitOpsSummary(cluster string) GitOpsSummaryDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return GitOpsSummaryDTO{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	present, total, notReady, suspended, err := conn.GitOpsSummaryFlux(ctx)
+	if err != nil {
+		return GitOpsSummaryDTO{}
+	}
+	return GitOpsSummaryDTO{FluxPresent: present, Total: total, NotReady: notReady, Suspended: suspended}
 }
 
 // ResolveGitLink resolves a Kustomization's GitRepository source to a browsable

@@ -72,6 +72,7 @@ type SummaryForStrip = {
   nodeProblems: number | null;
   helmAvailable: boolean;
   failedReleases: number | null;
+  flux: { present: boolean; notReady: number; suspended: number } | null;
 };
 
 function AttentionStrip({ summary, loading }: { summary: SummaryForStrip | null; loading: boolean }) {
@@ -95,6 +96,14 @@ function AttentionStrip({ summary, loading }: { summary: SummaryForStrip | null;
   function goHelm() {
     nav.setSection("helm");
   }
+  function goGitOps() {
+    nav.setSection("gitops");
+  }
+
+  const fluxTileTitle = (() => {
+    const suspended = summary?.flux?.suspended ?? 0;
+    return suspended > 0 ? `${suspended} suspended` : undefined;
+  })();
 
   const tiles: Array<{
     key: string;
@@ -103,12 +112,14 @@ function AttentionStrip({ summary, loading }: { summary: SummaryForStrip | null;
     variant: "danger" | "warning";
     onClick: () => void;
     hidden?: boolean;
+    title?: string;
   }> = [
     { key: "workloads", count: summary?.unhealthyWorkloads ?? null, label: "unhealthy workloads", variant: "danger", onClick: goWorkloads },
     { key: "pods", count: summary?.podsNotReady ?? null, label: "pods not ready", variant: "danger", onClick: goPods },
     { key: "events", count: summary?.warningEvents ?? null, label: "warning events", variant: "warning", onClick: goEvents },
     { key: "nodes", count: summary?.nodeProblems ?? null, label: "node problems", variant: "danger", onClick: goNodes },
     { key: "helm", count: summary?.failedReleases ?? null, label: "failed releases", variant: "danger", onClick: goHelm, hidden: !(summary?.helmAvailable ?? false) },
+    { key: "flux", count: summary?.flux != null ? summary.flux.notReady : null, label: "flux not ready", variant: "danger", onClick: goGitOps, hidden: !(summary?.flux?.present ?? false), title: fluxTileTitle },
   ];
 
   const visibleTiles = tiles.filter((t) => !t.hidden);
@@ -122,6 +133,7 @@ function AttentionStrip({ summary, loading }: { summary: SummaryForStrip | null;
           label={tile.label}
           variant={tile.variant}
           onClick={tile.onClick}
+          title={tile.title}
         />
       ))}
     </div>
@@ -133,11 +145,13 @@ function StatTile({
   label,
   variant,
   onClick,
+  title: tileTitle,
 }: {
   count: number | null;
   label: string;
   variant: "danger" | "warning";
   onClick: () => void;
+  title?: string;
 }) {
   // count === null means still loading OR fetch failed for this tile.
   const isLoading = count === null;
@@ -153,7 +167,7 @@ function StatTile({
   return (
     <button
       onClick={onClick}
-      title={count === null ? "failed to load" : undefined}
+      title={tileTitle ?? (count === null ? "failed to load" : undefined)}
       style={{
         display: "flex",
         flexDirection: "column",

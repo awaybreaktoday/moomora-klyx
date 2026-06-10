@@ -285,6 +285,9 @@ export type OverviewSummary = {
   failedReleases: number | null;       // null also means helm unavailable (tile hidden)
   helmAvailable: boolean;
   namespaces: number | null;
+  // flux is null when Flux is not installed (tile hidden), or when the fetch
+  // failed (tile shows "—" via the null count path).
+  flux: { present: boolean; notReady: number; suspended: number } | null;
 };
 
 type FleetState = {
@@ -583,8 +586,8 @@ export const useFleet = create<FleetState>((set) => ({
     return { helm: { ...s.helm, history, values, detailLoading: false } };
   }),
   clearHelm: () => set({ helm: { cluster: null, releases: [], available: true, message: "", loading: false, selected: null, history: [], values: "", detailLoading: false } }),
-  overviewSummary: { cluster: null, loading: false, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null },
-  setOverviewSummaryLoading: (cluster) => set({ overviewSummary: { cluster, loading: true, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null } }),
+  overviewSummary: { cluster: null, loading: false, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null, flux: null },
+  setOverviewSummaryLoading: (cluster) => set({ overviewSummary: { cluster, loading: true, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null, flux: null } }),
   setOverviewSummary: (s) => set({ overviewSummary: s }),
-  clearOverviewSummary: () => set({ overviewSummary: { cluster: null, loading: false, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null } }),
+  clearOverviewSummary: () => set({ overviewSummary: { cluster: null, loading: false, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null, flux: null } }),
 }));

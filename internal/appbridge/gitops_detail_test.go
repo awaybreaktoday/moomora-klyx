@@ -1,6 +1,8 @@
 package appbridge
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,6 +36,82 @@ func TestToDetailDTOApplyOK(t *testing.T) {
 		t.Fatal("want ApplyFailed false when equal")
 	}
 }
+
+// ---- GetGitOpsSummary tests -----------------------------------------------
+
+type fakeGitOpsSummaryConn struct {
+	present   bool
+	total     int
+	notReady  int
+	suspended int
+	err       error
+}
+
+func (f *fakeGitOpsSummaryConn) OpenGitOps()                      {}
+func (f *fakeGitOpsSummaryConn) CloseGitOps()                     {}
+func (f *fakeGitOpsSummaryConn) GitOpsResources() []flux.Resource { return nil }
+func (f *fakeGitOpsSummaryConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	return nil, false
+}
+func (f *fakeGitOpsSummaryConn) Reconcile(ctx context.Context, kind, ns, name string) error {
+	return nil
+}
+func (f *fakeGitOpsSummaryConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
+	return nil
+}
+func (f *fakeGitOpsSummaryConn) SourceURL(ctx context.Context, kind, ns, name string) (string, bool) {
+	return "", false
+}
+func (f *fakeGitOpsSummaryConn) GitOpsSummaryFlux(ctx context.Context) (bool, int, int, int, error) {
+	return f.present, f.total, f.notReady, f.suspended, f.err
+}
+
+func newSummarySvc(conn GitOpsConn) *GitOpsService {
+	lookup := func(name string) (GitOpsConn, bool) {
+		if name == "x" {
+			return conn, true
+		}
+		return nil, false
+	}
+	return NewGitOpsService(lookup, &fakeEmitter{}, time.Now, time.Second)
+}
+
+func TestGetGitOpsSummaryMissIsEmpty(t *testing.T) {
+	svc := newSummarySvc(&fakeGitOpsSummaryConn{present: true, total: 5})
+	dto := svc.GetGitOpsSummary("ghost") // unknown cluster
+	if dto.FluxPresent || dto.Total != 0 {
+		t.Fatalf("want zero DTO for unknown cluster, got %+v", dto)
+	}
+}
+
+func TestGetGitOpsSummaryMapsValues(t *testing.T) {
+	conn := &fakeGitOpsSummaryConn{present: true, total: 3, notReady: 1, suspended: 1}
+	svc := newSummarySvc(conn)
+	dto := svc.GetGitOpsSummary("x")
+	if !dto.FluxPresent || dto.Total != 3 || dto.NotReady != 1 || dto.Suspended != 1 {
+		t.Fatalf("mapping wrong: %+v", dto)
+	}
+}
+
+func TestGetGitOpsSummaryAbsentFlux(t *testing.T) {
+	conn := &fakeGitOpsSummaryConn{present: false}
+	svc := newSummarySvc(conn)
+	dto := svc.GetGitOpsSummary("x")
+	if dto.FluxPresent {
+		t.Fatalf("want FluxPresent=false when flux absent, got %+v", dto)
+	}
+}
+
+func TestGetGitOpsSummaryErrorIsEmpty(t *testing.T) {
+	conn := &fakeGitOpsSummaryConn{present: true, err: errors.New("forbidden")}
+	svc := newSummarySvc(conn)
+	dto := svc.GetGitOpsSummary("x")
+	if dto.FluxPresent || dto.Total != 0 {
+		t.Fatalf("want zero DTO on error, got %+v", dto)
+	}
+}
+
+// ---- GetResourceDetail tests -----------------------------------------------
 
 func TestGetResourceDetailReadsConn(t *testing.T) {
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
