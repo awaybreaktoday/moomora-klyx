@@ -228,11 +228,14 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
-		// Port-forwards are long-lived OS-level listeners owned by this process;
-		// tear them down on quit so no orphaned local sockets or SPDY tunnels
-		// outlive the app. Forwards are the only resource that binds a local port,
-		// so they are the one that must be explicitly drained here.
-		OnShutdown: func() { forwardsSvc.StopAll() },
+		// Drain every long-lived resource on quit: port-forwards bind local OS
+		// sockets/SPDY tunnels, log tails hold apiserver streams, and drains own
+		// child kubectl processes - none may outlive the app.
+		OnShutdown: func() {
+			forwardsSvc.StopAll()
+			logsSvc.CloseAll()
+			nodeOpsSvc.CancelAll()
+		},
 	})
 
 	em.app = app
