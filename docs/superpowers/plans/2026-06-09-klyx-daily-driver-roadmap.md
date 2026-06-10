@@ -190,16 +190,18 @@ setPods/setWorkloads (wholesale replace; selection/expand survive via keys).
 
 ### G2 — Multi-pod log aggregation
 Branch: `feat/g2-aggregate-logs`
-- [ ] T1 Go: LogsService.OpenWorkloadLogStream(cluster, ns, kind, name,
+- [x] T1 Go: LogsService.OpenWorkloadLogStream(cluster, ns, kind, name,
       container, tailLines) - resolve the workload's pods (selector join),
       open per-pod sub-streams internally (cap 10 pods, log a marker line when
       capped), fan-in lines prefixed `<pod-short> › ` into ONE batched stream
       id; Close tears down all sub-streams; aggregate = one registry entry.
-- [ ] T2 FE: "logs" affordance on WorkloadsView rows (icon + dock, like pods);
+- [x] T2 FE: "logs" affordance on WorkloadsView rows (icon + dock, like pods);
       LogsPane workload mode (container picker from workload containers, pod
       prefix rendered dim via logline parse extension). Popout works too.
-- [ ] T3 Gate + verify (2-replica deploy on nelli, both pods' lines interleave
-      with prefixes), merge.
+- [x] T3 Gate + verify (2-replica deploy on nelli, both pods' lines interleave
+      with prefixes), merge. VERIFIED 2026-06-10: headless harness against
+      klyx-test/chatty (2 replicas) — WorkloadPods resolved both pods, stream
+      interleaved 58 lines per pod with stripped-prefix `<hash-suffix> › `.
 
 ### G3 — Metric sparklines
 Branch: `feat/g3-sparklines`
@@ -257,6 +259,12 @@ DD5 (palette + layout):
 G1 (live lists):
 - Pods/Workloads/Events: green "live" dot in controls; delete a pod with kubectl and watch it vanish + recreate in the list WITHOUT clicking refresh; kill the network briefly -> indicator flips to "manual".
 - Sidebar chevron expands to labeled mode and persists across restarts; section order is the triage order.
+
+G2 (aggregate workload logs):
+- Workloads: terminal icon at the end of each row (and the `l` key) opens a bottom dock tailing ALL the workload's pods in one stream; pod-name prefixes render dimmed, log levels still tint.
+- Multi-replica workload: lines from different pods visibly interleave; scale to >10 pods and the stream notes the cap with a marker line.
+- Dock header shows kind + ns/name; pop-out button moves the tail to a native window (title "logs · ns/name (kind)") and closes the dock.
+- If a pod's stream dies mid-tail, a `… N of M pod streams failed` marker appears instead of silent loss.
 - Detail panels drag-resize from the left edge (persists); pods/events lists stay smooth on big clusters.
 - One toast bottom-center for all actions (auto-dismisses ~6s).
 - j/k moves row selection, enter opens/expands, / focuses search, esc closes panel; esc during a confirm only cancels the confirm.
