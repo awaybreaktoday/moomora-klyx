@@ -171,21 +171,21 @@ Branch: `feat/dd5-palette-layout`
       + a11y pass on rows (the standing backlog item).
 - [x] T5 Gate + final whole-app review + merge. Update CLAUDE.md milestone status.
 
-### G1 — Live lists (watch-driven, owner gap-closer 2026-06-10)
+### G1 — Live lists (watch-driven, owner gap-closer 2026-06-10) — MERGED 2026-06-10
 Branch: `feat/g1-live-lists`
 Design: watches as DIRTY SIGNALS + existing list functions as source of truth
 (no blind polling - principle; no informer-cache reassembly - risk). Watch event
 → mark dirty; 1s debounce ticker → re-run existing ListPods/ListWorkloads →
 emit full ResultDTO via Emitter; frontend subscribes and calls the EXISTING
 setPods/setWorkloads (wholesale replace; selection/expand survive via keys).
-- [ ] T1 Go: live watch registry (per service, key cluster+ns, single-subscriber
+- [x] T1 Go: live watch registry (per service, key cluster+ns, single-subscriber
       replace, watch reconnect w/ backoff, live:false status on failure,
       CloseAll on shutdown) for PodsService.OpenLive/CloseLive +
       WorkloadsService likewise. ADVERSARIAL REVIEW (lifecycle).
-- [ ] T2 FE: subscribe on mount/ns-change, close on unmount; "live" dot in the
+- [x] T2 FE: subscribe on mount/ns-change, close on unmount; "live" dot in the
       controls row (green live / muted "refresh manually" when watch down);
       refresh button forces immediate. Events view same pattern (watch events).
-- [ ] T3 Gate + verify on nelli (pod delete shows recreation WITHOUT refresh),
+- [x] T3 Gate + verify on nelli (pod delete shows recreation WITHOUT refresh),
       merge.
 
 ### G2 — Multi-pod log aggregation
@@ -253,6 +253,9 @@ Post-M9 refinements (owner-driven, 2026-06-10):
 
 DD5 (palette + layout):
 - cmd+K opens the palette; typing fuzzy-filters clusters/sections/loaded pods/releases; enter navigates; esc closes; doesn't hijack typing in inputs.
+
+G1 (live lists):
+- Pods/Workloads/Events: green "live" dot in controls; delete a pod with kubectl and watch it vanish + recreate in the list WITHOUT clicking refresh; kill the network briefly -> indicator flips to "manual".
 - Sidebar chevron expands to labeled mode and persists across restarts; section order is the triage order.
 - Detail panels drag-resize from the left edge (persists); pods/events lists stay smooth on big clusters.
 - One toast bottom-center for all actions (auto-dismisses ~6s).
