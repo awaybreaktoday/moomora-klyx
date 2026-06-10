@@ -12,7 +12,11 @@ export function LogsWindow({ params }: { params?: URLSearchParams }) {
   const q = params ?? new URLSearchParams(window.location.search);
   const cluster = q.get("cluster") ?? "";
   const namespace = q.get("ns") ?? "";
-  const name = q.get("pod") ?? "";
+  // mode=workload pops an AGGREGATE tail: name/kind identify the workload and
+  // the pane opens OpenWorkloadLogStream instead of a single-pod stream.
+  const isWorkload = q.get("mode") === "workload";
+  const name = (isWorkload ? q.get("name") : q.get("pod")) ?? "";
+  const kind = q.get("kind") ?? "";
   const container = q.get("container") ?? "";
 
   return (
@@ -47,6 +51,7 @@ export function LogsWindow({ params }: { params?: URLSearchParams }) {
         <LogsPane
           cluster={cluster}
           pod={{ namespace, name, containers: [] }}
+          workload={isWorkload ? { kind, name } : undefined}
           initialContainer={container}
           hostedInWindow
         />

@@ -140,3 +140,47 @@ func TestOpenLogsWindow_Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenWorkloadLogsWindow(t *testing.T) {
+	op := &fakeOpener{}
+	svc := NewWindowsService(op)
+	res := svc.OpenWorkloadLogsWindow("homelab", "team a", "Deployment", "web", "app")
+	if !res.OK {
+		t.Fatalf("expected OK, got %+v", res)
+	}
+	if op.title != "logs · team a/web (deployment)" {
+		t.Errorf("title: got %q", op.title)
+	}
+	u, err := url.Parse(op.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	for k, want := range map[string]string{
+		"logswin": "1", "mode": "workload", "cluster": "homelab",
+		"ns": "team a", "kind": "Deployment", "name": "web", "container": "app",
+	} {
+		if got := q.Get(k); got != want {
+			t.Errorf("param %s: got %q want %q", k, got, want)
+		}
+	}
+}
+
+func TestOpenWorkloadLogsWindow_Validation(t *testing.T) {
+	op := &fakeOpener{}
+	svc := NewWindowsService(op)
+	for _, args := range [][4]string{
+		{"", "ns", "Deployment", "web"},
+		{"cl", "", "Deployment", "web"},
+		{"cl", "ns", "", "web"},
+		{"cl", "ns", "Deployment", ""},
+	} {
+		res := svc.OpenWorkloadLogsWindow(args[0], args[1], args[2], args[3], "")
+		if res.OK {
+			t.Fatalf("expected validation error for %v, got OK", args)
+		}
+	}
+	if op.called {
+		t.Error("opener must not be called on validation failure")
+	}
+}

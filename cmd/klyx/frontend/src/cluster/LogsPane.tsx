@@ -32,12 +32,19 @@ interface PodRef {
 export function LogsPane({
   cluster,
   pod,
+  workload,
   initialContainer,
   hostedInWindow = false,
   onContainerChange,
 }: {
   cluster: string;
   pod: PodRef;
+  // workload switches the pane to AGGREGATE mode: the stream opens via
+  // OpenWorkloadLogStream across all the workload's pods (pod.name is the
+  // workload name for display; pod.namespace is used). The "previous" toggle is
+  // hidden (not meaningful per-aggregate) and container "" means each pod's
+  // default container.
+  workload?: { kind: string; name: string };
   // initialContainer is used when the containers list is empty (the pop-out
   // window has no pod summary, only the container param). When set with an empty
   // containers list, the picker is replaced by static text and the stream opens
@@ -60,7 +67,8 @@ export function LogsPane({
   const firstRegular = regular[0]?.name ?? ordered[0]?.name ?? initialContainer ?? "";
   // staticContainer: no picker options but an explicit container was provided
   // (pop-out). Render it as static text rather than an empty select.
-  const staticContainer = pod.containers.length === 0 && (initialContainer ?? "") !== "";
+  const staticContainer =
+    pod.containers.length === 0 && ((initialContainer ?? "") !== "" || workload !== undefined);
 
   const [container, setContainer] = useState(firstRegular);
   const [previous, setPrevious] = useState(false);
@@ -169,9 +177,13 @@ export function LogsPane({
 
       let result: { streamId: string; error?: string };
       try {
-        result = await LogsService.OpenLogStream(
-          cluster, pod.namespace, pod.name, container, previous, tailLines,
-        );
+        result = workload
+          ? await LogsService.OpenWorkloadLogStream(
+              cluster, pod.namespace, workload.kind, workload.name, container, tailLines,
+            )
+          : await LogsService.OpenLogStream(
+              cluster, pod.namespace, pod.name, container, previous, tailLines,
+            );
       } catch (err) {
         if (!stale) {
           setStatus("error");
@@ -235,7 +247,7 @@ export function LogsPane({
         LogsService.CloseLogStream(sid).catch(() => undefined);
       }
     };
-  }, [cluster, pod.namespace, pod.name, container, previous, tailLines]);
+  }, [cluster, pod.namespace, pod.name, container, previous, tailLines, workload?.kind, workload?.name]);
 
   // Notify the host of the active container (initial + every switch) so a parent
   // can carry the selection into a pop-out window.
@@ -351,7 +363,7 @@ export function LogsPane({
         <span
           style={{ fontSize: 11, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
           aria-label="container"
-        >{container}</span>
+        >{container || "default containers"}</span>
       ) : (
         <select
           value={container}
@@ -378,7 +390,7 @@ export function LogsPane({
       </select>
 
       {/* Toggles */}
-      <button style={chipStyle(previous)} onClick={() => setPrevious((p) => !p)}>previous</button>
+      {!workload && <button style={chipStyle(previous)} onClick={() => setPrevious((p) => !p)}>previous</button>}
       <button
         style={chipStyle(follow)}
         onClick={() => {

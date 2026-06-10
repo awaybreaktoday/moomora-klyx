@@ -1,11 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { IconTerminal2, IconExternalLink } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
 import { listWorkloads, openLiveWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
+import { openWorkloadLogsWindow } from "../bridge/windows";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
+import { LogsPane } from "./LogsPane";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
 import { useListKeys } from "../chrome/useListKeys";
+import { useResizableDock } from "../chrome/useResizableDock";
 import { Chip } from "../chrome/Chip";
 
 const rankDot: Record<string, string> = {
@@ -60,6 +64,8 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(-1);
+  // Aggregate-logs dock target. Persists across row selection; closed via ✕ only.
+  const [logsTarget, setLogsTarget] = useState<{ namespace: string; name: string; kind: WorkloadKind } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   // Holds the cleanup for the current live subscription so namespace changes
   // can close the old sub before opening the new one.
@@ -91,8 +97,8 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
 
   const showMetrics = wl.metricsAvailable;
   const gridCols = showMetrics
-    ? "12px 90px 1fr 70px 64px 1.1fr 140px 140px 130px"
-    : "12px 90px 1fr 70px 64px 1.2fr 160px";
+    ? "12px 90px 1fr 70px 64px 1.1fr 140px 140px 130px 28px"
+    : "12px 90px 1fr 70px 64px 1.2fr 160px 28px";
   const filtered = wl.items.filter((w) => wl.kindFilter[w.kind as WorkloadKind] && (!wl.needsAttention || w.rank !== "healthy"));
   const rows = showMetrics && wl.nearLimitSort ? nearLimitSort(filtered) : filtered;
 
@@ -124,6 +130,11 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
     }
   }, [effectiveIdx, rows, wl.expanded]);
 
+  const handleLogsKey = useCallback((idx: number) => {
+    const w = rows[idx];
+    if (w) setLogsTarget({ namespace: w.namespace, name: w.name, kind: w.kind as WorkloadKind });
+  }, [rows]);
+
   useListKeys({
     count: rows.length,
     selected: effectiveIdx,
@@ -131,6 +142,7 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
     onActivate: handleActivate,
     onEscape: handleEscape,
     searchRef,
+    extraKeys: { l: handleLogsKey },
   });
 
   // Reset selection on filter change.
@@ -143,7 +155,9 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
   }, [wl.needsAttention, wl.kindFilter, wl.namespace, wl.nearLimitSort]);
 
   return (
-    <div style={{ padding: "16px 20px" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box" }}>
+      {/* Scrollable list area — the logs dock pins below it. */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <select value={wl.namespace} onChange={(e) => onNamespace(e.target.value)}
           style={{ fontSize: 12, padding: "3px 6px", background: "var(--color-background-primary)", color: "var(--color-text-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4 }}>
@@ -179,6 +193,7 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
             {showMetrics && <span>cpu</span>}
             {showMetrics && <span>mem</span>}
             <span>gitops</span>
+            <span />
           </div>
           {rows.map((w, i) => {
             const expanded = wl.expanded.includes(keyOf(w));
@@ -222,6 +237,10 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
                   <span style={{ color: "var(--color-text-tertiary)" }} title={w.gitops ? `Flux ownership label: ${w.gitops.kind} ${w.gitops.namespace}/${w.gitops.name}` : undefined}>
                     {w.gitops ? `flux ${w.gitops.kind === "HelmRelease" ? "hr" : "ks"}/${w.gitops.name}` : "—"}
                   </span>
+                  <LogsIconButton
+                    label={`aggregate logs for ${w.namespace}/${w.name}`}
+                    onClick={() => setLogsTarget({ namespace: w.namespace, name: w.name, kind: w.kind as WorkloadKind })}
+                  />
                 </div>
                 {expanded && showMetrics && (
                   <div style={{ display: "flex", gap: 28, fontSize: 11, padding: "6px 8px 6px 32px", background: "var(--color-background-secondary)", fontFamily: "var(--font-mono)" }}>
@@ -266,6 +285,22 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
           })}
         </div>
       )}
+      </div>
+
+      {/* Aggregate-logs dock — persists across row selection changes; close via ✕ only */}
+      {logsTarget && (
+        <WorkloadLogsDock
+          cluster={cluster}
+          target={logsTarget}
+          onClose={() => setLogsTarget(null)}
+          onPopOut={async (container) => {
+            const ok = await openWorkloadLogsWindow(cluster, logsTarget.namespace, logsTarget.kind, logsTarget.name, container);
+            // On success the tail moved to the native window; close the dock so we
+            // don't double-tail the same workload. On failure keep the dock open.
+            if (ok) setLogsTarget(null);
+          }}
+        />
+      )}
 
       {pending?.kind === "restart" && (
         <ConfirmDialog
@@ -297,6 +332,113 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// LogsIconButton — subtle trailing-column affordance, full opacity on own hover.
+function LogsIconButton({ label, onClick }: { label: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      aria-label={label}
+      title="aggregate logs"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: 20, height: 20,
+        padding: 0, border: "none", background: "transparent", cursor: "pointer",
+        color: "var(--color-text-tertiary)",
+        opacity: hovered ? 1 : 0.45,
+        borderRadius: 3,
+      }}
+    >
+      <IconTerminal2 size={14} />
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WorkloadLogsDock — bottom dock tailing the AGGREGATE logs of one workload
+// (all its pods fan in with dimmed pod-name prefixes). Mirrors PodsView's
+// LogsDock, including the shared dock-height storage key via useResizableDock.
+// ---------------------------------------------------------------------------
+
+function WorkloadLogsDock({
+  cluster,
+  target,
+  onClose,
+  onPopOut,
+}: {
+  cluster: string;
+  target: { namespace: string; name: string; kind: WorkloadKind };
+  onClose: () => void;
+  onPopOut: (container: string) => void;
+}) {
+  const { height, handleProps } = useResizableDock();
+  // Track the container currently selected inside LogsPane so the pop-out opens
+  // the same tail. In workload mode the selector is static ("default containers")
+  // unless a container was chosen, so this is usually "".
+  const [container, setContainer] = useState("");
+
+  return (
+    <div
+      data-testid="workload-logs-dock"
+      style={{
+        flexShrink: 0,
+        height,
+        position: "relative",
+        borderTop: "0.5px solid var(--color-border-tertiary)",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--color-background-primary)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12,
+      }}
+    >
+      {/* Drag handle on top edge */}
+      <div {...handleProps} />
+
+      {/* Dock header */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "4px 12px 4px 14px",
+        borderBottom: "0.5px solid var(--color-border-tertiary)",
+        flexShrink: 0,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 500 }}>
+          <span style={{ color: "var(--color-text-tertiary)" }}>{kindShort[target.kind]} {target.namespace}/</span>{target.name}
+        </span>
+        <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>aggregate logs</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            onClick={() => onPopOut(container)}
+            style={{ ...btn, padding: "2px 6px", fontSize: 12, display: "flex", alignItems: "center" }}
+            aria-label="open logs in window"
+            title="Open logs in a separate window"
+          >
+            <IconExternalLink size={13} stroke={1.5} />
+          </button>
+          <button
+            onClick={onClose}
+            style={{ ...btn, padding: "2px 8px", fontSize: 12 }}
+            aria-label="close logs dock"
+          >✕</button>
+        </div>
+      </div>
+
+      {/* LogsPane body — workload prop switches it to OpenWorkloadLogStream. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "8px 12px" }}>
+        <LogsPane
+          key={`${target.kind}/${target.namespace}/${target.name}`}
+          cluster={cluster}
+          pod={{ namespace: target.namespace, name: target.name, containers: [] }}
+          workload={{ kind: target.kind, name: target.name }}
+          onContainerChange={setContainer}
+        />
+      </div>
     </div>
   );
 }

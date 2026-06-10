@@ -26,11 +26,13 @@ vi.mock("@wailsio/runtime", () => ({
 }));
 
 const mockOpenLogStream = vi.fn();
+const mockOpenWorkloadLogStream = vi.fn();
 const mockCloseLogStream = vi.fn();
 
 vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
   LogsService: {
     OpenLogStream: (...args: unknown[]) => mockOpenLogStream(...args),
+    OpenWorkloadLogStream: (...args: unknown[]) => mockOpenWorkloadLogStream(...args),
     CloseLogStream: (...args: unknown[]) => mockCloseLogStream(...args),
     CloseAll: vi.fn().mockResolvedValue(undefined),
   },
@@ -87,6 +89,7 @@ describe("LogsPane", () => {
     for (const k of Object.keys(eventHandlers)) delete eventHandlers[k];
     offFns.length = 0;
     mockOpenLogStream.mockReset();
+    mockOpenWorkloadLogStream.mockReset();
     mockCloseLogStream.mockReset();
     mockCloseLogStream.mockResolvedValue(undefined);
     mockClipboardWrite.mockReset();
@@ -470,5 +473,73 @@ describe("LogsPane", () => {
       fireEvent.change(select, { target: { value: "sidecar" } });
     });
     await waitFor(() => expect(onContainerChange).toHaveBeenLastCalledWith("sidecar"));
+  });
+
+  // -------------------------------------------------------------------------
+  // Workload (aggregate) mode
+  // -------------------------------------------------------------------------
+
+  describe("workload mode", () => {
+    const workloadPod = { namespace: "default", name: "my-deploy", containers: [] };
+
+    it("opens OpenWorkloadLogStream instead of OpenLogStream", async () => {
+      mockOpenWorkloadLogStream.mockImplementation(() => openSuccess("s-agg"));
+      render(
+        <LogsPane
+          cluster="homelab"
+          pod={workloadPod}
+          workload={{ kind: "Deployment", name: "my-deploy" }}
+        />,
+      );
+      await waitFor(() => expect(mockOpenWorkloadLogStream).toHaveBeenCalledTimes(1));
+      expect(mockOpenWorkloadLogStream).toHaveBeenCalledWith(
+        "homelab", "default", "Deployment", "my-deploy", "", 500,
+      );
+      expect(mockOpenLogStream).not.toHaveBeenCalled();
+    });
+
+    it("hides the previous toggle (no single-container restart semantics)", async () => {
+      mockOpenWorkloadLogStream.mockImplementation(() => openSuccess("s-agg-prev"));
+      const { queryByText } = render(
+        <LogsPane
+          cluster="homelab"
+          pod={workloadPod}
+          workload={{ kind: "Deployment", name: "my-deploy" }}
+        />,
+      );
+      await waitFor(() => expect(mockOpenWorkloadLogStream).toHaveBeenCalled());
+      expect(queryByText("previous")).toBeNull();
+    });
+
+    it("renders a static 'default containers' label instead of a selector", async () => {
+      mockOpenWorkloadLogStream.mockImplementation(() => openSuccess("s-agg-static"));
+      const { getByText, queryByRole } = render(
+        <LogsPane
+          cluster="homelab"
+          pod={workloadPod}
+          workload={{ kind: "Deployment", name: "my-deploy" }}
+        />,
+      );
+      await waitFor(() => expect(mockOpenWorkloadLogStream).toHaveBeenCalled());
+      expect(queryByRole("combobox", { name: /container/i })).toBeNull();
+      expect(getByText("default containers")).toBeTruthy();
+    });
+
+    it("renders aggregate lines with dimmed pod prefixes from the stream", async () => {
+      mockOpenWorkloadLogStream.mockImplementation(() => openSuccess("s-agg-lines"));
+      const { findByText } = render(
+        <LogsPane
+          cluster="homelab"
+          pod={workloadPod}
+          workload={{ kind: "Deployment", name: "my-deploy" }}
+        />,
+      );
+      await waitFor(() => expect(mockOpenWorkloadLogStream).toHaveBeenCalled());
+      act(() => {
+        fireChunk("podlogs:s-agg-lines", ["web-abc12 › hello from pod a", "web-def34 › hello from pod b"]);
+      });
+      expect(await findByText(/hello from pod a/)).toBeTruthy();
+      expect(await findByText(/hello from pod b/)).toBeTruthy();
+    });
   });
 });
