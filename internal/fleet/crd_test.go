@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -328,6 +329,92 @@ func TestRevealSecretKeyMissingSecret(t *testing.T) {
 	_, err := c.RevealSecretKey(context.Background(), "default", "ghost-secret", "key")
 	if err == nil {
 		t.Fatal("want error for missing secret, got nil")
+	}
+}
+
+func TestGetInstanceDetailServiceBacking(t *testing.T) {
+	serviceGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{serviceGVR: "ServiceList"}
+	svcObj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Service",
+		"metadata":   map[string]interface{}{"name": "web", "namespace": "default", "uid": "uid-svc1"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, svcObj)
+
+	// Build a typed Service + EndpointSlice with one ready and one not-ready endpoint.
+	readyTrue := true
+	readyFalse := false
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP}},
+			Selector: map[string]string{"app": "web"},
+		},
+	}
+	slice := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-abc",
+			Namespace: "default",
+			Labels:    map[string]string{"kubernetes.io/service-name": "web"},
+		},
+		Endpoints: []discoveryv1.Endpoint{
+			{
+				Addresses:  []string{"10.0.0.1"},
+				Conditions: discoveryv1.EndpointConditions{Ready: &readyTrue},
+				TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "web-pod-1"},
+			},
+			{
+				Addresses:  []string{"10.0.0.2"},
+				Conditions: discoveryv1.EndpointConditions{Ready: &readyFalse},
+				TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "web-pod-2"},
+			},
+		},
+	}
+	typed := typedfake.NewSimpleClientset(svc, slice)
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "", "v1", "services", "default", "web")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.ServiceBacking == nil {
+		t.Fatal("ServiceBacking must be non-nil for a v1 Service")
+	}
+	b := d.ServiceBacking
+	if b.Ready != 1 {
+		t.Fatalf("want Ready=1, got %d", b.Ready)
+	}
+	if b.NotReady != 1 {
+		t.Fatalf("want NotReady=1, got %d", b.NotReady)
+	}
+	if len(b.Ports) != 1 || b.Ports[0].Port != 80 {
+		t.Fatalf("ports: %+v", b.Ports)
+	}
+	if b.Selector["app"] != "web" {
+		t.Fatalf("selector: %+v", b.Selector)
+	}
+}
+
+func TestGetInstanceDetailNonServiceNoServiceBacking(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1",
+		"kind":       "Widget",
+		"metadata":   map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-w2"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.ServiceBacking != nil {
+		t.Fatalf("ServiceBacking must be nil for non-service, got %+v", d.ServiceBacking)
 	}
 }
 

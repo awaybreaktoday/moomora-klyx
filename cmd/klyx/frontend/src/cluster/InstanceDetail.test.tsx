@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/react";
-import { useFleet, ResourceRef, InstanceRef, InstanceDetailDTO } from "../store/fleet";
+import { useFleet, ResourceRef, InstanceRef, InstanceDetailDTO, ServiceBackingDTO } from "../store/fleet";
 import { InstanceDetail } from "./InstanceDetail";
 
 vi.mock("../bridge/crd", () => ({
@@ -9,6 +9,11 @@ vi.mock("../bridge/crd", () => ({
   revealSecretKey: vi.fn(async () => "hunter2"),
 }));
 import { getInstanceDetail, copyText, revealSecretKey } from "../bridge/crd";
+
+vi.mock("../bridge/pods", () => ({
+  openPodDetail: vi.fn(async () => {}),
+}));
+import { openPodDetail } from "../bridge/pods";
 
 const resource: ResourceRef = { group: "cert-manager.io", version: "v1", plural: "certificates", kind: "Certificate", scope: "Namespaced" };
 const instance: InstanceRef = { namespace: "default", name: "web-tls" };
@@ -132,5 +137,94 @@ describe("InstanceDetail — secrets", () => {
     const { queryAllByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
     // "Reveal" buttons should not appear for non-secret.
     expect(queryAllByText("Reveal").length).toBe(0);
+  });
+});
+
+const serviceResource: ResourceRef = { group: "", version: "v1", plural: "services", kind: "Service", scope: "Namespaced" };
+const serviceInstance: InstanceRef = { namespace: "default", name: "web" };
+
+const readyBacking: ServiceBackingDTO = {
+  ports: [{ name: "http", port: 80, protocol: "TCP" }],
+  ready: 2,
+  notReady: 1,
+  addresses: [
+    { ip: "10.0.0.1", ready: true, targetKind: "Pod", targetName: "web-pod-1" },
+    { ip: "10.0.0.2", ready: true, targetKind: "Pod", targetName: "web-pod-2" },
+    { ip: "10.0.0.3", ready: false, targetKind: "Pod", targetName: "web-pod-3" },
+  ],
+  selector: { app: "web" },
+};
+
+const zeroBacking: ServiceBackingDTO = {
+  ports: [{ name: "http", port: 80, protocol: "TCP" }],
+  ready: 0,
+  notReady: 3,
+  addresses: [
+    { ip: "10.0.0.1", ready: false, targetKind: "Pod", targetName: "web-pod-1" },
+  ],
+  selector: {},
+};
+
+const serviceDetail: InstanceDetailDTO = {
+  kind: "Service", namespace: "default", name: "web", created: "", labels: { app: "web" },
+  conditions: [], events: [],
+  yaml: "apiVersion: v1\nkind: Service\n",
+  serviceBacking: readyBacking,
+};
+
+function seedService(over: Partial<{ ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean }> = {}) {
+  useFleet.setState({ instanceDetail: { ref: serviceInstance, detail: serviceDetail, loading: false, ...over } });
+}
+
+describe("InstanceDetail — service backing", () => {
+  beforeEach(() => { vi.clearAllMocks(); seedService(); });
+
+  it("renders backing section with ready count", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    expect(getByText(/2 ready/)).toBeTruthy();
+  });
+
+  it("renders port row", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    expect(getByText(/80\/TCP/)).toBeTruthy();
+  });
+
+  it("renders IP addresses", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    expect(getByText("10.0.0.1")).toBeTruthy();
+  });
+
+  it("renders pod links for Pod-targeted addresses", () => {
+    const { getByTestId } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    expect(getByTestId("pod-link-web-pod-1")).toBeTruthy();
+  });
+
+  it("pod link calls openPodDetail and switches section to pods", () => {
+    useFleet.getState().openCluster("x");
+    seedService();
+    const { getByTestId } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    fireEvent.click(getByTestId("pod-link-web-pod-1"));
+    expect(openPodDetail).toHaveBeenCalledWith("x", "", "web-pod-1");
+    expect(useFleet.getState().route).toMatchObject({ section: "pods" });
+  });
+
+  it("renders selector chips", () => {
+    // Both the labels section and the selector chips may render "app=web";
+    // verify at least one appears.
+    const { getAllByText } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    expect(getAllByText("app=web").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("zero-ready shows danger text", () => {
+    seedService({ detail: { ...serviceDetail, serviceBacking: zeroBacking } });
+    const { getByText } = render(<InstanceDetail cluster="x" resource={serviceResource} instance={serviceInstance} />);
+    expect(getByText(/no ready endpoints/)).toBeTruthy();
+  });
+
+  it("non-service detail has no backing section", () => {
+    seed();
+    const { queryByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
+    expect(queryByText(/ready \/ /)).toBeNull();
+    expect(queryByText(/no ready endpoints/)).toBeNull();
   });
 });

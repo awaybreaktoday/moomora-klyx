@@ -13,6 +13,9 @@ import (
 	"github.com/moomora/klyx/internal/crd"
 )
 
+// serviceGVR is the GVR used to typed-get a core Service for backing detail.
+var serviceGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+
 // ListCRDs lists the cluster's CustomResourceDefinitions and parses them. A
 // single cheap dynamic list; no watch.
 func (c *ClusterConn) ListCRDs(ctx context.Context) ([]crd.Info, error) {
@@ -89,16 +92,26 @@ func (c *ClusterConn) GetInstanceDetail(ctx context.Context, group, version, plu
 		obj, secretKeys = crd.MaskSecretData(obj)
 	}
 
+	// Build service backing for v1 Services: typed-get the Service (for
+	// spec.ports and spec.selector) then list its EndpointSlices. A failure here
+	// is non-fatal; backing will be nil and the detail still renders.
+	var serviceBacking *crd.ServiceBacking
+	if group == "" && version == "v1" && plural == "services" {
+		backing := c.buildServiceBacking(ctx, ns, name)
+		serviceBacking = &backing
+	}
+
 	y, _ := crd.ToYAML(obj)
 	d := crd.InstanceDetail{
-		Kind:       u.GetKind(),
-		Namespace:  ns,
-		Name:       name,
-		Created:    u.GetCreationTimestamp().Time,
-		Labels:     u.GetLabels(),
-		Conditions: crd.ParseConditions(u.Object),
-		YAML:       y,
-		SecretKeys: secretKeys,
+		Kind:           u.GetKind(),
+		Namespace:      ns,
+		Name:           name,
+		Created:        u.GetCreationTimestamp().Time,
+		Labels:         u.GetLabels(),
+		Conditions:     crd.ParseConditions(u.Object),
+		YAML:           y,
+		SecretKeys:     secretKeys,
+		ServiceBacking: serviceBacking,
 	}
 	d.Events = c.instanceEvents(ctx, string(u.GetUID()))
 	return d, nil
@@ -118,6 +131,24 @@ func (c *ClusterConn) RevealSecretKey(ctx context.Context, ns, name, key string)
 		return "", fmt.Errorf("key %q not found in secret %s/%s", key, ns, name)
 	}
 	return string(b), nil
+}
+
+// buildServiceBacking fetches the typed Service and its EndpointSlices, then
+// builds a ServiceBacking. Non-fatal: any error returns an empty backing so the
+// detail still renders cleanly.
+func (c *ClusterConn) buildServiceBacking(ctx context.Context, ns, name string) crd.ServiceBacking {
+	svc, err := c.typed.CoreV1().Services(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return crd.ServiceBacking{}
+	}
+	sliceList, err := c.typed.DiscoveryV1().EndpointSlices(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "kubernetes.io/service-name=" + name,
+	})
+	if err != nil || sliceList == nil {
+		// No EndpointSlices found; build backing from Service spec only.
+		return crd.BuildServiceBacking(svc, nil)
+	}
+	return crd.BuildServiceBacking(svc, sliceList.Items)
 }
 
 // instanceEvents lists core Events for an object's uid, newest first. A list

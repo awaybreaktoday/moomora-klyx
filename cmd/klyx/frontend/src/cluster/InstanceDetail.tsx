@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO } from "../store/fleet";
+import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO, ServiceBackingDTO } from "../store/fleet";
 import { getInstanceDetail, revealSecretKey, copyText } from "../bridge/crd";
+import { openPodDetail } from "../bridge/pods";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
@@ -137,6 +138,85 @@ function SecretDataSection({
   );
 }
 
+// ServiceBackingSection renders endpoint health for a v1 Service: a summary
+// line (ready/notReady counts), port list, address list (with pod cross-links
+// for Pod-targeted endpoints), and selector chips.
+function ServiceBackingSection({
+  cluster, backing,
+}: {
+  cluster: string;
+  backing: ServiceBackingDTO;
+}) {
+  const summaryColor = backing.ready > 0 ? "var(--color-text-success)" : "var(--color-text-danger)";
+  const summaryText = backing.ready > 0
+    ? `${backing.ready} ready / ${backing.notReady} not ready`
+    : `no ready endpoints (${backing.notReady} not ready)`;
+
+  const handlePodLink = (ns: string, name: string) => {
+    useFleet.getState().setSection("pods");
+    void openPodDetail(cluster, ns, name);
+  };
+
+  return (
+    <Section title="Backing">
+      {/* Summary line */}
+      <div style={{ color: summaryColor, fontWeight: 500, fontSize: 12, marginBottom: 4 }}>
+        {summaryText}
+      </div>
+
+      {/* Ports row */}
+      {backing.ports.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+          {backing.ports.map((p, i) => (
+            <span key={i} style={{ fontSize: 11, background: "var(--color-background-secondary)", padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>
+              {p.name ? `${p.name} ` : ""}{p.port}/{p.protocol}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Address list */}
+      {backing.addresses.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 4 }}>
+          {backing.addresses.map((a, i) => {
+            const dot = (
+              <span style={{ width: 7, height: 7, borderRadius: "50%", display: "inline-block", flexShrink: 0, background: a.ready ? "var(--color-text-success)" : "var(--color-text-danger)" }} />
+            );
+            const target = a.targetKind === "Pod" ? (
+              <button
+                onClick={() => handlePodLink(/* pod is in same ns as service */ "", a.targetName)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--color-text-info)", fontFamily: "var(--font-mono)", fontSize: 11, textAlign: "left" }}
+                title={`${a.targetKind}/${a.targetName}`}
+                data-testid={`pod-link-${a.targetName}`}
+              >
+                {a.targetName}
+              </button>
+            ) : a.targetName ? (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)" }}>{a.targetName}</span>
+            ) : null;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {dot}
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-primary)" }}>{a.ip}</span>
+                {target}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Selector chips */}
+      {backing.selector && Object.keys(backing.selector).length > 0 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {Object.entries(backing.selector).map(([k, v]) => (
+            <span key={k} style={{ fontSize: 10, background: "var(--color-background-secondary)", color: "var(--color-text-tertiary)", padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)" }}>{k}={v}</span>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function InstanceDetail({ cluster, resource, instance }: { cluster: string; resource: ResourceRef; instance: InstanceRef }) {
   const id = useFleet((s) => s.instanceDetail);
   const [copied, setCopied] = useState(false);
@@ -180,6 +260,11 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
                 <span key={k} style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 10, padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)" }}>{k}={v}</span>
               ))}
             </div>
+          )}
+
+          {/* Service backing section — rendered ABOVE yaml, ONLY for v1 Services */}
+          {d.serviceBacking != null && (
+            <ServiceBackingSection cluster={cluster} backing={d.serviceBacking} />
           )}
 
           {/* Secret data section — rendered ABOVE yaml, ONLY for Secrets */}

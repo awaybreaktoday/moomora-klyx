@@ -96,11 +96,35 @@ func (s *CRDService) GetInstanceDetail(cluster, group, version, plural, namespac
 	for _, sk := range d.SecretKeys {
 		secretKeys = append(secretKeys, SecretKeyDTO{Key: sk.Key, Bytes: sk.Bytes})
 	}
+	var serviceBacking *ServiceBackingDTO
+	if d.ServiceBacking != nil {
+		b := d.ServiceBacking
+		ports := make([]ServicePortDTO, 0, len(b.Ports))
+		for _, p := range b.Ports {
+			ports = append(ports, ServicePortDTO{Name: p.Name, Port: p.Port, Protocol: p.Protocol})
+		}
+		addrs := make([]EndpointAddrDTO, 0, len(b.Addresses))
+		for _, a := range b.Addresses {
+			addrs = append(addrs, EndpointAddrDTO{IP: a.IP, Ready: a.Ready, TargetKind: a.TargetKind, TargetName: a.TargetName})
+		}
+		sel := b.Selector
+		if sel == nil {
+			sel = map[string]string{}
+		}
+		serviceBacking = &ServiceBackingDTO{
+			Ports:     ports,
+			Ready:     b.Ready,
+			NotReady:  b.NotReady,
+			Addresses: addrs,
+			Selector:  sel,
+		}
+	}
 	return InstanceDetailDTO{
 		Kind: d.Kind, Namespace: d.Namespace, Name: d.Name,
 		Created: rfc3339(d.Created), Labels: labels,
 		Conditions: conds, Events: events, YAML: d.YAML,
-		SecretKeys: secretKeys,
+		SecretKeys:     secretKeys,
+		ServiceBacking: serviceBacking,
 	}
 }
 

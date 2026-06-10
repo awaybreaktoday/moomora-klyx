@@ -121,7 +121,10 @@ export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nex
 export type InstanceRef = { namespace: string; name: string };
 export type EventDTO = { type: string; reason: string; message: string; count: number; lastSeen: string };
 export type SecretKeyDTO = { key: string; bytes: number };
-export type InstanceDetailDTO = { kind: string; namespace: string; name: string; created: string; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; secretKeys?: SecretKeyDTO[] };
+export type ServicePortDTO = { name: string; port: number; protocol: string };
+export type EndpointAddrDTO = { ip: string; ready: boolean; targetKind: string; targetName: string };
+export type ServiceBackingDTO = { ports: ServicePortDTO[]; ready: number; notReady: number; addresses: EndpointAddrDTO[]; selector: Record<string, string> };
+export type InstanceDetailDTO = { kind: string; namespace: string; name: string; created: string; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; secretKeys?: SecretKeyDTO[]; serviceBacking?: ServiceBackingDTO | null };
 export type InstanceDetailSlice = { ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean };
 
 export type Route =

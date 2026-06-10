@@ -47,6 +47,8 @@ type InstanceDetail struct {
 	// with "<masked>"; this list gives key names + decoded byte-lengths so the
 	// frontend can render a key list without any value data crossing the bridge.
 	SecretKeys []SecretKeyInfo
+	// ServiceBacking is populated only for v1 Services. Nil for all other kinds.
+	ServiceBacking *ServiceBacking
 }
 
 // ParseConditions maps status.conditions[] (a near-universal convention). Empty

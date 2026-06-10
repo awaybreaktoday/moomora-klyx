@@ -194,6 +194,65 @@ func TestGetInstanceDetailSecretKeysProjected(t *testing.T) {
 	}
 }
 
+func TestGetInstanceDetailServiceBackingProjected(t *testing.T) {
+	backing := &crd.ServiceBacking{
+		Ports:    []crd.ServicePort{{Name: "http", Port: 80, Protocol: "TCP"}},
+		Ready:    2,
+		NotReady: 1,
+		Addresses: []crd.EndpointAddr{
+			{IP: "10.0.0.1", Ready: true, TargetKind: "Pod", TargetName: "web-pod-1"},
+			{IP: "10.0.0.2", Ready: true, TargetKind: "Pod", TargetName: "web-pod-2"},
+			{IP: "10.0.0.3", Ready: false, TargetKind: "Pod", TargetName: "web-pod-3"},
+		},
+		Selector: map[string]string{"app": "web"},
+	}
+	conn := &fakeCRDConn{detail: crd.InstanceDetail{
+		Kind:           "Service",
+		Namespace:      "default",
+		Name:           "web",
+		YAML:           "kind: Service\n",
+		ServiceBacking: backing,
+	}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	d := svc.GetInstanceDetail("x", "", "v1", "services", "default", "web")
+	if d.ServiceBacking == nil {
+		t.Fatal("ServiceBacking must be projected to DTO")
+	}
+	b := d.ServiceBacking
+	if b.Ready != 2 || b.NotReady != 1 {
+		t.Fatalf("counts: ready=%d notReady=%d", b.Ready, b.NotReady)
+	}
+	if len(b.Ports) != 1 || b.Ports[0].Port != 80 || b.Ports[0].Protocol != "TCP" {
+		t.Fatalf("ports: %+v", b.Ports)
+	}
+	if len(b.Addresses) != 3 || b.Addresses[0].IP != "10.0.0.1" || !b.Addresses[0].Ready {
+		t.Fatalf("addresses: %+v", b.Addresses)
+	}
+	if b.Addresses[2].TargetKind != "Pod" || b.Addresses[2].TargetName != "web-pod-3" {
+		t.Fatalf("target ref: %+v", b.Addresses[2])
+	}
+	if b.Selector["app"] != "web" {
+		t.Fatalf("selector: %+v", b.Selector)
+	}
+}
+
+func TestGetInstanceDetailNilServiceBackingOmitted(t *testing.T) {
+	conn := &fakeCRDConn{detail: crd.InstanceDetail{
+		Kind:           "Widget",
+		Namespace:      "team-a",
+		Name:           "w1",
+		YAML:           "kind: Widget\n",
+		ServiceBacking: nil,
+	}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	d := svc.GetInstanceDetail("x", "example.com", "v1", "widgets", "team-a", "w1")
+	if d.ServiceBacking != nil {
+		t.Fatalf("ServiceBacking must be nil for non-service detail, got %+v", d.ServiceBacking)
+	}
+}
+
 func TestCountKind(t *testing.T) {
 	conn := &fakeCRDConn{counts: map[string]int{"ciliumendpoints": crd.Cap, "certificates": 4}}
 	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
