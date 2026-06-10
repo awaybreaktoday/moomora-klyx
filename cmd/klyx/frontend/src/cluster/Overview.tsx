@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFleet } from "../store/fleet";
 import type { ClusterDTO, MetricsDTO } from "../store/fleet";
-import { getClusterMetrics } from "../bridge/metrics";
+import { getClusterMetrics, getClusterSparklines } from "../bridge/metrics";
+import type { SparklinesDTO } from "../bridge/metrics";
 import { fetchOverviewSummary } from "../bridge/overview";
+import { Sparkline } from "../chrome/Sparkline";
 import { stateColor } from "./stateColors";
 
 export function Overview({ c }: { c: ClusterDTO }) {
@@ -10,11 +12,19 @@ export function Overview({ c }: { c: ClusterDTO }) {
   const metrics = useFleet((s) => s.metrics);
   const loading = useFleet((s) => s.metrics.loading);
   const summary = useFleet((s) => s.overviewSummary);
+  // 30m cluster utilisation sparklines — fetched once per mount, local state.
+  const [spark, setSpark] = useState<SparklinesDTO | null>(null);
 
   useEffect(() => {
     getClusterMetrics(c.name, false);
     fetchOverviewSummary(c.name);
+    let cancelled = false;
+    getClusterSparklines(c.name).then((dto) => {
+      if (!cancelled) setSpark(dto);
+    });
     return () => {
+      cancelled = true;
+      setSpark(null);
       useFleet.getState().clearMetrics();
       useFleet.getState().clearOverviewSummary();
     };
@@ -50,8 +60,18 @@ export function Overview({ c }: { c: ClusterDTO }) {
       </Section>
 
       <Section title="Resources">
-        <Row label="cpu used"><Usage frac={m?.cpuFraction ?? null} /></Row>
-        <Row label="mem used"><Usage frac={m?.memFraction ?? null} /></Row>
+        <Row label="cpu used">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+            <Usage frac={m?.cpuFraction ?? null} />
+            {spark?.available && <Sparkline points={spark.cpu} height={16} width={90} />}
+          </span>
+        </Row>
+        <Row label="mem used">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+            <Usage frac={m?.memFraction ?? null} />
+            {spark?.available && <Sparkline points={spark.mem} height={16} width={90} />}
+          </span>
+        </Row>
         <MonitoringLine dto={m} loading={loading} onRefresh={() => getClusterMetrics(c.name, true)} />
       </Section>
 

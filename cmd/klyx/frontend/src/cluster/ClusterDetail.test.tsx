@@ -9,7 +9,10 @@ vi.mock("../bridge/gitops", () => ({
   closeGitOps: async () => {},
 }));
 
-vi.mock("../bridge/metrics", () => ({ getClusterMetrics: vi.fn() }));
+vi.mock("../bridge/metrics", () => ({
+  getClusterMetrics: vi.fn(),
+  getClusterSparklines: vi.fn().mockResolvedValue({ available: false, message: "", cpu: [], mem: [] }),
+}));
 
 vi.mock("../bridge/crd", () => ({
   listCRDs: vi.fn(async () => {}),

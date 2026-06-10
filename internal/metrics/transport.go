@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"k8s.io/client-go/rest"
 )
@@ -28,6 +30,27 @@ func NewDirectTransport(base, token string, client *http.Client) Querier {
 
 func (t *directTransport) InstantQuery(ctx context.Context, promql string) (int, []byte, error) {
 	u := t.base + "/api/v1/query?query=" + url.QueryEscape(promql)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	if t.token != "" {
+		req.Header.Set("Authorization", "Bearer "+t.token)
+	}
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	return resp.StatusCode, body, err
+}
+
+func (t *directTransport) RangeQuery(ctx context.Context, promql string, start, end time.Time, step time.Duration) (int, []byte, error) {
+	u := t.base + "/api/v1/query_range?query=" + url.QueryEscape(promql) +
+		"&start=" + strconv.FormatInt(start.Unix(), 10) +
+		"&end=" + strconv.FormatInt(end.Unix(), 10) +
+		"&step=" + strconv.FormatInt(int64(step.Seconds()), 10)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return 0, nil, err
@@ -73,4 +96,26 @@ func (t *proxyTransport) InstantQuery(ctx context.Context, promql string) (int, 
 		return status, body, nil // let the Client interpret non-200
 	}
 	return status, body, err // genuine transport error (no status); keep any body for diagnostics
+}
+
+func (t *proxyTransport) RangeQuery(ctx context.Context, promql string, start, end time.Time, step time.Duration) (int, []byte, error) {
+	name := schemeOr(t.c.Scheme) + ":" + t.c.Name + ":" + t.c.Port
+	var status int
+	body, err := t.rest.Get().
+		Namespace(t.c.Namespace).
+		Resource("services").
+		Name(name).
+		SubResource("proxy").
+		Suffix("api/v1/query_range").
+		Param("query", promql).
+		Param("start", strconv.FormatInt(start.Unix(), 10)).
+		Param("end", strconv.FormatInt(end.Unix(), 10)).
+		Param("step", strconv.FormatInt(int64(step.Seconds()), 10)).
+		Do(ctx).
+		StatusCode(&status).
+		Raw()
+	if status != 0 {
+		return status, body, nil // let the Client interpret non-200
+	}
+	return status, body, err
 }

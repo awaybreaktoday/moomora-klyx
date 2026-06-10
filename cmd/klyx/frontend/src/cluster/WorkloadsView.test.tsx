@@ -12,6 +12,15 @@ vi.mock("../bridge/workloads", () => ({
 }));
 vi.mock("../bridge/workload-metrics", () => ({ getWorkloadMetrics: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../bridge/windows", () => ({ openWorkloadLogsWindow: vi.fn().mockResolvedValue(true) }));
+import type { SparklinesDTO } from "../bridge/metrics";
+const mockGetWorkloadSparklines = vi.fn<(c: string, ns: string, kind: string, name: string) => Promise<SparklinesDTO>>(() =>
+  Promise.resolve({ available: true, cpu: [{ t: 0, v: 0.1 }, { t: 60, v: 0.2 }], mem: [{ t: 0, v: 100 }, { t: 60, v: 120 }] }),
+);
+vi.mock("../bridge/metrics", () => ({
+  getWorkloadSparklines: (c: string, ns: string, kind: string, name: string) => mockGetWorkloadSparklines(c, ns, kind, name),
+  getClusterSparklines: vi.fn(),
+  getClusterMetrics: vi.fn(),
+}));
 // Stub LogsPane — its real implementation drags in the Wails runtime and the
 // stream lifecycle, both covered by LogsPane.test.tsx. Here we only assert the
 // dock plumbing: what target it gets and in which mode.
@@ -260,6 +269,34 @@ describe("WorkloadsView", () => {
     expect(queryByTestId("workload-logs-dock")).toBeTruthy();
     fireEvent.click(getByRole("button", { name: /close logs dock/i }));
     expect(queryByTestId("workload-logs-dock")).toBeNull();
+  });
+
+  // --- Sparklines ---
+
+  it("expanding a row with metrics shows 30m cpu/mem sparklines", async () => {
+    seed([broken]);
+    useFleet.getState().setWorkloadUsage("homelab-nelli", "", {
+      status: { available: true, message: "", updatedAt: "2026-06-10T00:00:00Z" },
+      usage: {},
+    });
+    const { getByText, findByText, findAllByRole } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByText("ollama")); // expand
+    await findByText("cpu 30m");
+    expect(mockGetWorkloadSparklines).toHaveBeenCalledWith("homelab-nelli", "ollama-prod", "Deployment", "ollama");
+    const sparks = await findAllByRole("img", { name: /metric sparkline/i });
+    expect(sparks.length).toBe(2);
+  });
+
+  it("sparkline row shows the reason when unavailable", async () => {
+    mockGetWorkloadSparklines.mockResolvedValueOnce({ available: false, message: "metrics unavailable: no source", cpu: [], mem: [] });
+    seed([broken]);
+    useFleet.getState().setWorkloadUsage("homelab-nelli", "", {
+      status: { available: true, message: "", updatedAt: "2026-06-10T00:00:00Z" },
+      usage: {},
+    });
+    const { getByText, findByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.click(getByText("ollama"));
+    expect(await findByText(/sparklines unavailable: metrics unavailable: no source/)).toBeTruthy();
   });
 
   it("pop-out calls openWorkloadLogsWindow and closes the dock on success", async () => {
