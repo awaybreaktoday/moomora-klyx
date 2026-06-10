@@ -1,14 +1,18 @@
 import { useEffect } from "react";
 import { useFleet, ResourceRef, crdCountKey } from "../store/fleet";
 import { countKind } from "../bridge/crd";
-import { BUILTIN_CATALOG } from "./builtins";
+import { BUILTIN_CATALOG, BuiltinEntry } from "./builtins";
 import { Chip } from "../chrome/Chip";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
-function matchesBuiltin(ref: ResourceRef, q: string): boolean {
+function matchesEntry(entry: BuiltinEntry, q: string): boolean {
   if (!q) return true;
   const s = q.toLowerCase();
+  if (entry.kind === "lens") {
+    return entry.label.toLowerCase().includes(s) || entry.section.toLowerCase().includes(s);
+  }
+  const ref = entry.ref;
   return ref.kind.toLowerCase().includes(s) || ref.plural.toLowerCase().includes(s) || ref.group.toLowerCase().includes(s);
 }
 
@@ -20,8 +24,8 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
 
   const categories = BUILTIN_CATALOG
     .filter((cat) => builtinCategory === null || cat.label === builtinCategory)
-    .map((cat) => ({ ...cat, kinds: cat.kinds.filter((ref) => matchesBuiltin(ref, search)) }))
-    .filter((cat) => cat.kinds.length > 0);
+    .map((cat) => ({ ...cat, entries: cat.entries.filter((e) => matchesEntry(e, search)) }))
+    .filter((cat) => cat.entries.length > 0);
 
   const isEmpty = categories.length === 0;
 
@@ -59,7 +63,7 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
       ) : (
         <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
           {categories.map((cat) => (
-            <BuiltinCategory key={cat.label} cluster={cluster} label={cat.label} kinds={cat.kinds} />
+            <BuiltinCategorySection key={cat.label} cluster={cluster} label={cat.label} entries={cat.entries} />
           ))}
         </div>
       )}
@@ -67,20 +71,23 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
   );
 }
 
-// BuiltinCategory renders one category row from the static builtin catalog,
-// always expanded. Counts are loaded lazily via the same countKind bridge used
-// by CRDBrowser, so the same concurrency cap and dedup apply.
-function BuiltinCategory({ cluster, label, kinds }: { cluster: string; label: string; kinds: ResourceRef[] }) {
+// BuiltinCategorySection renders one category from the static builtin catalog,
+// always expanded. GVR counts are loaded lazily; lens entries navigate to the
+// dedicated lens section instead of opening the generic instance list.
+function BuiltinCategorySection({ cluster, label, entries }: { cluster: string; label: string; entries: BuiltinEntry[] }) {
   const counts = useFleet((s) => s.crd.counts);
   const openResource = useFleet((s) => s.openResource);
+  const setSection = useFleet((s) => s.setSection);
+
+  const gvrRefs: ResourceRef[] = entries.flatMap((e) => e.kind === "gvr" ? [e.ref] : []);
 
   useEffect(() => {
-    for (const ref of kinds) {
+    for (const ref of gvrRefs) {
       if (!counts[crdCountKey(ref.group, ref.version, ref.plural)]) {
         void countKind(cluster, ref.group, ref.version, ref.plural);
       }
     }
-  }, [cluster, kinds, counts]);
+  }, [cluster, gvrRefs, counts]);
 
   return (
     <div>
@@ -90,7 +97,22 @@ function BuiltinCategory({ cluster, label, kinds }: { cluster: string; label: st
         <span />
         <span />
       </div>
-      {kinds.map((ref) => {
+      {entries.map((entry) => {
+        if (entry.kind === "lens") {
+          return (
+            <div
+              key={`lens/${entry.section}/${entry.label}`}
+              onClick={() => setSection(entry.section)}
+              style={{ display: "grid", gridTemplateColumns: "18px 1fr 90px 70px", gap: 10, alignItems: "center", padding: "6px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, cursor: "pointer" }}
+            >
+              <span />
+              <div style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{entry.label}</div>
+              <span style={{ color: "var(--color-text-tertiary)", fontSize: 10, justifySelf: "start", ...ellipsis }}>{entry.hint} →</span>
+              <span style={{ color: "var(--color-text-tertiary)" }}>—</span>
+            </div>
+          );
+        }
+        const ref = entry.ref;
         const c = counts[crdCountKey(ref.group, ref.version, ref.plural)];
         const display = c ? (c.capped ? `${c.count}+` : `${c.count}`) : "…";
         return (
