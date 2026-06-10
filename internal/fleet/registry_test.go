@@ -48,6 +48,12 @@ func (f *fakeConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return ni
 func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
 	return nil, false, nil
 }
+func (f *fakeConn) ListNodes(context.Context) ([]workloads.NodeSummary, error) {
+	return nil, nil
+}
+func (f *fakeConn) NodeDetail(context.Context, string) (NodeDetail, error) {
+	return NodeDetail{}, nil
+}
 func (f *fakeConn) ListPods(context.Context, string) ([]workloads.PodSummary, error) {
 	return nil, nil
 }

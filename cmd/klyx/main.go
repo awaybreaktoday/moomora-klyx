@@ -180,6 +180,14 @@ func main() {
 		return c, true
 	})
 
+	nodesSvc := appbridge.NewNodesService(func(name string) (appbridge.NodesConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -194,6 +202,7 @@ func main() {
 			application.NewService(podsSvc),
 			application.NewService(logsSvc),
 			application.NewService(eventsSvc),
+			application.NewService(nodesSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
