@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { IconTerminal2 } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { PodDetailDTO, PodSummaryDTO, ContainerSummaryDTO } from "../store/fleet";
 import { listPods, openPodDetail, deletePod } from "../bridge/pods";
@@ -30,7 +31,7 @@ const condColor = (status: string) =>
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" };
 
-const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px";
+const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px 28px";
 
 export function PodsView({ cluster }: { cluster: string }) {
   const pods = useFleet((s) => s.pods);
@@ -78,6 +79,11 @@ export function PodsView({ cluster }: { cluster: string }) {
     }
   }, [pods.selected]);
 
+  const handleLogsKey = useCallback((idx: number) => {
+    const p = filtered[idx];
+    if (p) setLogsTarget({ namespace: p.namespace, name: p.name, containers: p.containers });
+  }, [filtered]);
+
   useListKeys({
     count: filtered.length,
     selected: effectiveIdx,
@@ -85,6 +91,7 @@ export function PodsView({ cluster }: { cluster: string }) {
     onActivate: handleActivate,
     onEscape: handleEscape,
     searchRef,
+    extraKeys: { l: handleLogsKey },
   });
 
   // Reset selection when filter changes.
@@ -136,7 +143,7 @@ export function PodsView({ cluster }: { cluster: string }) {
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               {/* Header */}
               <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
-                <span /><span>pod</span><span>ready</span><span>phase</span><span>restarts</span><span>node</span><span>age</span>
+                <span /><span>pod</span><span>ready</span><span>phase</span><span>restarts</span><span>node</span><span>age</span><span />
               </div>
               {/* Rows — VirtualList for >=100 items, plain render for smaller lists */}
               <VirtualList
@@ -150,58 +157,19 @@ export function PodsView({ cluster }: { cluster: string }) {
                   const nonInitContainers = p.containers.filter((c) => !c.init);
                   const readyCount = nonInitContainers.filter((c) => c.ready).length;
                   return (
-                    <div
+                    <PodRow
                       key={`${p.namespace}/${p.name}`}
-                      role="button"
-                      tabIndex={0}
-                      aria-selected={isKbSelected}
-                      onClick={() => {
+                      p={p}
+                      isKbSelected={isKbSelected}
+                      isSelected={isSelected}
+                      readyCount={readyCount}
+                      nonInitCount={nonInitContainers.length}
+                      onRowClick={() => {
                         setSelectedIdx(i);
                         void openPodDetail(cluster, p.namespace, p.name);
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setSelectedIdx(i);
-                          void openPodDetail(cluster, p.namespace, p.name);
-                        }
-                      }}
-                      style={{
-                        display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
-                        padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
-                        cursor: "pointer",
-                        background: isKbSelected
-                          ? "var(--color-background-secondary)"
-                          : isSelected ? "var(--color-background-secondary)" : undefined,
-                        boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
-                        outline: "none",
-                      }}
-                    >
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
-                      <span>
-                        <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
-                        {" / "}
-                        <span style={{ fontWeight: 500 }}>{p.name}</span>
-                      </span>
-                      <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
-                        {readyCount}/{nonInitContainers.length}
-                      </span>
-                      <span>
-                        <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
-                          {p.phase}
-                        </span>
-                        {p.reason && (
-                          <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
-                            {p.reason}
-                          </span>
-                        )}
-                      </span>
-                      <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
-                        {p.restarts}
-                      </span>
-                      <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
-                      <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
-                    </div>
+                      onLogsClick={() => setLogsTarget({ namespace: p.namespace, name: p.name, containers: p.containers })}
+                    />
                   );
                 }}
               />
@@ -232,6 +200,94 @@ export function PodsView({ cluster }: { cluster: string }) {
           onClose={() => setLogsTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PodRow — single row in the triage list
+// ---------------------------------------------------------------------------
+
+function PodRow({
+  p, isKbSelected, isSelected, readyCount, nonInitCount, onRowClick, onLogsClick,
+}: {
+  p: PodSummaryDTO;
+  isKbSelected: boolean;
+  isSelected: boolean;
+  readyCount: number;
+  nonInitCount: number;
+  onRowClick: () => void;
+  onLogsClick: () => void;
+}) {
+  const [logsHovered, setLogsHovered] = useState(false);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-selected={isKbSelected}
+      onClick={onRowClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onRowClick();
+        }
+      }}
+      style={{
+        display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+        padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
+        cursor: "pointer",
+        background: isKbSelected
+          ? "var(--color-background-secondary)"
+          : isSelected ? "var(--color-background-secondary)" : undefined,
+        boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+        outline: "none",
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
+      <span>
+        <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
+        {" / "}
+        <span style={{ fontWeight: 500 }}>{p.name}</span>
+      </span>
+      <span style={{ color: readyCount === nonInitCount ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
+        {readyCount}/{nonInitCount}
+      </span>
+      <span>
+        <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
+          {p.phase}
+        </span>
+        {p.reason && (
+          <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
+            {p.reason}
+          </span>
+        )}
+      </span>
+      <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
+        {p.restarts}
+      </span>
+      <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
+      <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
+      {/* Logs icon button — subtle, full opacity on own hover */}
+      <button
+        aria-label={`logs for ${p.namespace}/${p.name}`}
+        title="logs"
+        onClick={(e) => {
+          e.stopPropagation();
+          onLogsClick();
+        }}
+        onMouseEnter={() => setLogsHovered(true)}
+        onMouseLeave={() => setLogsHovered(false)}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: 20, height: 20,
+          padding: 0, border: "none", background: "transparent", cursor: "pointer",
+          color: "var(--color-text-tertiary)",
+          opacity: logsHovered ? 1 : 0.45,
+          borderRadius: 3,
+        }}
+      >
+        <IconTerminal2 size={14} />
+      </button>
     </div>
   );
 }
