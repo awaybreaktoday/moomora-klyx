@@ -100,7 +100,7 @@ Branch: `feat/dd1-pods-logs-events`
       pod → red + reason; delete pod → recreated; logs stream from a chatty pod;
       events show the crashloop warnings), cleanup, merge.
 
-### DD2 — Standard resources, curated (the resource zoo, done the Klyx way)
+### DD2 — Standard resources, curated (the resource zoo, done the Klyx way) — MERGED to main 2026-06-10
 Branch: `feat/dd2-standard-resources`
 
 - [x] T1 Curated builtin catalog: extend the Resources section so the CRD browser
@@ -118,9 +118,9 @@ Branch: `feat/dd2-standard-resources`
       pods-on-node (links), kubelet/os info.
 - [x] T4 Cordon/uncordon (client-go patch unschedulable) + drain (exec kubectl,
       streamed output modal, confirm + Protected gate).
-- [ ] T5 Service detail enrichment: endpoints/ready addresses inline (the "is it
+- [x] T5 Service detail enrichment: endpoints/ready addresses inline (the "is it
       backed" question), selector → pods links.
-- [ ] T6 Gate + verify on nelli (configmap/secret fixtures, node cordon/uncordon on
+- [x] T6 Gate + verify on nelli (configmap/secret fixtures, node cordon/uncordon on
       a homelab node, drain dry-run), cleanup, merge.
 
 ### DD3 — Day-2 ops: scale, port-forward, exec escape hatch
@@ -188,3 +188,9 @@ DD1 (pods/logs/events):
 - Logs tab: live tail follows; container picker, previous, tail-lines, wrap, search highlight; scrolling up disables follow.
 - Events section: warning-first; pod names link into the pod detail.
 - Actions: delete pod + restart owner / workload restart show confirm (typed name on protected clusters), toast on result.
+
+DD2 (standard resources):
+- Resources section: Built-in categories above API groups; counts load lazily; clicking ConfigMaps/Services etc. drills into the generic list/detail.
+- Secret detail: yaml shows <masked>; data section reveals/copies per key only on click.
+- Nodes section: list problem-first; detail shows taints/conditions/pods-on-node; cordon/uncordon + drain (streamed modal) behind confirm.
+- Service detail: backing section shows ready/not-ready endpoints; pod links jump to the pod.
