@@ -20,10 +20,22 @@ export async function listPods(cluster: string, namespace: string): Promise<void
   }
 }
 
+// liveOpenRetryMs paces re-attempts when OpenLive* reports the cluster is not
+// connected yet (app launch race: the view can mount before the registry
+// finishes connecting). Shared by the pods/workloads/events live bridges.
+export const liveOpenRetryMs = 3000;
+
 // openLivePods subscribes to live pod updates for a cluster+namespace.
 // The backend fires an immediate emit so the view receives data without calling
 // listPods first. Returns a cleanup function to be called on unmount or ns change.
 export function openLivePods(cluster: string, namespace: string): () => void {
+  // Claim the store slice BEFORE anything can emit: the data handler and
+  // setPodsLive both guard on store cluster+namespace, which the previous
+  // unmount's clearPods left null - without this the first emit after mount is
+  // silently dropped (empty list + "manual" forever). Also flips the empty
+  // state to "Loading…" until real data lands.
+  useFleet.getState().setPodsLoading(cluster, namespace);
+
   const dataEvent = "livePods:" + cluster + ":" + namespace;
   const statusEvent = "livePodsStatus:" + cluster + ":" + namespace;
 
@@ -37,12 +49,31 @@ export function openLivePods(cluster: string, namespace: string): () => void {
     useFleet.getState().setPodsLive(cluster, namespace, ev.data?.live ?? false);
   });
 
-  // Fire-and-forget: on error set live false so the indicator degrades honestly.
-  PodsService.OpenLivePods(cluster, namespace).catch(() => {
+  // Open the live sub. "cluster not connected" comes back as ok:false (a value,
+  // not a throw). Degrade honestly - manual indicator plus a one-shot list
+  // attempt - and keep retrying until the cluster connects or the view unmounts.
+  let closed = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  function degrade() {
     useFleet.getState().setPodsLive(cluster, namespace, false);
-  });
+    void listPods(cluster, namespace);
+    retryTimer = setTimeout(tryOpen, liveOpenRetryMs);
+  }
+  function tryOpen() {
+    PodsService.OpenLivePods(cluster, namespace)
+      .then((r) => {
+        if (closed || (r as ActionResultDTO | undefined)?.ok) return;
+        degrade();
+      })
+      .catch(() => {
+        if (!closed) degrade();
+      });
+  }
+  tryOpen();
 
   return () => {
+    closed = true;
+    if (retryTimer !== undefined) clearTimeout(retryTimer);
     if (typeof offData === "function") offData();
     if (typeof offStatus === "function") offStatus();
     PodsService.CloseLivePods(cluster, namespace).catch(() => undefined);

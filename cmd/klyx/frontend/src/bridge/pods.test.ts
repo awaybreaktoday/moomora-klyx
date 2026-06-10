@@ -141,15 +141,91 @@ describe("openLivePods bridge", () => {
     expect(PodsService.CloseLivePods).toHaveBeenCalledWith("homelab", "");
   });
 
-  it("stale-guard: data event for wrong cluster is dropped", () => {
-    seedPods("homelab", "");
-    openLivePods("other-cluster", "");
+  it("stale-guard: emit from a replaced sub (old cluster) is dropped", () => {
+    // Open A, then open B for a different cluster: B claims the store slice.
+    // A late emit from A's still-registered handler must be dropped.
+    openLivePods("old-cluster", "");
+    const oldHandler = eventHandlers["livePods:old-cluster:"];
+    openLivePods("homelab", "");
 
-    const handler = eventHandlers["livePods:other-cluster:"];
-    expect(handler).toBeDefined();
-    handler({ data: { namespaces: ["injected"], pods: [] } });
+    oldHandler({ data: { namespaces: ["injected"], pods: [] } });
 
-    // Store is seeded as "homelab"; update for "other-cluster" must be dropped.
+    // Slice belongs to "homelab"; the stale old-cluster update must be dropped.
+    expect(useFleet.getState().pods.cluster).toBe("homelab");
     expect(useFleet.getState().pods.namespaces).toHaveLength(0);
+  });
+
+  // --- Mount race regressions (empty list + "manual" screenshot, 2026-06-10) ---
+
+  it("REGRESSION: first data emit after a fresh mount (cleared store) is applied", () => {
+    // No seedPods: store cluster is null, exactly like mounting the view after
+    // a previous unmount's clearPods. The open must claim the slice itself or
+    // the first emit is dropped by the cluster guard.
+    openLivePods("homelab", "");
+
+    const handler = eventHandlers["livePods:homelab:"];
+    handler({ data: { namespaces: ["default"], pods: [] } });
+
+    expect(useFleet.getState().pods.cluster).toBe("homelab");
+    expect(useFleet.getState().pods.namespaces).toEqual(["default"]);
+  });
+
+  it("REGRESSION: first status emit after a fresh mount sets the live flag", () => {
+    openLivePods("homelab", "");
+
+    const statusHandler = eventHandlers["livePodsStatus:homelab:"];
+    statusHandler({ data: { live: true } });
+
+    expect(useFleet.getState().pods.live).toBe(true);
+  });
+
+  it("open claims the slice: loading shows until first data lands", () => {
+    openLivePods("homelab", "");
+    expect(useFleet.getState().pods.loading).toBe(true);
+
+    eventHandlers["livePods:homelab:"]({ data: { namespaces: [], pods: [] } });
+    expect(useFleet.getState().pods.loading).toBe(false);
+  });
+
+  it("ok:false (cluster not connected) falls back to listPods and retries until ok", async () => {
+    vi.useFakeTimers();
+    try {
+      (PodsService.OpenLivePods as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ ok: false, error: "cluster not connected: homelab" })
+        .mockResolvedValueOnce({ ok: true, error: "" });
+
+      openLivePods("homelab", "");
+      await vi.advanceTimersByTimeAsync(0); // flush the first open result
+
+      // Degraded honestly: manual indicator + one-shot snapshot attempt.
+      expect(useFleet.getState().pods.live).toBe(false);
+      expect(PodsService.ListPods).toHaveBeenCalledWith("homelab", "");
+
+      // Retry fires after the backoff and succeeds; no further retries scheduled.
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(PodsService.OpenLivePods).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(PodsService.OpenLivePods).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cleanup cancels a pending open retry", async () => {
+    vi.useFakeTimers();
+    try {
+      (PodsService.OpenLivePods as ReturnType<typeof vi.fn>)
+        .mockResolvedValue({ ok: false, error: "cluster not connected: homelab" });
+
+      const cleanup = openLivePods("homelab", "");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(PodsService.OpenLivePods).toHaveBeenCalledTimes(1);
+
+      cleanup();
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(PodsService.OpenLivePods).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

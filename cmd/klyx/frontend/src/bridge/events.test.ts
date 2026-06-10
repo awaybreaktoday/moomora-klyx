@@ -83,15 +83,16 @@ describe("openLiveEvents bridge", () => {
     expect(EventsService.CloseLiveEvents).toHaveBeenCalledWith("homelab", "");
   });
 
-  it("stale-guard: data event for wrong cluster is dropped", () => {
-    seedEvents("homelab", "");
-    openLiveEvents("other-cluster", "");
+  it("stale-guard: emit from a replaced sub (old cluster) is dropped", () => {
+    // Open A, then open B for a different cluster: B claims the store slice.
+    // A late emit from A's still-registered handler must be dropped.
+    openLiveEvents("old-cluster", "");
+    const oldHandler = eventHandlers["liveEvents:old-cluster:"];
+    openLiveEvents("homelab", "");
 
-    const handler = eventHandlers["liveEvents:other-cluster:"];
-    expect(handler).toBeDefined();
-    handler({ data: { namespaces: ["injected"], events: [] } });
+    oldHandler({ data: { namespaces: ["injected"], events: [] } });
 
-    // Store is seeded as "homelab"; update for "other-cluster" must be dropped.
+    expect(useFleet.getState().events.cluster).toBe("homelab");
     expect(useFleet.getState().events.namespaces).toHaveLength(0);
   });
 });

@@ -1,6 +1,7 @@
 import { Events } from "@wailsio/runtime";
 import { useFleet, WorkloadsResultDTO } from "../store/fleet";
 import { WorkloadsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
+import { liveOpenRetryMs } from "./pods";
 
 type ActionResultDTO = { ok: boolean; error: string };
 
@@ -51,6 +52,12 @@ export async function listWorkloads(cluster: string, namespace: string): Promise
 // The backend fires an immediate emit so the view receives data without calling
 // listWorkloads first. Returns a cleanup function to be called on unmount.
 export function openLiveWorkloads(cluster: string, namespace: string): () => void {
+  // Claim the store slice BEFORE anything can emit: the data handler and
+  // setWorkloadsLive both guard on store cluster+namespace, which the previous
+  // unmount's clearWorkloads left null - without this the first emit after
+  // mount is silently dropped. Also flips the empty state to "Loading…".
+  useFleet.getState().setWorkloadsLoading(cluster, namespace);
+
   const dataEvent = "liveWorkloads:" + cluster + ":" + namespace;
   const statusEvent = "liveWorkloadsStatus:" + cluster + ":" + namespace;
 
@@ -64,12 +71,31 @@ export function openLiveWorkloads(cluster: string, namespace: string): () => voi
     useFleet.getState().setWorkloadsLive(cluster, namespace, ev.data?.live ?? false);
   });
 
-  // Fire-and-forget: on error set live false so the indicator degrades honestly.
-  WorkloadsService.OpenLiveWorkloads(cluster, namespace).catch(() => {
+  // Open the live sub. "cluster not connected" comes back as ok:false (a value,
+  // not a throw - the app-launch race). Degrade honestly and retry until the
+  // cluster connects or the view unmounts.
+  let closed = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  function degrade() {
     useFleet.getState().setWorkloadsLive(cluster, namespace, false);
-  });
+    void listWorkloads(cluster, namespace);
+    retryTimer = setTimeout(tryOpen, liveOpenRetryMs);
+  }
+  function tryOpen() {
+    WorkloadsService.OpenLiveWorkloads(cluster, namespace)
+      .then((r) => {
+        if (closed || (r as ActionResultDTO | undefined)?.ok) return;
+        degrade();
+      })
+      .catch(() => {
+        if (!closed) degrade();
+      });
+  }
+  tryOpen();
 
   return () => {
+    closed = true;
+    if (retryTimer !== undefined) clearTimeout(retryTimer);
     if (typeof offData === "function") offData();
     if (typeof offStatus === "function") offStatus();
     WorkloadsService.CloseLiveWorkloads(cluster, namespace).catch(() => undefined);
