@@ -95,6 +95,7 @@ export type WorkloadsSlice = {
   metricsStatus: WorkloadMetricsStatusDTO | null;
   metricsStale: boolean;
   nearLimitSort: boolean;
+  live: boolean;
 };
 
 export type ContainerSummaryDTO = { name: string; image: string; ready: boolean; restarts: number; state: string; init: boolean };
@@ -114,6 +115,7 @@ export type PodsSlice = {
   selected: PodRef | null;
   detail: PodDetailDTO | null;
   detailLoading: boolean;
+  live: boolean;
 };
 
 export type EventRowDTO = { type: "Normal" | "Warning"; reason: string; message: string; count: number; namespace: string; kind: string; name: string; lastSeenUnix: number; firstSeenUnix: number };
@@ -126,6 +128,7 @@ export type EventsSlice = {
   loading: boolean;
   warningsOnly: boolean;
   search: string;
+  live: boolean;
 };
 
 export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
@@ -357,6 +360,7 @@ type FleetState = {
   toggleWorkloadExpand: (key: string) => void;
   setWorkloadUsage: (cluster: string, namespace: string, result: WorkloadMetricsResultDTO) => void;
   toggleNearLimitSort: () => void;
+  setWorkloadsLive: (cluster: string, namespace: string, live: boolean) => void;
   clearWorkloads: () => void;
   pods: PodsSlice;
   setPodsLoading: (cluster: string, namespace: string) => void;
@@ -366,6 +370,7 @@ type FleetState = {
   setPodsSearch: (s: string) => void;
   selectPod: (ref: PodRef | null) => void;
   setPodDetail: (ref: PodRef, detail: PodDetailDTO) => void;
+  setPodsLive: (cluster: string, namespace: string, live: boolean) => void;
   clearPods: () => void;
   events: EventsSlice;
   setEventsLoading: (cluster: string, namespace: string) => void;
@@ -373,6 +378,7 @@ type FleetState = {
   toggleWarningsOnly: () => void;
   setWarningsOnly: (v: boolean) => void;
   setEventsSearch: (s: string) => void;
+  setEventsLive: (cluster: string, namespace: string, live: boolean) => void;
   clearEvents: () => void;
   nodes: NodesSlice;
   setNodesLoading: (cluster: string) => void;
@@ -504,7 +510,7 @@ export const useFleet = create<FleetState>((set) => ({
   clearMetrics: () => set({ metrics: { cluster: null, dto: null, loading: false } }),
   workloads: { cluster: null, namespace: "", items: [], namespaces: [], fluxPresent: false, loading: false,
     kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, needsAttention: false, expanded: [],
-    metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false },
+    metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false, live: false },
   setWorkloadsLoading: (cluster, namespace) => set((s) => ({ workloads: { ...s.workloads, cluster, namespace, loading: true } })),
   setWorkloads: (cluster, namespace, result) => set((s) => {
     // namespace-list preservation: replace only on all-load; fallback to [namespace] if empty.
@@ -535,8 +541,13 @@ export const useFleet = create<FleetState>((set) => ({
       return { workloads: { ...s.workloads, metricsStatus: { ...result.status, updatedAt: keptUpdatedAt }, metricsStale: s.workloads.metricsAvailable } };
     }),
   toggleNearLimitSort: () => set((s) => ({ workloads: { ...s.workloads, nearLimitSort: !s.workloads.nearLimitSort } })),
-  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false } })),
-  pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false },
+  setWorkloadsLive: (cluster, namespace, live) =>
+    set((s) => {
+      if (s.workloads.cluster !== cluster || s.workloads.namespace !== namespace) return {};
+      return { workloads: { ...s.workloads, live } };
+    }),
+  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false, live: false } })),
+  pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false, live: false },
   setPodsLoading: (cluster, namespace) => set((s) => ({ pods: { ...s.pods, cluster, namespace, loading: true } })),
   setPods: (cluster, namespace, result) => set((s) => {
     let namespaces = s.pods.namespaces;
@@ -553,8 +564,13 @@ export const useFleet = create<FleetState>((set) => ({
     if (!sel || sel.namespace !== ref.namespace || sel.name !== ref.name) return {};
     return { pods: { ...s.pods, detail, detailLoading: false } };
   }),
-  clearPods: () => set({ pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false } }),
-  events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" },
+  setPodsLive: (cluster, namespace, live) =>
+    set((s) => {
+      if (s.pods.cluster !== cluster || s.pods.namespace !== namespace) return {};
+      return { pods: { ...s.pods, live } };
+    }),
+  clearPods: () => set({ pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false, live: false } }),
+  events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "", live: false },
   setEventsLoading: (cluster, namespace) => set((s) => ({ events: { ...s.events, cluster, namespace, loading: true } })),
   setEvents: (cluster, namespace, result) => set((s) => {
     let namespaces = s.events.namespaces;
@@ -565,7 +581,12 @@ export const useFleet = create<FleetState>((set) => ({
   toggleWarningsOnly: () => set((s) => ({ events: { ...s.events, warningsOnly: !s.events.warningsOnly } })),
   setWarningsOnly: (v) => set((s) => ({ events: { ...s.events, warningsOnly: v } })),
   setEventsSearch: (search) => set((s) => ({ events: { ...s.events, search } })),
-  clearEvents: () => set({ events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" } }),
+  setEventsLive: (cluster, namespace, live) =>
+    set((s) => {
+      if (s.events.cluster !== cluster || s.events.namespace !== namespace) return {};
+      return { events: { ...s.events, live } };
+    }),
+  clearEvents: () => set({ events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "", live: false } }),
   nodes: { cluster: null, items: [], loading: false, selected: null, detail: null, detailLoading: false },
   setNodesLoading: (cluster) => set((s) => ({ nodes: { ...s.nodes, cluster, loading: true } })),
   setNodes: (cluster, result) => set((s) => ({ nodes: { ...s.nodes, cluster, items: result.nodes ?? [], loading: false } })),

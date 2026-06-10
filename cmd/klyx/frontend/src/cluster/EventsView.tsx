@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useFleet } from "../store/fleet";
 import type { EventRowDTO } from "../store/fleet";
-import { listEvents } from "../bridge/events";
+import { listEvents, openLiveEvents } from "../bridge/events";
 import { openPodDetail } from "../bridge/pods";
 import { VirtualList } from "../chrome/VirtualList";
 import type { VirtualListHandle } from "../chrome/VirtualList";
@@ -29,13 +29,24 @@ export function EventsView({ cluster }: { cluster: string }) {
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<VirtualListHandle>(null);
+  // Holds the cleanup for the current live subscription so namespace changes
+  // can close the old sub before opening the new one.
+  const liveCleanupRef = useRef<(() => void) | null>(null);
 
+  // Live subscription effect — opens the all-namespaces sub on mount.
   useEffect(() => {
-    void listEvents(cluster, "");
-    return () => { useFleet.getState().clearEvents(); };
+    liveCleanupRef.current = openLiveEvents(cluster, "");
+    return () => {
+      if (liveCleanupRef.current) { liveCleanupRef.current(); liveCleanupRef.current = null; }
+      useFleet.getState().clearEvents();
+    };
   }, [cluster]);
 
-  const onNamespace = (ns: string) => { void listEvents(cluster, ns); };
+  const onNamespace = (ns: string) => {
+    // Close the current live sub, then reopen for the selected namespace.
+    if (liveCleanupRef.current) { liveCleanupRef.current(); liveCleanupRef.current = null; }
+    liveCleanupRef.current = openLiveEvents(cluster, ns);
+  };
   const onRefresh = () => { void listEvents(cluster, events.namespace); };
 
   const filtered = events.items.filter((e) => {
@@ -126,6 +137,7 @@ export function EventsView({ cluster }: { cluster: string }) {
           style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
         />
         <button onClick={onRefresh} style={btn}>refresh</button>
+        <LiveIndicator live={events.live} />
       </div>
 
       {/* Table */}
@@ -293,5 +305,24 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
       background: on ? "var(--color-background-warning, transparent)" : "transparent",
       color: on ? "var(--color-text-warning)" : "var(--color-text-tertiary)",
     }}>{children}</button>
+  );
+}
+
+function LiveIndicator({ live }: { live: boolean }) {
+  if (live) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--color-text-success)" }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-text-success)", display: "inline-block", flexShrink: 0 }} />
+        live
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{ fontSize: 10, color: "var(--color-text-tertiary)", cursor: "default" }}
+      title="live updates unavailable - use refresh"
+    >
+      ○ manual
+    </span>
   );
 }

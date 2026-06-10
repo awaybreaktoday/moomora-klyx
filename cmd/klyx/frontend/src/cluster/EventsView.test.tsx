@@ -6,8 +6,9 @@ import type { EventRowDTO } from "../store/fleet";
 
 vi.mock("../bridge/events", () => ({
   listEvents: vi.fn().mockResolvedValue(undefined),
+  openLiveEvents: vi.fn().mockReturnValue(() => {}),
 }));
-import { listEvents } from "../bridge/events";
+import { openLiveEvents } from "../bridge/events";
 
 vi.mock("../bridge/pods", () => ({
   openPodDetail: vi.fn().mockResolvedValue(undefined),
@@ -16,7 +17,15 @@ import { openPodDetail } from "../bridge/pods";
 
 // Stub Wails bindings so the test environment doesn't need a runtime.
 vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
-  EventsService: { ListEvents: vi.fn().mockResolvedValue({ namespaces: [], events: [] }) },
+  EventsService: {
+    ListEvents: vi.fn().mockResolvedValue({ namespaces: [], events: [] }),
+    OpenLiveEvents: vi.fn().mockResolvedValue({ ok: true, error: "" }),
+    CloseLiveEvents: vi.fn().mockResolvedValue(undefined),
+    CloseAll: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+vi.mock("@wailsio/runtime", () => ({
+  Events: { On: vi.fn().mockReturnValue(() => {}) },
 }));
 
 const warning: EventRowDTO = {
@@ -125,9 +134,23 @@ describe("EventsView", () => {
     expect(getAllByText("—").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("listEvents is called on mount", () => {
+  it("openLiveEvents is called on mount (replaces listEvents)", () => {
     render(<EventsView cluster="homelab" />);
-    expect(listEvents).toHaveBeenCalledWith("homelab", "");
+    expect(openLiveEvents).toHaveBeenCalledWith("homelab", "");
+  });
+
+  it("live=true renders green live indicator", () => {
+    seed([warning]);
+    useFleet.setState((s) => ({ events: { ...s.events, live: true } }));
+    const { getByText } = render(<EventsView cluster="homelab" />);
+    expect(getByText("live")).toBeTruthy();
+  });
+
+  it("live=false renders manual fallback indicator", () => {
+    seed([warning]);
+    useFleet.setState((s) => ({ events: { ...s.events, live: false } }));
+    const { getByText } = render(<EventsView cluster="homelab" />);
+    expect(getByText("○ manual")).toBeTruthy();
   });
 
   // --- Keyboard nav + a11y ---

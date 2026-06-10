@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
-import { listWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
+import { listWorkloads, openLiveWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
@@ -61,17 +61,32 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Holds the cleanup for the current live subscription so namespace changes
+  // can close the old sub before opening the new one.
+  const liveCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    listWorkloads(cluster, "").then(() => getWorkloadMetrics(cluster, ""));
+    // Open live subscription for the list. getWorkloadMetrics for usage stays
+    // separate (polling, not watch-driven).
+    liveCleanupRef.current = openLiveWorkloads(cluster, "");
+    void getWorkloadMetrics(cluster, "");
     const id = setInterval(() => {
       const cur = useFleet.getState().workloads;
       if (cur.cluster === cluster) getWorkloadMetrics(cluster, cur.namespace);
     }, 30000);
-    return () => { clearInterval(id); useFleet.getState().clearWorkloads(); };
+    return () => {
+      clearInterval(id);
+      if (liveCleanupRef.current) { liveCleanupRef.current(); liveCleanupRef.current = null; }
+      useFleet.getState().clearWorkloads();
+    };
   }, [cluster]);
 
-  const onNamespace = (ns: string) => { listWorkloads(cluster, ns).then(() => getWorkloadMetrics(cluster, ns)); };
+  const onNamespace = (ns: string) => {
+    // Close the current live sub, then reopen for the selected namespace.
+    if (liveCleanupRef.current) { liveCleanupRef.current(); liveCleanupRef.current = null; }
+    liveCleanupRef.current = openLiveWorkloads(cluster, ns);
+    void getWorkloadMetrics(cluster, ns);
+  };
   const onRefresh = () => { listWorkloads(cluster, wl.namespace).then(() => getWorkloadMetrics(cluster, wl.namespace)); };
 
   const showMetrics = wl.metricsAvailable;
@@ -150,6 +165,7 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
           style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
         />
         <button onClick={onRefresh} style={btn}>refresh</button>
+        <LiveIndicator live={wl.live} />
       </div>
 
       {wl.loading && wl.items.length === 0 ? (
@@ -332,3 +348,22 @@ function ScalePopover({ initial, onConfirm, onCancel }: { initial: number; onCon
 
 const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" };
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+
+function LiveIndicator({ live }: { live: boolean }) {
+  if (live) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--color-text-success)" }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-text-success)", display: "inline-block", flexShrink: 0 }} />
+        live
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{ fontSize: 10, color: "var(--color-text-tertiary)", cursor: "default" }}
+      title="live updates unavailable - use refresh"
+    >
+      ○ manual
+    </span>
+  );
+}

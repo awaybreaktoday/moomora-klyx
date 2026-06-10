@@ -27,13 +27,36 @@ describe("workloads slice", () => {
     expect(useFleet.getState().workloads.expanded).not.toContain("Deployment/x/y");
   });
 
-  it("clearWorkloads resets kindFilter and needsAttention", () => {
+  it("clearWorkloads resets kindFilter, needsAttention, and live", () => {
     useFleet.getState().toggleWorkloadKind("Deployment");
     useFleet.getState().toggleNeedsAttention();
     expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(false);
+    // Manually set live to true.
+    useFleet.setState((s) => ({ workloads: { ...s.workloads, live: true } }));
     useFleet.getState().clearWorkloads();
     expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(true);
     expect(useFleet.getState().workloads.needsAttention).toBe(false);
+    expect(useFleet.getState().workloads.live).toBe(false);
+  });
+
+  it("setWorkloadsLive updates live when cluster+namespace match", () => {
+    useFleet.getState().setWorkloads("c", "", { fluxPresent: false, namespaces: [], workloads: [] });
+    useFleet.getState().setWorkloadsLive("c", "", true);
+    expect(useFleet.getState().workloads.live).toBe(true);
+    useFleet.getState().setWorkloadsLive("c", "", false);
+    expect(useFleet.getState().workloads.live).toBe(false);
+  });
+
+  it("setWorkloadsLive stale-guard: wrong cluster is a no-op", () => {
+    useFleet.getState().setWorkloads("c", "", { fluxPresent: false, namespaces: [], workloads: [] });
+    useFleet.getState().setWorkloadsLive("other", "", true);
+    expect(useFleet.getState().workloads.live).toBe(false);
+  });
+
+  it("setWorkloadsLive stale-guard: wrong namespace is a no-op", () => {
+    useFleet.getState().setWorkloads("c", "monitoring", { fluxPresent: false, namespaces: ["monitoring"], workloads: [] });
+    useFleet.getState().setWorkloadsLive("c", "kube-system", true);
+    expect(useFleet.getState().workloads.live).toBe(false);
   });
 
   it("setWorkloadUsage patches usage by key without replacing rows", () => {

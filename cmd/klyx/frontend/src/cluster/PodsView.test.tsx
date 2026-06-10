@@ -6,6 +6,7 @@ import type { PodSummaryDTO, PodDetailDTO } from "../store/fleet";
 
 vi.mock("../bridge/pods", () => ({
   listPods: vi.fn().mockResolvedValue(undefined),
+  openLivePods: vi.fn().mockReturnValue(() => {}),
   openPodDetail: vi.fn().mockResolvedValue(undefined),
   deletePod: vi.fn().mockResolvedValue(undefined),
 }));
@@ -16,7 +17,7 @@ vi.mock("../bridge/workloads", () => ({
 vi.mock("../bridge/windows", () => ({
   openLogsWindow: vi.fn().mockResolvedValue(true),
 }));
-import { openPodDetail, deletePod } from "../bridge/pods";
+import { openLivePods, openPodDetail, deletePod } from "../bridge/pods";
 import { rolloutRestart } from "../bridge/workloads";
 import { openLogsWindow } from "../bridge/windows";
 
@@ -515,6 +516,25 @@ describe("PodsView", () => {
     expect(openLogsWindow).toHaveBeenCalledWith("homelab", "monitoring", "grafana-xyz", "app");
     // On success the dock closes (tail moved to the native window).
     expect(queryByTestId("logs-dock")).toBeNull();
+  });
+
+  it("openLivePods is called on mount (replaces listPods)", () => {
+    render(<PodsView cluster="homelab" />);
+    expect(openLivePods).toHaveBeenCalledWith("homelab", "");
+  });
+
+  it("live=true renders green live indicator", () => {
+    seed([broken]);
+    useFleet.setState((s) => ({ pods: { ...s.pods, live: true } }));
+    const { getByText } = render(<PodsView cluster="homelab" />);
+    expect(getByText("live")).toBeTruthy();
+  });
+
+  it("live=false renders manual fallback indicator", () => {
+    seed([broken]);
+    useFleet.setState((s) => ({ pods: { ...s.pods, live: false } }));
+    const { getByText } = render(<PodsView cluster="homelab" />);
+    expect(getByText("○ manual")).toBeTruthy();
   });
 
   it("StatefulSet owner calls rolloutRestart directly without name transformation", () => {

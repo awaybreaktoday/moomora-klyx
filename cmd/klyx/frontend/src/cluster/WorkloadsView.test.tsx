@@ -6,11 +6,12 @@ import type { WorkloadDTO } from "../store/fleet";
 
 vi.mock("../bridge/workloads", () => ({
   listWorkloads: vi.fn().mockResolvedValue(undefined),
+  openLiveWorkloads: vi.fn().mockReturnValue(() => {}),
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
   scaleWorkload: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../bridge/workload-metrics", () => ({ getWorkloadMetrics: vi.fn().mockResolvedValue(undefined) }));
-import { rolloutRestart, scaleWorkload } from "../bridge/workloads";
+import { rolloutRestart, scaleWorkload, openLiveWorkloads } from "../bridge/workloads";
 
 const noResources = { cpu: { usage: null, request: null, limit: null }, mem: { usage: null, request: null, limit: null } };
 const broken: WorkloadDTO = { kind: "Deployment", namespace: "ollama-prod", name: "ollama", desired: 1, ready: 0, available: 0, updated: 1, restarts: 7, reason: "CrashLoopBackOff", rank: "unhealthy", gitops: { kind: "Kustomization", namespace: "flux-system", name: "ollama" }, pods: [{ name: "ollama-x", ready: false, restarts: 7, reason: "CrashLoopBackOff", node: "node-3", ageSeconds: 720 }], resources: noResources };
@@ -196,5 +197,24 @@ describe("WorkloadsView", () => {
     fireEvent.click(getByText("✕")); // cancel
     expect(queryByRole("spinbutton", { name: /replica count/i })).toBeNull();
     expect(getByText("scale")).toBeTruthy(); // button back
+  });
+
+  it("openLiveWorkloads is called on mount (replaces listWorkloads)", () => {
+    render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(openLiveWorkloads).toHaveBeenCalledWith("homelab-nelli", "");
+  });
+
+  it("live=true renders green live indicator", () => {
+    seed([broken]);
+    useFleet.setState((s) => ({ workloads: { ...s.workloads, live: true } }));
+    const { getByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(getByText("live")).toBeTruthy();
+  });
+
+  it("live=false renders manual fallback indicator", () => {
+    seed([broken]);
+    useFleet.setState((s) => ({ workloads: { ...s.workloads, live: false } }));
+    const { getByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(getByText("○ manual")).toBeTruthy();
   });
 });
