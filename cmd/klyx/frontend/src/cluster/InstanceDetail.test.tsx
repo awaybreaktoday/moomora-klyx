@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/react";
-import { useFleet, ResourceRef, InstanceRef, InstanceDetailDTO, ServiceBackingDTO } from "../store/fleet";
+import { useFleet, ResourceRef, InstanceRef, InstanceDetailDTO, ServiceBackingDTO, HPAScalingDTO } from "../store/fleet";
 import { InstanceDetail } from "./InstanceDetail";
 
 vi.mock("../bridge/crd", () => ({
@@ -14,6 +14,15 @@ vi.mock("../bridge/pods", () => ({
   openPodDetail: vi.fn(async () => {}),
 }));
 import { openPodDetail } from "../bridge/pods";
+
+// ForwardPopover imports bridge/forwards which uses the Wails runtime and
+// requires window. Stub it here so the test can run in jsdom without the
+// Wails runtime bootstrap. This is a pre-existing issue introduced when
+// ForwardPopover was added to InstanceDetail.
+vi.mock("../bridge/forwards", () => ({
+  startForward: vi.fn(async () => ""),
+  stopForward: vi.fn(async () => {}),
+}));
 
 const resource: ResourceRef = { group: "cert-manager.io", version: "v1", plural: "certificates", kind: "Certificate", scope: "Namespaced" };
 const instance: InstanceRef = { namespace: "default", name: "web-tls" };
@@ -226,5 +235,114 @@ describe("InstanceDetail — service backing", () => {
     const { queryByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
     expect(queryByText(/ready \/ /)).toBeNull();
     expect(queryByText(/no ready endpoints/)).toBeNull();
+  });
+});
+
+const hpaResource: ResourceRef = { group: "autoscaling", version: "v2", plural: "horizontalpodautoscalers", kind: "HorizontalPodAutoscaler", scope: "Namespaced" };
+const hpaInstance: InstanceRef = { namespace: "default", name: "web-hpa" };
+
+const baseHPAScaling: HPAScalingDTO = {
+  minReplicas: 2,
+  maxReplicas: 10,
+  currentReplicas: 4,
+  desiredReplicas: 4,
+  targetKind: "Deployment",
+  targetName: "web",
+  lastScaleUnix: 1780308000,
+  metrics: [
+    { name: "cpu", type: "Resource", target: "70%", current: "43%" },
+  ],
+};
+
+const hpaDetail: InstanceDetailDTO = {
+  kind: "HorizontalPodAutoscaler", namespace: "default", name: "web-hpa",
+  created: "", labels: {},
+  conditions: [], events: [],
+  yaml: "kind: HorizontalPodAutoscaler\n",
+  hpaScaling: baseHPAScaling,
+};
+
+function seedHPA(over: Partial<{ ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean }> = {}) {
+  useFleet.setState({ instanceDetail: { ref: hpaInstance, detail: hpaDetail, loading: false, ...over } });
+}
+
+describe("InstanceDetail — HPA scaling", () => {
+  beforeEach(() => { vi.clearAllMocks(); seedHPA(); });
+
+  it("renders replica line with current, desired, min, max", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    // current → desired
+    expect(getByText(/4 → 4/)).toBeTruthy();
+    // min / max band
+    expect(getByText(/min 2 \/ max 10/)).toBeTruthy();
+  });
+
+  it("renders metric row with name, current, and target", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(getByText("cpu")).toBeTruthy();
+    expect(getByText(/43%/)).toBeTruthy();
+    expect(getByText(/70%/)).toBeTruthy();
+  });
+
+  it("renders last-scaled age", () => {
+    const { getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    // lastScaleUnix is non-zero so it should NOT show "never"
+    expect(getByText(/last scaled:/i)).toBeTruthy();
+  });
+
+  it("shows 'never' for last scale when lastScaleUnix is 0", () => {
+    seedHPA({ detail: { ...hpaDetail, hpaScaling: { ...baseHPAScaling, lastScaleUnix: 0 } } });
+    const { getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(getByText(/never/)).toBeTruthy();
+  });
+
+  it("shows 'at max' tag when currentReplicas >= maxReplicas", () => {
+    const atMaxScaling: HPAScalingDTO = { ...baseHPAScaling, currentReplicas: 10, desiredReplicas: 10 };
+    seedHPA({ detail: { ...hpaDetail, hpaScaling: atMaxScaling } });
+    const { getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(getByText("at max")).toBeTruthy();
+  });
+
+  it("does not show 'at max' tag when not at max", () => {
+    const { queryByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(queryByText("at max")).toBeNull();
+  });
+
+  it("renders '—' for unknown current metric (current empty string)", () => {
+    const unknownCurrentScaling: HPAScalingDTO = {
+      ...baseHPAScaling,
+      metrics: [{ name: "cpu", type: "Resource", target: "70%", current: "" }],
+    };
+    seedHPA({ detail: { ...hpaDetail, hpaScaling: unknownCurrentScaling } });
+    const { getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(getByText("—")).toBeTruthy();
+  });
+
+  it("Deployment target renders workloads link", () => {
+    const { getByTestId } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(getByTestId("hpa-target-link")).toBeTruthy();
+  });
+
+  it("clicking Deployment target link sets section to workloads", () => {
+    useFleet.getState().openCluster("x");
+    seedHPA();
+    const { getByTestId } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    fireEvent.click(getByTestId("hpa-target-link"));
+    expect(useFleet.getState().route).toMatchObject({ section: "workloads" });
+  });
+
+  it("non-Deployment target kind renders plain text (no link)", () => {
+    const cronScaling: HPAScalingDTO = { ...baseHPAScaling, targetKind: "CustomResource", targetName: "my-cr" };
+    seedHPA({ detail: { ...hpaDetail, hpaScaling: cronScaling } });
+    const { queryByTestId, getByText } = render(<InstanceDetail cluster="x" resource={hpaResource} instance={hpaInstance} />);
+    expect(queryByTestId("hpa-target-link")).toBeNull();
+    expect(getByText(/CustomResource\/my-cr/)).toBeTruthy();
+  });
+
+  it("non-HPA detail has no scaling section", () => {
+    seed();
+    const { queryByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
+    // "min" and "max" are specific enough: won't appear in a vanilla cert-manager detail
+    expect(queryByText(/min \d+ \/ max \d+/)).toBeNull();
   });
 });

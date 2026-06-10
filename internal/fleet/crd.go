@@ -101,6 +101,17 @@ func (c *ClusterConn) GetInstanceDetail(ctx context.Context, group, version, plu
 		serviceBacking = &backing
 	}
 
+	// Build HPA scaling for autoscaling HorizontalPodAutoscalers (any version;
+	// we list v2 but the unstructured parse works regardless of version). A
+	// parse error here is non-fatal; hpaScaling will be nil and the detail
+	// still renders, mirroring how serviceBacking degrades.
+	var hpaScaling *crd.HPAScaling
+	if group == "autoscaling" && plural == "horizontalpodautoscalers" {
+		if s, err := crd.BuildHPAScaling(u); err == nil {
+			hpaScaling = s
+		}
+	}
+
 	y, _ := crd.ToYAML(obj)
 	d := crd.InstanceDetail{
 		Kind:           u.GetKind(),
@@ -112,6 +123,7 @@ func (c *ClusterConn) GetInstanceDetail(ctx context.Context, group, version, plu
 		YAML:           y,
 		SecretKeys:     secretKeys,
 		ServiceBacking: serviceBacking,
+		HPAScaling:     hpaScaling,
 	}
 	d.Events = c.instanceEvents(ctx, string(u.GetUID()))
 	return d, nil
