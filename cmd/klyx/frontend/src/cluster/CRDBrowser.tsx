@@ -1,6 +1,7 @@
 import { useEffect } from "react";
-import { useFleet, CRDGroupDTO, CRDKindDTO, CRDGroupBy, crdCountKey } from "../store/fleet";
+import { useFleet, CRDGroupDTO, CRDKindDTO, CRDGroupBy, crdCountKey, ResourceRef } from "../store/fleet";
 import { listCRDs, countKind } from "../bridge/crd";
+import { BUILTIN_CATALOG } from "./builtins";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
@@ -38,6 +39,12 @@ function matches(k: FlatKind, q: string): boolean {
   return k.kind.toLowerCase().includes(s) || k.group.toLowerCase().includes(s) || (k.operator ?? "").toLowerCase().includes(s);
 }
 
+function matchesBuiltin(ref: ResourceRef, q: string): boolean {
+  if (!q) return true;
+  const s = q.toLowerCase();
+  return ref.kind.toLowerCase().includes(s) || ref.plural.toLowerCase().includes(s) || ref.group.toLowerCase().includes(s);
+}
+
 const GROUP_BYS: CRDGroupBy[] = ["group", "operator", "scope", "alphabetical"];
 const GROUP_BY_LABEL: Record<CRDGroupBy, string> = { group: "api group", operator: "operator", scope: "scope", alphabetical: "alphabetical" };
 
@@ -58,10 +65,16 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
 
   const totalKinds = flatten(groups).length;
 
-  if (crd.loading && groups.length === 0) {
+  // Filter builtin catalog by search query
+  const builtinCategories = BUILTIN_CATALOG
+    .map((cat) => ({ ...cat, kinds: cat.kinds.filter((ref) => matchesBuiltin(ref, crd.search)) }))
+    .filter((cat) => cat.kinds.length > 0);
+
+  // Only block render when CRDs are loading AND builtins are also empty (e.g., filtered out).
+  if (crd.loading && groups.length === 0 && builtinCategories.length === 0) {
     return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>Loading custom resources…</div>;
   }
-  if (groups.length === 0) {
+  if (groups.length === 0 && builtinCategories.length === 0) {
     return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>No custom resources found on this cluster.</div>;
   }
 
@@ -98,11 +111,76 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
         ))}
       </div>
 
-      <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
-        {sections.map((sec) => (
-          <Section key={sec.label} cluster={cluster} label={sec.label} category={sec.category} kinds={sec.kinds} grouped={crd.groupBy === "group"} />
-        ))}
+      {builtinCategories.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--color-text-tertiary)", marginBottom: 4, paddingLeft: 2 }}>
+            Built-in
+          </div>
+          <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
+            {builtinCategories.map((cat) => (
+              <BuiltinCategory key={cat.label} cluster={cluster} label={cat.label} kinds={cat.kinds} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {groups.length > 0 && (
+        <>
+          {!crd.search && (
+            <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--color-text-tertiary)", marginBottom: 4, paddingLeft: 2 }}>
+              Custom Resources
+            </div>
+          )}
+          <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
+            {sections.map((sec) => (
+              <Section key={sec.label} cluster={cluster} label={sec.label} category={sec.category} kinds={sec.kinds} grouped={crd.groupBy === "group"} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// BuiltinCategory renders one category row from the static builtin catalog,
+// always expanded. Counts are loaded lazily via the same countKind bridge used
+// by CRD group sections, so the same concurrency cap and dedup apply.
+function BuiltinCategory({ cluster, label, kinds }: { cluster: string; label: string; kinds: ResourceRef[] }) {
+  const counts = useFleet((s) => s.crd.counts);
+  const openResource = useFleet((s) => s.openResource);
+
+  useEffect(() => {
+    for (const ref of kinds) {
+      if (!counts[crdCountKey(ref.group, ref.version, ref.plural)]) {
+        void countKind(cluster, ref.group, ref.version, ref.plural);
+      }
+    }
+  }, [cluster, kinds, counts]);
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "18px 1fr 90px 70px", gap: 10, alignItems: "center", padding: "7px 12px", background: "var(--color-background-secondary)", borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+        <span />
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-secondary)", ...ellipsis }}>{label}</div>
+        <span />
+        <span />
       </div>
+      {kinds.map((ref) => {
+        const c = counts[crdCountKey(ref.group, ref.version, ref.plural)];
+        const display = c ? (c.capped ? `${c.count}+` : `${c.count}`) : "…";
+        return (
+          <div
+            key={`builtin/${ref.group}/${ref.plural}`}
+            onClick={() => openResource(ref)}
+            style={{ display: "grid", gridTemplateColumns: "18px 1fr 90px 70px", gap: 10, alignItems: "center", padding: "6px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, cursor: "pointer" }}
+          >
+            <span />
+            <div style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{ref.kind}</div>
+            <span style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 9, padding: "1px 5px", borderRadius: 3, justifySelf: "start" }}>{ref.scope.toLowerCase()}</span>
+            <span style={{ fontWeight: 500 }}>{display}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

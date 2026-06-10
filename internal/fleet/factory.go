@@ -37,6 +37,8 @@ func DefaultConnFactory(clk clock.Clock) ConnFactory {
 			mc = *cc.Metrics
 		}
 		det := capability.NewDetector(typed)
-		return NewClusterConn(cc.Name, typed, mclient, dyn, det, clk, mc), nil
+		conn := NewClusterConn(cc.Name, typed, mclient, dyn, det, clk, mc)
+		conn.WithKubeContext(cc.Context)
+		return conn, nil
 	}
 }

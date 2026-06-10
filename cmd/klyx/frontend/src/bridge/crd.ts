@@ -76,3 +76,14 @@ export async function getInstanceDetail(cluster: string, resource: ResourceRef, 
 export async function copyText(text: string): Promise<void> {
   await Clipboard.SetText(text);
 }
+
+type RevealResultDTO = { value: string; error: string };
+
+// revealSecretKey calls the Go bridge to decode one Secret key value.
+// Returns the decoded string on success, or null on error (caller handles
+// user-visible error display). The value never touches the store.
+export async function revealSecretKey(cluster: string, ns: string, name: string, key: string): Promise<string | null> {
+  const r = (await CRDService.RevealSecretKey(cluster, ns, name, key)) as RevealResultDTO;
+  if (r.error) return null;
+  return r.value;
+}

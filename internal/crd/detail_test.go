@@ -1,6 +1,7 @@
 package crd
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -46,6 +47,97 @@ func TestToYAML(t *testing.T) {
 	}
 	if !strings.Contains(y, "kind: Certificate") || !strings.Contains(y, "name: web-tls") {
 		t.Fatalf("yaml missing fields:\n%s", y)
+	}
+}
+
+func TestMaskSecretDataMasksValues(t *testing.T) {
+	// base64 for "hunter2" is "aHVudGVyMg=="
+	b64 := base64.StdEncoding.EncodeToString([]byte("hunter2"))
+	obj := map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata":   map[string]interface{}{"name": "my-secret", "namespace": "default"},
+		"data": map[string]interface{}{
+			"password": b64,
+			"token":    base64.StdEncoding.EncodeToString([]byte("abc")),
+		},
+	}
+
+	masked, keys := MaskSecretData(obj)
+
+	// YAML must contain key names but not the base64 value.
+	y, err := ToYAML(masked)
+	if err != nil {
+		t.Fatalf("ToYAML: %v", err)
+	}
+	if !strings.Contains(y, "password") || !strings.Contains(y, "token") {
+		t.Fatalf("key names must be in YAML:\n%s", y)
+	}
+	if strings.Contains(y, b64) {
+		t.Fatalf("base64 value must NOT appear in YAML:\n%s", y)
+	}
+	if !strings.Contains(y, "<masked>") {
+		t.Fatalf("placeholder <masked> must appear in YAML:\n%s", y)
+	}
+
+	// SecretKeys must list both keys with correct byte lengths.
+	if len(keys) != 2 {
+		t.Fatalf("want 2 keys, got %d: %+v", len(keys), keys)
+	}
+	byKey := map[string]SecretKeyInfo{}
+	for _, k := range keys {
+		byKey[k.Key] = k
+	}
+	if byKey["password"].Bytes != 7 { // len("hunter2") == 7
+		t.Fatalf("password bytes: %d", byKey["password"].Bytes)
+	}
+	if byKey["token"].Bytes != 3 { // len("abc") == 3
+		t.Fatalf("token bytes: %d", byKey["token"].Bytes)
+	}
+
+	// Input must not be mutated.
+	origData := obj["data"].(map[string]interface{})
+	if origData["password"] != b64 {
+		t.Fatal("MaskSecretData mutated the input map")
+	}
+}
+
+func TestMaskSecretDataStringData(t *testing.T) {
+	obj := map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"stringData": map[string]interface{}{
+			"api-key": "supersecret",
+		},
+	}
+	masked, keys := MaskSecretData(obj)
+
+	y, _ := ToYAML(masked)
+	if strings.Contains(y, "supersecret") {
+		t.Fatalf("stringData value must be masked:\n%s", y)
+	}
+	if len(keys) != 1 || keys[0].Key != "api-key" || keys[0].Bytes != 11 {
+		t.Fatalf("keys: %+v", keys)
+	}
+}
+
+func TestMaskSecretDataSorted(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("x"))
+	obj := map[string]interface{}{
+		"data": map[string]interface{}{
+			"zebra": b64, "alpha": b64, "middle": b64,
+		},
+	}
+	_, keys := MaskSecretData(obj)
+	if len(keys) != 3 || keys[0].Key != "alpha" || keys[1].Key != "middle" || keys[2].Key != "zebra" {
+		t.Fatalf("keys not sorted: %+v", keys)
+	}
+}
+
+func TestMaskSecretDataEmptyObject(t *testing.T) {
+	_, keys := MaskSecretData(map[string]interface{}{})
+	if len(keys) != 0 {
+		t.Fatalf("want 0 keys for empty object, got %d", len(keys))
 	}
 }
 

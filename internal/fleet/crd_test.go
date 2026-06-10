@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -220,6 +221,200 @@ func TestGetInstanceDetailClusterScoped(t *testing.T) {
 	}
 	if d.Kind != "CiliumNode" || d.Namespace != "" || !strings.Contains(d.YAML, "kind: CiliumNode") {
 		t.Fatalf("cluster-scoped: %+v", d)
+	}
+}
+
+func TestGetInstanceDetailSecretMasked(t *testing.T) {
+	secretGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{secretGVR: "SecretList"}
+
+	b64pass := "aHVudGVyMg==" // base64("hunter2")
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata":   map[string]interface{}{"name": "app-secret", "namespace": "default", "uid": "uid-s1"},
+		"data": map[string]interface{}{
+			"password": b64pass,
+		},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	typed := typedfake.NewSimpleClientset()
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "", "v1", "secrets", "default", "app-secret")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+
+	// YAML must contain the key name but not the base64 value.
+	if !strings.Contains(d.YAML, "password") {
+		t.Fatalf("key name missing from YAML:\n%s", d.YAML)
+	}
+	if strings.Contains(d.YAML, b64pass) {
+		t.Fatalf("base64 value must be masked in YAML:\n%s", d.YAML)
+	}
+	if !strings.Contains(d.YAML, "<masked>") {
+		t.Fatalf("<masked> placeholder missing from YAML:\n%s", d.YAML)
+	}
+
+	// SecretKeys must list the key with correct byte length.
+	if len(d.SecretKeys) != 1 || d.SecretKeys[0].Key != "password" || d.SecretKeys[0].Bytes != 7 {
+		t.Fatalf("SecretKeys: %+v", d.SecretKeys)
+	}
+}
+
+func TestGetInstanceDetailNonSecretUnaffected(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1",
+		"kind":       "Widget",
+		"metadata":   map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-w1"},
+		"spec":       map[string]interface{}{"field": "visible-value"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if !strings.Contains(d.YAML, "visible-value") {
+		t.Fatalf("non-secret field must not be masked:\n%s", d.YAML)
+	}
+	if len(d.SecretKeys) != 0 {
+		t.Fatalf("SecretKeys must be empty for non-secret, got %+v", d.SecretKeys)
+	}
+}
+
+func TestRevealSecretKey(t *testing.T) {
+	// client-go typed fake stores Secret.Data as []byte; the Secret.Data field
+	// is decoded bytes, not base64.
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-secret", Namespace: "default"},
+		Data:       map[string][]byte{"password": []byte("hunter2"), "token": []byte("abc")},
+	}
+	typed := typedfake.NewSimpleClientset(sec)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	val, err := c.RevealSecretKey(context.Background(), "default", "app-secret", "password")
+	if err != nil {
+		t.Fatalf("reveal: %v", err)
+	}
+	if val != "hunter2" {
+		t.Fatalf("want 'hunter2', got %q", val)
+	}
+}
+
+func TestRevealSecretKeyMissingKey(t *testing.T) {
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-secret", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("abc")},
+	}
+	typed := typedfake.NewSimpleClientset(sec)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	_, err := c.RevealSecretKey(context.Background(), "default", "app-secret", "nonexistent")
+	if err == nil {
+		t.Fatal("want error for missing key, got nil")
+	}
+}
+
+func TestRevealSecretKeyMissingSecret(t *testing.T) {
+	typed := typedfake.NewSimpleClientset()
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	_, err := c.RevealSecretKey(context.Background(), "default", "ghost-secret", "key")
+	if err == nil {
+		t.Fatal("want error for missing secret, got nil")
+	}
+}
+
+func TestGetInstanceDetailServiceBacking(t *testing.T) {
+	serviceGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{serviceGVR: "ServiceList"}
+	svcObj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Service",
+		"metadata":   map[string]interface{}{"name": "web", "namespace": "default", "uid": "uid-svc1"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, svcObj)
+
+	// Build a typed Service + EndpointSlice with one ready and one not-ready endpoint.
+	readyTrue := true
+	readyFalse := false
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP}},
+			Selector: map[string]string{"app": "web"},
+		},
+	}
+	slice := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-abc",
+			Namespace: "default",
+			Labels:    map[string]string{"kubernetes.io/service-name": "web"},
+		},
+		Endpoints: []discoveryv1.Endpoint{
+			{
+				Addresses:  []string{"10.0.0.1"},
+				Conditions: discoveryv1.EndpointConditions{Ready: &readyTrue},
+				TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "web-pod-1"},
+			},
+			{
+				Addresses:  []string{"10.0.0.2"},
+				Conditions: discoveryv1.EndpointConditions{Ready: &readyFalse},
+				TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "web-pod-2"},
+			},
+		},
+	}
+	typed := typedfake.NewSimpleClientset(svc, slice)
+	c := NewClusterConn("x", typed, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "", "v1", "services", "default", "web")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.ServiceBacking == nil {
+		t.Fatal("ServiceBacking must be non-nil for a v1 Service")
+	}
+	b := d.ServiceBacking
+	if b.Ready != 1 {
+		t.Fatalf("want Ready=1, got %d", b.Ready)
+	}
+	if b.NotReady != 1 {
+		t.Fatalf("want NotReady=1, got %d", b.NotReady)
+	}
+	if len(b.Ports) != 1 || b.Ports[0].Port != 80 {
+		t.Fatalf("ports: %+v", b.Ports)
+	}
+	if b.Selector["app"] != "web" {
+		t.Fatalf("selector: %+v", b.Selector)
+	}
+}
+
+func TestGetInstanceDetailNonServiceNoServiceBacking(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1",
+		"kind":       "Widget",
+		"metadata":   map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-w2"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.ServiceBacking != nil {
+		t.Fatalf("ServiceBacking must be nil for non-service, got %+v", d.ServiceBacking)
 	}
 }
 

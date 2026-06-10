@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -48,6 +49,12 @@ func (f *fakeConn) ListCRDs(ctx context.Context) ([]crd.Info, error) { return ni
 func (f *fakeConn) ListWorkloads(context.Context, string) ([]workloads.Workload, bool, error) {
 	return nil, false, nil
 }
+func (f *fakeConn) ListNodes(context.Context) ([]workloads.NodeSummary, error) {
+	return nil, nil
+}
+func (f *fakeConn) NodeDetail(context.Context, string) (NodeDetail, error) {
+	return NodeDetail{}, nil
+}
 func (f *fakeConn) ListPods(context.Context, string) ([]workloads.PodSummary, error) {
 	return nil, nil
 }
@@ -89,6 +96,13 @@ func (f *fakeConn) ClusterMetrics(ctx context.Context, forceReprobe bool) (metri
 }
 func (f *fakeConn) RouteMetrics(context.Context, []string) (map[string]routemetrics.RouteMetrics, routemetrics.Status) {
 	return nil, routemetrics.Status{}
+}
+func (f *fakeConn) RevealSecretKey(ctx context.Context, ns, name, key string) (string, error) {
+	return "", nil
+}
+func (f *fakeConn) SetCordon(context.Context, string, bool) error { return nil }
+func (f *fakeConn) DrainNodeCmd(nodeName string) (*exec.Cmd, error) {
+	return exec.Command("true"), nil
 }
 
 func TestRegistryStartsAllConnsAndIsolatesFailure(t *testing.T) {

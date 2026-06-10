@@ -1,0 +1,58 @@
+import { useFleet, NodesResultDTO, NodeDetailDTO } from "../store/fleet";
+import { NodesService, NodeOpsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
+
+type ActionResultDTO = { ok: boolean; error: string };
+type OpenLogStreamResultDTO = { streamId: string; error?: string };
+
+export async function listNodes(cluster: string): Promise<void> {
+  useFleet.getState().setNodesLoading(cluster);
+  try {
+    const r = (await NodesService.ListNodes(cluster)) as NodesResultDTO;
+    // Drop a stale response if the user changed cluster while in flight.
+    const cur = useFleet.getState().nodes;
+    if (cur.cluster !== cluster) return;
+    useFleet.getState().setNodes(cluster, r ?? { nodes: [] });
+  } catch {
+    // Clear the loading flag so the view doesn't get stuck on "Loading…".
+    if (useFleet.getState().nodes.cluster === cluster) {
+      useFleet.setState((s) => ({ nodes: { ...s.nodes, loading: false } }));
+    }
+  }
+}
+
+export async function cordonNode(cluster: string, node: string, cordon: boolean): Promise<void> {
+  const r = (await NodeOpsService.Cordon(cluster, node, cordon)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok
+      ? { kind: "success", message: `node ${node} ${cordon ? "cordoned" : "uncordoned"}` }
+      : { kind: "error", message: r.error || (cordon ? "Cordon failed" : "Uncordon failed") },
+  );
+  if (r.ok) {
+    void listNodes(cluster);
+  }
+}
+
+export async function startDrain(cluster: string, node: string): Promise<OpenLogStreamResultDTO> {
+  return (await NodeOpsService.StartDrain(cluster, node)) as OpenLogStreamResultDTO;
+}
+
+export async function cancelDrain(streamId: string): Promise<void> {
+  await NodeOpsService.CancelDrain(streamId);
+}
+
+export async function openNodeDetail(cluster: string, name: string): Promise<void> {
+  const ref = { name };
+  useFleet.getState().selectNode(ref);
+  try {
+    const d = (await NodesService.GetNodeDetail(cluster, name)) as NodeDetailDTO;
+    const sel = useFleet.getState().nodes.selected;
+    if (!sel || sel.name !== name) return;
+    useFleet.getState().setNodeDetail(ref, d);
+  } catch {
+    // On failure, clear detailLoading so the panel doesn't spin forever.
+    const sel = useFleet.getState().nodes.selected;
+    if (sel && sel.name === name) {
+      useFleet.setState((s) => ({ nodes: { ...s.nodes, detailLoading: false } }));
+    }
+  }
+}

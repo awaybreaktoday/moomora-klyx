@@ -51,6 +51,13 @@ type EventDTO struct {
 	LastSeen string `json:"lastSeen"` // RFC3339; "" when unset
 }
 
+// SecretKeyDTO carries the name and decoded byte-length of one key in a
+// Secret's data map. The value itself never crosses the bridge here.
+type SecretKeyDTO struct {
+	Key   string `json:"key"`
+	Bytes int    `json:"bytes"`
+}
+
 // InstanceDetailDTO is the full per-instance detail.
 type InstanceDetailDTO struct {
 	Kind       string            `json:"kind"`
@@ -61,6 +68,46 @@ type InstanceDetailDTO struct {
 	Conditions []ConditionDTO    `json:"conditions"`
 	Events     []EventDTO        `json:"events"`
 	YAML       string            `json:"yaml"`
+	// SecretKeys is non-empty only for v1 Secrets. YAML values are masked;
+	// call RevealSecretKey to fetch an individual decoded value.
+	SecretKeys []SecretKeyDTO `json:"secretKeys,omitempty"`
+	// ServiceBacking is non-nil only for v1 Services; omitted for everything else.
+	ServiceBacking *ServiceBackingDTO `json:"serviceBacking,omitempty"`
+}
+
+// RevealResultDTO is returned by RevealSecretKey. On success Value is the
+// decoded plaintext and Error is "". On failure Value is "" and Error carries
+// the human-readable reason. The value is not logged anywhere.
+type RevealResultDTO struct {
+	Value string `json:"value"`
+	Error string `json:"error"`
+}
+
+// ServicePortDTO is one port from a Service's spec.ports.
+type ServicePortDTO struct {
+	Name     string `json:"name"`
+	Port     int32  `json:"port"`
+	Protocol string `json:"protocol"`
+}
+
+// EndpointAddrDTO is one address from the EndpointSlices backing a Service.
+type EndpointAddrDTO struct {
+	IP         string `json:"ip"`
+	Ready      bool   `json:"ready"`
+	TargetKind string `json:"targetKind"`
+	TargetName string `json:"targetName"`
+}
+
+// ServiceBackingDTO carries endpoint health for a v1 Service. It is non-nil
+// only on instance detail responses for v1 Services. The omitempty tag means
+// a nil pointer is omitted from the JSON payload entirely (non-service detail
+// receives no serviceBacking key at all).
+type ServiceBackingDTO struct {
+	Ports     []ServicePortDTO  `json:"ports"`
+	Ready     int               `json:"ready"`
+	NotReady  int               `json:"notReady"`
+	Addresses []EndpointAddrDTO `json:"addresses"`
+	Selector  map[string]string `json:"selector"`
 }
 
 // groupCRDs groups parsed CRDs by API group, attaches the curated category, and

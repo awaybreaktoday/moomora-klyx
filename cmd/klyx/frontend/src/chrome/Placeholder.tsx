@@ -22,6 +22,8 @@ function message(section: ClusterSection, c: ClusterDTO): string {
       return "";
     case "events":
       return "";
+    case "nodes":
+      return "";
   }
 }
 

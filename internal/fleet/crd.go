@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/moomora/klyx/internal/crd"
 )
+
+// serviceGVR is the GVR used to typed-get a core Service for backing detail.
+var serviceGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
 
 // ListCRDs lists the cluster's CustomResourceDefinitions and parses them. A
 // single cheap dynamic list; no watch.
@@ -79,18 +83,72 @@ func (c *ClusterConn) GetInstanceDetail(ctx context.Context, group, version, plu
 		return crd.InstanceDetail{}, err
 	}
 
-	y, _ := crd.ToYAML(u.Object)
+	// Mask secret values before producing YAML and building the DTO. The masking
+	// happens at the unstructured level so the raw object is never passed to
+	// ToYAML with live data, and secret key info travels separately.
+	obj := u.Object
+	var secretKeys []crd.SecretKeyInfo
+	if group == "" && version == "v1" && plural == "secrets" {
+		obj, secretKeys = crd.MaskSecretData(obj)
+	}
+
+	// Build service backing for v1 Services: typed-get the Service (for
+	// spec.ports and spec.selector) then list its EndpointSlices. A failure here
+	// is non-fatal; backing will be nil and the detail still renders.
+	var serviceBacking *crd.ServiceBacking
+	if group == "" && version == "v1" && plural == "services" {
+		backing := c.buildServiceBacking(ctx, ns, name)
+		serviceBacking = &backing
+	}
+
+	y, _ := crd.ToYAML(obj)
 	d := crd.InstanceDetail{
-		Kind:       u.GetKind(),
-		Namespace:  ns,
-		Name:       name,
-		Created:    u.GetCreationTimestamp().Time,
-		Labels:     u.GetLabels(),
-		Conditions: crd.ParseConditions(u.Object),
-		YAML:       y,
+		Kind:           u.GetKind(),
+		Namespace:      ns,
+		Name:           name,
+		Created:        u.GetCreationTimestamp().Time,
+		Labels:         u.GetLabels(),
+		Conditions:     crd.ParseConditions(u.Object),
+		YAML:           y,
+		SecretKeys:     secretKeys,
+		ServiceBacking: serviceBacking,
 	}
 	d.Events = c.instanceEvents(ctx, string(u.GetUID()))
 	return d, nil
+}
+
+// RevealSecretKey fetches the decoded value of one key from a Secret.
+// secret.Data is already []byte (client-go decodes base64 transparently).
+// Returns an error for missing key or missing secret. The value is returned
+// as a string and is NEVER logged.
+func (c *ClusterConn) RevealSecretKey(ctx context.Context, ns, name, key string) (string, error) {
+	secret, err := c.typed.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	b, ok := secret.Data[key]
+	if !ok {
+		return "", fmt.Errorf("key %q not found in secret %s/%s", key, ns, name)
+	}
+	return string(b), nil
+}
+
+// buildServiceBacking fetches the typed Service and its EndpointSlices, then
+// builds a ServiceBacking. Non-fatal: any error returns an empty backing so the
+// detail still renders cleanly.
+func (c *ClusterConn) buildServiceBacking(ctx context.Context, ns, name string) crd.ServiceBacking {
+	svc, err := c.typed.CoreV1().Services(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return crd.ServiceBacking{}
+	}
+	sliceList, err := c.typed.DiscoveryV1().EndpointSlices(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "kubernetes.io/service-name=" + name,
+	})
+	if err != nil || sliceList == nil {
+		// No EndpointSlices found; build backing from Service spec only.
+		return crd.BuildServiceBacking(svc, nil)
+	}
+	return crd.BuildServiceBacking(svc, sliceList.Items)
 }
 
 // instanceEvents lists core Events for an object's uid, newest first. A list

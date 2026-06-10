@@ -13,6 +13,7 @@ type CRDConn interface {
 	CountResource(ctx context.Context, group, version, plural string) (int, bool, error)
 	ListInstances(ctx context.Context, group, version, plural string, limit int64, continueToken string) ([]crd.InstanceMeta, string, error)
 	GetInstanceDetail(ctx context.Context, group, version, plural, ns, name string) (crd.InstanceDetail, error)
+	RevealSecretKey(ctx context.Context, ns, name, key string) (string, error)
 }
 
 const crdTimeout = 30 * time.Second
@@ -91,11 +92,57 @@ func (s *CRDService) GetInstanceDetail(cluster, group, version, plural, namespac
 	for _, e := range d.Events {
 		events = append(events, EventDTO{Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: rfc3339(e.Last)})
 	}
+	secretKeys := make([]SecretKeyDTO, 0, len(d.SecretKeys))
+	for _, sk := range d.SecretKeys {
+		secretKeys = append(secretKeys, SecretKeyDTO{Key: sk.Key, Bytes: sk.Bytes})
+	}
+	var serviceBacking *ServiceBackingDTO
+	if d.ServiceBacking != nil {
+		b := d.ServiceBacking
+		ports := make([]ServicePortDTO, 0, len(b.Ports))
+		for _, p := range b.Ports {
+			ports = append(ports, ServicePortDTO{Name: p.Name, Port: p.Port, Protocol: p.Protocol})
+		}
+		addrs := make([]EndpointAddrDTO, 0, len(b.Addresses))
+		for _, a := range b.Addresses {
+			addrs = append(addrs, EndpointAddrDTO{IP: a.IP, Ready: a.Ready, TargetKind: a.TargetKind, TargetName: a.TargetName})
+		}
+		sel := b.Selector
+		if sel == nil {
+			sel = map[string]string{}
+		}
+		serviceBacking = &ServiceBackingDTO{
+			Ports:     ports,
+			Ready:     b.Ready,
+			NotReady:  b.NotReady,
+			Addresses: addrs,
+			Selector:  sel,
+		}
+	}
 	return InstanceDetailDTO{
 		Kind: d.Kind, Namespace: d.Namespace, Name: d.Name,
 		Created: rfc3339(d.Created), Labels: labels,
 		Conditions: conds, Events: events, YAML: d.YAML,
+		SecretKeys:     secretKeys,
+		ServiceBacking: serviceBacking,
 	}
+}
+
+// RevealSecretKey fetches the decoded value of one key from a Secret and
+// returns it. The value is never logged. On any error (cluster miss, secret not
+// found, key absent) the Error field is set and Value is "".
+func (s *CRDService) RevealSecretKey(cluster, namespace, name, key string) RevealResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return RevealResultDTO{Error: "cluster not found"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), crdTimeout)
+	defer cancel()
+	val, err := conn.RevealSecretKey(ctx, namespace, name, key)
+	if err != nil {
+		return RevealResultDTO{Error: err.Error()}
+	}
+	return RevealResultDTO{Value: val}
 }
 
 // ListInstances returns one page of instances of a kind plus the next token.

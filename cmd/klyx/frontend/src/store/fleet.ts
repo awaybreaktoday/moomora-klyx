@@ -55,7 +55,7 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads" | "pods" | "events";
+export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads" | "pods" | "events" | "nodes";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -120,7 +120,11 @@ export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nex
 
 export type InstanceRef = { namespace: string; name: string };
 export type EventDTO = { type: string; reason: string; message: string; count: number; lastSeen: string };
-export type InstanceDetailDTO = { kind: string; namespace: string; name: string; created: string; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string };
+export type SecretKeyDTO = { key: string; bytes: number };
+export type ServicePortDTO = { name: string; port: number; protocol: string };
+export type EndpointAddrDTO = { ip: string; ready: boolean; targetKind: string; targetName: string };
+export type ServiceBackingDTO = { ports: ServicePortDTO[]; ready: number; notReady: number; addresses: EndpointAddrDTO[]; selector: Record<string, string> };
+export type InstanceDetailDTO = { kind: string; namespace: string; name: string; created: string; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; secretKeys?: SecretKeyDTO[]; serviceBacking?: ServiceBackingDTO | null };
 export type InstanceDetailSlice = { ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean };
 
 export type Route =
@@ -136,6 +140,7 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   workloads: "Workloads",
   pods: "Pods",
   events: "Events",
+  nodes: "Nodes",
 };
 
 export type CRDKindDTO = { kind: string; plural: string; scope: string; version: string; operator: string; shortNames: string[] };
@@ -192,6 +197,23 @@ export type MeshGraphDTO = { nodes: MeshNodeDTO[]; edges: MeshEdgeDTO[] };
 
 export type MetricsDTO = { available: boolean; mode: string; source: string; warning: string; reason: string; cpuFraction: number | null; memFraction: number | null };
 export type MetricsSlice = { cluster: string | null; dto: MetricsDTO | null; loading: boolean };
+
+// Nodes types
+export type NodeSummaryDTO = { name: string; roles: string[]; ready: boolean; unschedulable: boolean; problems: string[]; version: string; os: string; arch: string; taintCount: number; cpuCapacity: number; cpuAllocatable: number; memCapacity: number; memAllocatable: number; podCapacity: number; ageSeconds: number };
+export type NodesResultDTO = { nodes: NodeSummaryDTO[] };
+export type NodeTaintDTO = { key: string; value: string; effect: string };
+export type PodOnNodeDTO = { namespace: string; name: string; phase: string };
+export type NodeDetailDTO = { summary: NodeSummaryDTO; labels: Record<string, string>; taints: NodeTaintDTO[]; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; podsOnNode: PodOnNodeDTO[] };
+
+export type NodeRef = { name: string };
+export type NodesSlice = {
+  cluster: string | null;
+  items: NodeSummaryDTO[];
+  loading: boolean;
+  selected: NodeRef | null;
+  detail: NodeDetailDTO | null;
+  detailLoading: boolean;
+};
 
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
@@ -273,6 +295,12 @@ type FleetState = {
   toggleWarningsOnly: () => void;
   setEventsSearch: (s: string) => void;
   clearEvents: () => void;
+  nodes: NodesSlice;
+  setNodesLoading: (cluster: string) => void;
+  setNodes: (cluster: string, result: NodesResultDTO) => void;
+  selectNode: (ref: NodeRef | null) => void;
+  setNodeDetail: (ref: NodeRef, detail: NodeDetailDTO) => void;
+  clearNodes: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -436,4 +464,14 @@ export const useFleet = create<FleetState>((set) => ({
   toggleWarningsOnly: () => set((s) => ({ events: { ...s.events, warningsOnly: !s.events.warningsOnly } })),
   setEventsSearch: (search) => set((s) => ({ events: { ...s.events, search } })),
   clearEvents: () => set({ events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" } }),
+  nodes: { cluster: null, items: [], loading: false, selected: null, detail: null, detailLoading: false },
+  setNodesLoading: (cluster) => set((s) => ({ nodes: { ...s.nodes, cluster, loading: true } })),
+  setNodes: (cluster, result) => set((s) => ({ nodes: { ...s.nodes, cluster, items: result.nodes ?? [], loading: false } })),
+  selectNode: (ref) => set((s) => ({ nodes: { ...s.nodes, selected: ref, detail: null, detailLoading: ref !== null } })),
+  setNodeDetail: (ref, detail) => set((s) => {
+    const sel = s.nodes.selected;
+    if (!sel || sel.name !== ref.name) return {};
+    return { nodes: { ...s.nodes, detail, detailLoading: false } };
+  }),
+  clearNodes: () => set({ nodes: { cluster: null, items: [], loading: false, selected: null, detail: null, detailLoading: false } }),
 }));
