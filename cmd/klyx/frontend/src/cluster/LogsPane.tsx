@@ -522,7 +522,11 @@ export function LogsPane({
         data-testid="logs-pane-expanded"
         style={{
           position: "fixed",
-          inset: 0,
+          // Start below the 40px TopBar: the titlebar (traffic lights, drag
+          // region, theme toggle) stays visible and functional while expanded -
+          // covering it left the window undraggable with the lights overlapping
+          // the expanded header.
+          inset: "40px 0 0 0",
           zIndex: EXPAND_Z,
           background: "var(--color-background-primary)",
           padding: 16,
