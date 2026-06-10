@@ -56,10 +56,12 @@ describe("events slice", () => {
     expect(useFleet.getState().events.search).toBe("crash");
   });
 
-  it("clearEvents resets everything", () => {
+  it("clearEvents resets everything including live", () => {
     useFleet.getState().setEvents("c", "", allResult);
     useFleet.getState().toggleWarningsOnly();
     useFleet.getState().setEventsSearch("foo");
+    // Manually set live to true.
+    useFleet.setState((s) => ({ events: { ...s.events, live: true } }));
     useFleet.getState().clearEvents();
     const s = useFleet.getState().events;
     expect(s.items).toHaveLength(0);
@@ -67,5 +69,26 @@ describe("events slice", () => {
     expect(s.warningsOnly).toBe(false);
     expect(s.search).toBe("");
     expect(s.cluster).toBeNull();
+    expect(s.live).toBe(false);
+  });
+
+  it("setEventsLive updates live when cluster+namespace match", () => {
+    useFleet.getState().setEvents("c", "", allResult);
+    useFleet.getState().setEventsLive("c", "", true);
+    expect(useFleet.getState().events.live).toBe(true);
+    useFleet.getState().setEventsLive("c", "", false);
+    expect(useFleet.getState().events.live).toBe(false);
+  });
+
+  it("setEventsLive stale-guard: wrong cluster is a no-op", () => {
+    useFleet.getState().setEvents("c", "", allResult);
+    useFleet.getState().setEventsLive("other", "", true);
+    expect(useFleet.getState().events.live).toBe(false);
+  });
+
+  it("setEventsLive stale-guard: wrong namespace is a no-op", () => {
+    useFleet.getState().setEvents("c", "default", { namespaces: ["default"], events: [warning] });
+    useFleet.getState().setEventsLive("c", "monitoring", true);
+    expect(useFleet.getState().events.live).toBe(false);
   });
 });

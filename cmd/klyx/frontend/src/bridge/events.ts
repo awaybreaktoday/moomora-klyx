@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { useFleet, EventsResultDTO } from "../store/fleet";
 import { EventsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
@@ -15,4 +16,33 @@ export async function listEvents(cluster: string, namespace: string): Promise<vo
       useFleet.setState((s) => ({ events: { ...s.events, loading: false } }));
     }
   }
+}
+
+// openLiveEvents subscribes to live event updates for a cluster+namespace.
+// The backend fires an immediate emit so the view receives data without calling
+// listEvents first. Returns a cleanup function to be called on unmount or ns change.
+export function openLiveEvents(cluster: string, namespace: string): () => void {
+  const dataEvent = "liveEvents:" + cluster + ":" + namespace;
+  const statusEvent = "liveEventsStatus:" + cluster + ":" + namespace;
+
+  const offData = Events.On(dataEvent, (ev: { data: EventsResultDTO }) => {
+    const cur = useFleet.getState().events;
+    if (cur.cluster !== cluster || cur.namespace !== namespace) return;
+    useFleet.getState().setEvents(cluster, namespace, ev.data ?? { namespaces: [], events: [] });
+  });
+
+  const offStatus = Events.On(statusEvent, (ev: { data: { live: boolean } }) => {
+    useFleet.getState().setEventsLive(cluster, namespace, ev.data?.live ?? false);
+  });
+
+  // Fire-and-forget: on error set live false so the indicator degrades honestly.
+  EventsService.OpenLiveEvents(cluster, namespace).catch(() => {
+    useFleet.getState().setEventsLive(cluster, namespace, false);
+  });
+
+  return () => {
+    if (typeof offData === "function") offData();
+    if (typeof offStatus === "function") offStatus();
+    EventsService.CloseLiveEvents(cluster, namespace).catch(() => undefined);
+  };
 }

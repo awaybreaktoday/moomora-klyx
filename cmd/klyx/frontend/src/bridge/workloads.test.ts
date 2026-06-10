@@ -7,11 +7,29 @@ vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", ()
     RolloutRestart: vi.fn(),
     ScaleWorkload: vi.fn(),
     ListWorkloads: vi.fn().mockResolvedValue({ fluxPresent: false, namespaces: [], workloads: [] }),
+    OpenLiveWorkloads: vi.fn().mockResolvedValue({ ok: true, error: "" }),
+    CloseAll: vi.fn().mockResolvedValue(undefined),
+    CloseWorkloads: vi.fn().mockResolvedValue(undefined),
+    CloseLiveWorkloads: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+const eventHandlers: Record<string, (ev: unknown) => void> = {};
+const offFns: Record<string, ReturnType<typeof vi.fn>> = {};
+vi.mock("@wailsio/runtime", () => ({
+  Events: {
+    On: vi.fn((name: string, handler: (ev: unknown) => void) => {
+      eventHandlers[name] = handler;
+      const off = vi.fn();
+      offFns[name] = off;
+      return off;
+    }),
   },
 }));
 
 import { WorkloadsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
-import { rolloutRestart, scaleWorkload } from "./workloads";
+import { Events } from "@wailsio/runtime";
+import { rolloutRestart, scaleWorkload, openLiveWorkloads } from "./workloads";
 
 function seedWorkloads(cluster: string, namespace: string) {
   useFleet.setState((s) => ({
@@ -132,5 +150,69 @@ describe("scaleWorkload bridge", () => {
     await scaleWorkload("homelab", "Deployment", "ns", "api", 1);
 
     expect(useFleet.getState().actionStatus?.message).toBe("Scale failed");
+  });
+});
+
+describe("openLiveWorkloads bridge", () => {
+  beforeEach(() => {
+    useFleet.getState().clearWorkloads();
+    vi.clearAllMocks();
+    for (const k of Object.keys(eventHandlers)) delete eventHandlers[k];
+    for (const k of Object.keys(offFns)) delete offFns[k];
+  });
+
+  it("subscribes to data and status events and calls OpenLiveWorkloads", () => {
+    seedWorkloads("homelab", "");
+    openLiveWorkloads("homelab", "");
+
+    expect(Events.On).toHaveBeenCalledWith("liveWorkloads:homelab:", expect.any(Function));
+    expect(Events.On).toHaveBeenCalledWith("liveWorkloadsStatus:homelab:", expect.any(Function));
+    expect(WorkloadsService.OpenLiveWorkloads).toHaveBeenCalledWith("homelab", "");
+  });
+
+  it("data event payload updates the workloads store", () => {
+    seedWorkloads("homelab", "");
+    openLiveWorkloads("homelab", "");
+
+    const handler = eventHandlers["liveWorkloads:homelab:"];
+    expect(handler).toBeDefined();
+    handler({ data: { fluxPresent: true, namespaces: ["monitoring"], workloads: [] } });
+
+    expect(useFleet.getState().workloads.namespaces).toEqual(["monitoring"]);
+    expect(useFleet.getState().workloads.fluxPresent).toBe(true);
+  });
+
+  it("status event sets live flag in store", () => {
+    seedWorkloads("homelab", "");
+    openLiveWorkloads("homelab", "");
+
+    const statusHandler = eventHandlers["liveWorkloadsStatus:homelab:"];
+    expect(statusHandler).toBeDefined();
+    statusHandler({ data: { live: true } });
+
+    expect(useFleet.getState().workloads.live).toBe(true);
+  });
+
+  it("cleanup unsubscribes both events and calls CloseLiveWorkloads", () => {
+    seedWorkloads("homelab", "");
+    const cleanup = openLiveWorkloads("homelab", "");
+
+    cleanup();
+
+    expect(offFns["liveWorkloads:homelab:"]!).toHaveBeenCalled();
+    expect(offFns["liveWorkloadsStatus:homelab:"]!).toHaveBeenCalled();
+    expect(WorkloadsService.CloseLiveWorkloads).toHaveBeenCalledWith("homelab", "");
+  });
+
+  it("stale-guard: data event for wrong namespace is dropped", () => {
+    seedWorkloads("homelab", "monitoring");
+    openLiveWorkloads("homelab", "kube-system");
+
+    const handler = eventHandlers["liveWorkloads:homelab:kube-system"];
+    expect(handler).toBeDefined();
+    handler({ data: { fluxPresent: false, namespaces: ["kube-system"], workloads: [] } });
+
+    // Store is seeded as "monitoring" — update for "kube-system" must be dropped.
+    expect(useFleet.getState().workloads.namespace).toBe("monitoring");
   });
 });

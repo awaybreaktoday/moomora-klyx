@@ -17,33 +17,46 @@ type PodsConn interface {
 	ListPods(ctx context.Context, namespace string) ([]workloads.PodSummary, error)
 	PodDetail(ctx context.Context, namespace, name string) (fleet.PodDetail, error)
 	DeletePod(ctx context.Context, namespace, name string) error
+	WatchDirty(ctx context.Context, namespace string, kinds []string, onDirty func(), onLive func(bool)) (stop func(), err error)
 }
 
-// PodsService is bound to JS. Pure request/response: ListPods returns
-// classified pod rows; GetPodDetail returns the full drill-down.
+// PodsService is bound to JS. ListPods/GetPodDetail are request/response;
+// OpenLivePods/CloseLivePods drive a watch-backed live subscription that emits
+// livePods:<cluster>:<ns> on change.
 type PodsService struct {
 	lookup func(string) (PodsConn, bool)
+	em     Emitter
+	live   *liveRegistry
 }
 
-// NewPodsService creates a PodsService with the given cluster-lookup function.
-func NewPodsService(lookup func(string) (PodsConn, bool)) *PodsService {
-	return &PodsService{lookup: lookup}
+// NewPodsService creates a PodsService with the given cluster-lookup function
+// and event emitter (for the live-list subscription).
+func NewPodsService(lookup func(string) (PodsConn, bool), em Emitter) *PodsService {
+	return &PodsService{lookup: lookup, em: em, live: newLiveRegistry()}
 }
 
 // ListPods returns health-ranked pod rows for a cluster, scoped to namespace
 // ("" = all). Namespaces is the sorted distinct set, populated ONLY on the
 // all-namespaces load (dropdown source). Cluster miss returns non-nil empties.
 func (s *PodsService) ListPods(cluster, namespace string) PodsResultDTO {
-	out := PodsResultDTO{Namespaces: []string{}, Pods: []PodSummaryDTO{}}
 	conn, ok := s.lookup(cluster)
 	if !ok {
-		return out
+		return PodsResultDTO{Namespaces: []string{}, Pods: []PodSummaryDTO{}}
 	}
+	out, _ := computePods(conn, namespace)
+	return out
+}
+
+// computePods lists pods on conn and builds the PodsResultDTO with the same
+// namespace-set and mapping rules ListPods uses. ok=false means the list failed
+// (returns non-nil empties); the live runner uses ok to gate emit/liveness.
+func computePods(conn PodsConn, namespace string) (PodsResultDTO, bool) {
+	out := PodsResultDTO{Namespaces: []string{}, Pods: []PodSummaryDTO{}}
 	ctx, cancel := context.WithTimeout(context.Background(), podsTimeout)
 	defer cancel()
 	pods, err := conn.ListPods(ctx, namespace)
 	if err != nil {
-		return out
+		return out, false
 	}
 
 	nsSet := map[string]bool{}
@@ -57,8 +70,42 @@ func (s *PodsService) ListPods(cluster, namespace string) PodsResultDTO {
 		}
 		sort.Strings(out.Namespaces)
 	}
-	return out
+	return out, true
 }
+
+// OpenLivePods starts (or replaces) a watch-backed live subscription for the
+// cluster+namespace. It emits livePods:<cluster>:<ns> (PodsResultDTO) on each
+// debounced change and livePodsStatus:<cluster>:<ns> ({live:bool}) on liveness
+// edges. Cluster miss returns an error and starts nothing.
+func (s *PodsService) OpenLivePods(cluster, namespace string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	key := "pods:" + cluster + ":" + namespace
+	dataEvent := "livePods:" + cluster + ":" + namespace
+	liveEvent := "livePodsStatus:" + cluster + ":" + namespace
+
+	s.live.open(key,
+		func(onDirty func(), onLive func(bool)) (func(), error) {
+			ctx := context.Background()
+			return conn.WatchDirty(ctx, namespace, []string{"pods"}, onDirty, onLive)
+		},
+		func() (any, bool) { return computePods(conn, namespace) },
+		func(payload any) { s.em.Emit(dataEvent, payload) },
+		func(live bool) { s.em.Emit(liveEvent, liveStatusDTO{Live: live}) },
+	)
+	return ActionResultDTO{OK: true}
+}
+
+// CloseLivePods stops the live subscription for the cluster+namespace.
+// Idempotent.
+func (s *PodsService) CloseLivePods(cluster, namespace string) {
+	s.live.close("pods:" + cluster + ":" + namespace)
+}
+
+// CloseAll stops every live pod subscription. Called on app shutdown.
+func (s *PodsService) CloseAll() { s.live.closeAll() }
 
 // GetPodDetail returns the full pod detail. Cluster miss or error returns a
 // zero DTO with empty-but-non-nil collections (never panics on null).

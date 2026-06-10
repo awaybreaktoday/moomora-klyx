@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { useFleet, PodsResultDTO, PodDetailDTO } from "../store/fleet";
 import { PodsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
@@ -17,6 +18,35 @@ export async function listPods(cluster: string, namespace: string): Promise<void
       useFleet.setState((s) => ({ pods: { ...s.pods, loading: false } }));
     }
   }
+}
+
+// openLivePods subscribes to live pod updates for a cluster+namespace.
+// The backend fires an immediate emit so the view receives data without calling
+// listPods first. Returns a cleanup function to be called on unmount or ns change.
+export function openLivePods(cluster: string, namespace: string): () => void {
+  const dataEvent = "livePods:" + cluster + ":" + namespace;
+  const statusEvent = "livePodsStatus:" + cluster + ":" + namespace;
+
+  const offData = Events.On(dataEvent, (ev: { data: PodsResultDTO }) => {
+    const cur = useFleet.getState().pods;
+    if (cur.cluster !== cluster || cur.namespace !== namespace) return;
+    useFleet.getState().setPods(cluster, namespace, ev.data ?? { namespaces: [], pods: [] });
+  });
+
+  const offStatus = Events.On(statusEvent, (ev: { data: { live: boolean } }) => {
+    useFleet.getState().setPodsLive(cluster, namespace, ev.data?.live ?? false);
+  });
+
+  // Fire-and-forget: on error set live false so the indicator degrades honestly.
+  PodsService.OpenLivePods(cluster, namespace).catch(() => {
+    useFleet.getState().setPodsLive(cluster, namespace, false);
+  });
+
+  return () => {
+    if (typeof offData === "function") offData();
+    if (typeof offStatus === "function") offStatus();
+    PodsService.CloseLivePods(cluster, namespace).catch(() => undefined);
+  };
 }
 
 export async function deletePod(cluster: string, namespace: string, name: string): Promise<void> {

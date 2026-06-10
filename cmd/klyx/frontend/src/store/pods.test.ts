@@ -84,11 +84,13 @@ describe("pods slice", () => {
     expect(s.detailLoading).toBe(false);
   });
 
-  it("clearPods resets everything", () => {
+  it("clearPods resets everything including live", () => {
     useFleet.getState().setPods("c", "", allResult);
     useFleet.getState().selectPod({ namespace: "default", name: "api-abc" });
     useFleet.getState().togglePodsNeedsAttention();
     useFleet.getState().setPodsSearch("xyz");
+    // Manually set live to true so we can verify clear resets it.
+    useFleet.setState((s) => ({ pods: { ...s.pods, live: true } }));
     useFleet.getState().clearPods();
     const s = useFleet.getState().pods;
     expect(s.items).toHaveLength(0);
@@ -96,5 +98,26 @@ describe("pods slice", () => {
     expect(s.needsAttention).toBe(false);
     expect(s.search).toBe("");
     expect(s.cluster).toBeNull();
+    expect(s.live).toBe(false);
+  });
+
+  it("setPodsLive updates live when cluster+namespace match", () => {
+    useFleet.getState().setPods("c", "default", { namespaces: ["default"], pods: [] });
+    useFleet.getState().setPodsLive("c", "default", true);
+    expect(useFleet.getState().pods.live).toBe(true);
+    useFleet.getState().setPodsLive("c", "default", false);
+    expect(useFleet.getState().pods.live).toBe(false);
+  });
+
+  it("setPodsLive stale-guard: wrong cluster is a no-op", () => {
+    useFleet.getState().setPods("c", "", allResult);
+    useFleet.getState().setPodsLive("other", "", true);
+    expect(useFleet.getState().pods.live).toBe(false);
+  });
+
+  it("setPodsLive stale-guard: wrong namespace is a no-op", () => {
+    useFleet.getState().setPods("c", "default", { namespaces: ["default"], pods: [] });
+    useFleet.getState().setPodsLive("c", "monitoring", true);
+    expect(useFleet.getState().pods.live).toBe(false);
   });
 });

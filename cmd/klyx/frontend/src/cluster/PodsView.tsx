@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { IconTerminal2, IconExternalLink } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { PodDetailDTO, PodSummaryDTO, ContainerSummaryDTO } from "../store/fleet";
-import { listPods, openPodDetail, deletePod } from "../bridge/pods";
+import { listPods, openLivePods, openPodDetail, deletePod } from "../bridge/pods";
 import { openLogsWindow } from "../bridge/windows";
 import { rolloutRestart } from "../bridge/workloads";
 import { copyExecCommand, openExecTerminal } from "../bridge/exec";
@@ -42,13 +42,26 @@ export function PodsView({ cluster }: { cluster: string }) {
   const [logsTarget, setLogsTarget] = useState<{ namespace: string; name: string; containers: ContainerSummaryDTO[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<VirtualListHandle>(null);
+  // Holds the cleanup for the current live subscription so namespace changes
+  // can close the old sub before opening the new one.
+  const liveCleanupRef = useRef<(() => void) | null>(null);
 
+  // Live subscription effect — opens the all-namespaces sub on mount.
+  // Namespace changes are handled inline in onNamespace.
   useEffect(() => {
-    void listPods(cluster, "");
-    return () => { useFleet.getState().clearPods(); };
+    liveCleanupRef.current = openLivePods(cluster, "");
+    return () => {
+      if (liveCleanupRef.current) { liveCleanupRef.current(); liveCleanupRef.current = null; }
+      useFleet.getState().clearPods();
+    };
   }, [cluster]);
 
-  const onNamespace = (ns: string) => { void listPods(cluster, ns); };
+  const onNamespace = (ns: string) => {
+    // Close the current live sub, then open the new one for the selected namespace.
+    // The backend immediate emit means the view updates without a separate listPods call.
+    if (liveCleanupRef.current) { liveCleanupRef.current(); liveCleanupRef.current = null; }
+    liveCleanupRef.current = openLivePods(cluster, ns);
+  };
   const onRefresh = () => { void listPods(cluster, pods.namespace); };
 
   const filtered = pods.items.filter((p) => {
@@ -129,6 +142,7 @@ export function PodsView({ cluster }: { cluster: string }) {
               style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
             />
             <button onClick={onRefresh} style={btn}>refresh</button>
+            <LiveIndicator live={pods.live} />
           </div>
 
           {/* Table */}
@@ -785,5 +799,24 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
       background: on ? "var(--color-background-info, transparent)" : "transparent",
       color: on ? "var(--color-text-info)" : "var(--color-text-tertiary)",
     }}>{children}</button>
+  );
+}
+
+function LiveIndicator({ live }: { live: boolean }) {
+  if (live) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--color-text-success)" }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--color-text-success)", display: "inline-block", flexShrink: 0 }} />
+        live
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{ fontSize: 10, color: "var(--color-text-tertiary)", cursor: "default" }}
+      title="live updates unavailable - use refresh"
+    >
+      ○ manual
+    </span>
   );
 }
