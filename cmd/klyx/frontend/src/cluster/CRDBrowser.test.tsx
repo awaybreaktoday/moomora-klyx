@@ -20,7 +20,7 @@ const groups: CRDGroupDTO[] = [
 ];
 
 beforeEach(() => useFleet.setState({
-  crd: { cluster: "x", groups, loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
+  crd: { cluster: "x", groups, loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
 }));
 
 describe("CRDBrowser - CRD groups", () => {

@@ -6,6 +6,7 @@ import { getWorkloadMetrics } from "../bridge/workload-metrics";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
 import { useListKeys } from "../chrome/useListKeys";
+import { Chip } from "../chrome/Chip";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -328,14 +329,6 @@ function ScalePopover({ initial, onConfirm, onCancel }: { initial: number; onCon
   );
 }
 
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} style={{ fontSize: 10, padding: "3px 9px", borderRadius: 11, cursor: "pointer",
-      border: on ? "0.5px solid var(--color-text-info)" : "0.5px solid var(--color-border-tertiary)",
-      background: on ? "var(--color-background-info, transparent)" : "transparent",
-      color: on ? "var(--color-text-info)" : "var(--color-text-tertiary)" }}>{children}</button>
-  );
-}
 
 const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" };
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };

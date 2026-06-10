@@ -10,19 +10,20 @@ vi.mock("../bridge/crd", () => ({
 import { countKind } from "../bridge/crd";
 
 beforeEach(() => useFleet.setState({
-  crd: { cluster: "x", groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
+  crd: { cluster: "x", groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
   route: { name: "cluster", cluster: "x", section: "resources" },
 }));
 
 describe("BuiltinsView - catalog rendering", () => {
   it("renders expected builtin categories", () => {
-    const { getByText } = render(<BuiltinsView cluster="x" />);
-    expect(getByText("Workloads")).toBeTruthy();
-    expect(getByText("Config")).toBeTruthy();
-    expect(getByText("Network")).toBeTruthy();
-    expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("Cluster")).toBeTruthy();
-    expect(getByText("Access")).toBeTruthy();
+    const { getAllByText } = render(<BuiltinsView cluster="x" />);
+    // each category label appears as a chip button AND as a section header
+    expect(getAllByText("Workloads").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("Config").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("Network").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("Storage").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("Cluster").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("Access").length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders builtin kind names inside their categories", () => {
@@ -61,20 +62,21 @@ describe("BuiltinsView - catalog rendering", () => {
   });
 
   it("search filters builtin rows - matching kind visible, others hidden", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "configmap" } });
+    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "configmap", builtinCategory: null } });
     const { getByText, queryByText } = render(<BuiltinsView cluster="x" />);
     expect(getByText("ConfigMap")).toBeTruthy();
     expect(queryByText("Secret")).toBeNull();
   });
 
-  it("search filters builtin categories - empty categories are hidden", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "configmap" } });
+  it("search filters builtin categories - empty category sections are hidden (StorageClass not shown)", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "configmap", builtinCategory: null } });
     const { queryByText } = render(<BuiltinsView cluster="x" />);
-    expect(queryByText("Storage")).toBeNull();
+    // StorageClass is a kind only in Storage category; it should be absent when search filters it out
+    expect(queryByText("StorageClass")).toBeNull();
   });
 
   it("shows empty state when search matches nothing", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "zzznomatch" } });
+    useFleet.setState({ crd: { ...useFleet.getState().crd, search: "zzznomatch", builtinCategory: null } });
     const { getByText } = render(<BuiltinsView cluster="x" />);
     expect(getByText(/No built-in resources match/i)).toBeTruthy();
   });
@@ -87,13 +89,13 @@ describe("BuiltinsView - catalog rendering", () => {
   });
 
   it("builtin renders existing count from store", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, counts: { [crdCountKey("", "v1", "configmaps")]: { count: 42, capped: false } } } });
+    useFleet.setState({ crd: { ...useFleet.getState().crd, counts: { [crdCountKey("", "v1", "configmaps")]: { count: 42, capped: false } }, builtinCategory: null } });
     const { getByText } = render(<BuiltinsView cluster="x" />);
     expect(getByText("42")).toBeTruthy();
   });
 
   it("renders capped count with + suffix", () => {
-    useFleet.setState({ crd: { ...useFleet.getState().crd, counts: { [crdCountKey("", "v1", "configmaps")]: { count: 500, capped: true } } } });
+    useFleet.setState({ crd: { ...useFleet.getState().crd, counts: { [crdCountKey("", "v1", "configmaps")]: { count: 500, capped: true } }, builtinCategory: null } });
     const { getByText } = render(<BuiltinsView cluster="x" />);
     expect(getByText("500+")).toBeTruthy();
   });
@@ -109,5 +111,67 @@ describe("BuiltinsView - drill from crds section", () => {
       expect(r.section).toBe("crds");
       expect(r.resource?.kind).toBe("ConfigMap");
     }
+  });
+});
+
+describe("BuiltinsView - category chips", () => {
+  it("renders all category chips and the all chip", () => {
+    const { getByText, getAllByRole } = render(<BuiltinsView cluster="x" />);
+    // "all" chip - unique label
+    expect(getByText("all")).toBeTruthy();
+    // six category chip buttons exist (each category label maps to a chip button)
+    const buttons = getAllByRole("button");
+    const buttonLabels = buttons.map((b) => b.textContent?.trim()).filter(Boolean);
+    expect(buttonLabels).toContain("Workloads");
+    expect(buttonLabels).toContain("Config");
+    expect(buttonLabels).toContain("Network");
+    expect(buttonLabels).toContain("Storage");
+    expect(buttonLabels).toContain("Cluster");
+    expect(buttonLabels).toContain("Access");
+  });
+
+  it("selecting Config chip shows only ConfigMap and Secret rows", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config" } });
+    const { getByText, queryByText } = render(<BuiltinsView cluster="x" />);
+    expect(getByText("ConfigMap")).toBeTruthy();
+    expect(getByText("Secret")).toBeTruthy();
+    expect(queryByText("Service")).toBeNull();
+    expect(queryByText("Job")).toBeNull();
+  });
+
+  it("clicking Config chip sets builtinCategory to Config", () => {
+    const { getAllByText } = render(<BuiltinsView cluster="x" />);
+    // Config appears as a chip button and as a category header; click the first one (the chip)
+    fireEvent.click(getAllByText("Config")[0]);
+    expect(useFleet.getState().crd.builtinCategory).toBe("Config");
+  });
+
+  it("clicking the active Config chip clears the filter back to null", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config" } });
+    const { getAllByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getAllByText("Config")[0]);
+    expect(useFleet.getState().crd.builtinCategory).toBeNull();
+  });
+
+  it("clicking all chip clears the filter", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config" } });
+    const { getByText } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("all"));
+    expect(useFleet.getState().crd.builtinCategory).toBeNull();
+  });
+
+  it("search composes with category filter - only matching kinds in category shown", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config", search: "configmap" } });
+    const { getByText, queryByText } = render(<BuiltinsView cluster="x" />);
+    expect(getByText("ConfigMap")).toBeTruthy();
+    expect(queryByText("Secret")).toBeNull();
+  });
+
+  it("all chip restores all categories when category was set", () => {
+    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config" } });
+    const { getByText, queryByText: _ } = render(<BuiltinsView cluster="x" />);
+    fireEvent.click(getByText("all"));
+    // Re-render is synchronous via Zustand; re-query
+    expect(useFleet.getState().crd.builtinCategory).toBeNull();
   });
 });

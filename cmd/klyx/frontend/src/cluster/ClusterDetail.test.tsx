@@ -50,7 +50,7 @@ describe("ClusterDetail", () => {
     useFleet.setState({
       clusters: [dto({ name: "x" })],
       route: { name: "cluster", cluster: "x", section: "resources" },
-      crd: { cluster: "x", groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
+      crd: { cluster: "x", groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
     });
     const { getByText } = render(<ClusterDetail />);
     expect(getByText("Built-in resource catalog")).toBeTruthy();
@@ -60,7 +60,7 @@ describe("ClusterDetail", () => {
     useFleet.setState({
       clusters: [dto({ name: "x" })],
       route: { name: "cluster", cluster: "x", section: "crds" },
-      crd: { cluster: "x", groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
+      crd: { cluster: "x", groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
     });
     const { getByText } = render(<ClusterDetail />);
     expect(getByText(/No custom resources/i)).toBeTruthy();

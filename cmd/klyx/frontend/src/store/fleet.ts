@@ -170,6 +170,7 @@ export type CRDSlice = {
   counts: Record<string, CRDCountDTO>;
   groupBy: CRDGroupBy;
   search: string;
+  builtinCategory: string | null;
 };
 
 export const crdCountKey = (group: string, version: string, plural: string) => `${group}/${version}/${plural}`;
@@ -309,6 +310,7 @@ type FleetState = {
   setCRDCount: (key: string, dto: CRDCountDTO) => void;
   setCRDGroupBy: (g: CRDGroupBy) => void;
   setCRDSearch: (s: string) => void;
+  setBuiltinCategory: (c: string | null) => void;
   openGateway: (namespace: string, name: string) => void;
   closeGateway: () => void;
   network: NetworkSlice;
@@ -422,16 +424,17 @@ export const useFleet = create<FleetState>((set) => ({
   clearActionStatus: () => set({ actionStatus: null }),
   forwards: [],
   setForwards: (forwards) => set({ forwards }),
-  crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" },
+  crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
   setCRDs: (cluster, groups) => set((s) => ({ crd: { ...s.crd, cluster, groups, loading: false } })),
   setCRDLoading: (cluster) => set((s) => ({ crd: { ...s.crd, cluster, groups: [], loading: true, expanded: [], counts: {} } })),
-  clearCRDs: () => set({ crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "" } }),
+  clearCRDs: () => set({ crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null } }),
   toggleCRDGroup: (group) => set((s) => ({
     crd: { ...s.crd, expanded: s.crd.expanded.includes(group) ? s.crd.expanded.filter((g) => g !== group) : [...s.crd.expanded, group] },
   })),
   setCRDCount: (key, dto) => set((s) => ({ crd: { ...s.crd, counts: { ...s.crd.counts, [key]: dto } } })),
   setCRDGroupBy: (groupBy) => set((s) => ({ crd: { ...s.crd, groupBy } })),
   setCRDSearch: (search) => set((s) => ({ crd: { ...s.crd, search } })),
+  setBuiltinCategory: (builtinCategory) => set((s) => ({ crd: { ...s.crd, builtinCategory } })),
   openGateway: (namespace, name) =>
     set((s) =>
       s.route.name === "cluster"
