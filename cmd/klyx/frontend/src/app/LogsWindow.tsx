@@ -1,4 +1,5 @@
 import { LogsPane } from "../cluster/LogsPane";
+import { TopBar } from "../chrome/TopBar";
 
 // LogsWindow is the root rendered in a pop-out log window (URL flag logswin=1).
 // It boots NONE of the normal app: no fleet subscriptions, no sidebar, no
@@ -26,24 +27,14 @@ export function LogsWindow({ params }: { params?: URLSearchParams }) {
         color: "var(--color-text-primary)",
       }}
     >
-      {/* Titlebar: the window uses MacTitleBarHiddenInset, so this bar IS the
-          titlebar. It declares the Wails drag region (the window is otherwise
-          immovable) and pads left past the macOS traffic lights, mirroring the
-          main window's TopBar. No interactive children, so no no-drag opt-outs
-          are needed. */}
-      <div
-        style={{
-          "--wails-draggable": "drag",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          height: 40,
-          flexShrink: 0,
-          paddingLeft: 84,
-          paddingRight: 12,
-          borderBottom: "0.5px solid var(--color-border-tertiary)",
-        } as React.CSSProperties}
-      >
+      {/* The same TopBar as the main window: traffic lights get their own clean
+          draggable strip (theme toggle included; the forwards indicator renders
+          nothing here because the popout never installs that subscription). */}
+      <TopBar />
+
+      {/* Identity line below the bar - the popout's equivalent of the main
+          window's breadcrumb zone. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexShrink: 0, padding: "10px 12px 0" }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 500 }}>
           <span style={{ color: "var(--color-text-tertiary)" }}>{namespace}</span>/{name}
         </span>

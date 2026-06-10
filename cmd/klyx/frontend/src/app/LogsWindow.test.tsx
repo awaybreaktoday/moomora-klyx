@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { LogsWindow } from "./LogsWindow";
+import { ThemeProvider } from "../theme/ThemeProvider";
+
+// LogsWindow now hosts the shared TopBar (ThemeToggle needs the provider),
+// matching the production boot path where ThemeProvider wraps both branches.
+const renderWindow = (params: URLSearchParams) =>
+  render(<ThemeProvider><LogsWindow params={params} /></ThemeProvider>);
 
 // Capture event subscriptions so the LogsPane stream lifecycle resolves.
 const eventHandlers: Record<string, ((ev: { data: unknown }) => void)[]> = {};
@@ -42,7 +48,7 @@ describe("LogsWindow", () => {
   }
 
   it("renders header with ns/pod and cluster from params", () => {
-    const { getByTestId, getByText } = render(<LogsWindow params={seeded()} />);
+    const { getByTestId, getByText } = renderWindow(seeded());
     const win = getByTestId("logs-window");
     expect(win).toBeTruthy();
     // ns/pod present
@@ -53,7 +59,7 @@ describe("LogsWindow", () => {
   });
 
   it("opens the stream on the container param (static container, empty containers list)", async () => {
-    render(<LogsWindow params={seeded()} />);
+    renderWindow(seeded());
     await waitFor(() => expect(mockOpenLogStream).toHaveBeenCalledTimes(1));
     expect(mockOpenLogStream).toHaveBeenCalledWith(
       "prod-aks", "monitoring", "grafana-7d4", "grafana", false, 500,
@@ -61,7 +67,7 @@ describe("LogsWindow", () => {
   });
 
   it("does not render the expand button when hosted in window", async () => {
-    const { queryByRole } = render(<LogsWindow params={seeded()} />);
+    const { queryByRole } = renderWindow(seeded());
     await waitFor(() => expect(mockOpenLogStream).toHaveBeenCalled());
     expect(queryByRole("button", { name: /expand logs/i })).toBeNull();
   });
