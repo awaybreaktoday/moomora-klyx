@@ -205,6 +205,12 @@ DD3 (day-2 ops):
 DD4 (helm):
 - Helm section: 15 releases listed on nelli with status dots; history shows revisions; values pane renders (with sensitive-data hint); rollback button only on non-current revisions and demands confirm.
 
+Post-M9 refinements (owner-driven, 2026-06-10):
+- Resources = built-in catalog only; CRDs has its own section; category sub-items under Resources (expanded sidebar) + chip filter; lensed kinds (Deployments/Pods...) listed as "health lens" links.
+- Sidebar: grouped with dividers (health / delivery / infra / browse); GitOps renamed "Flux"; dead Observability entry removed.
+- Overview: attention tiles (workloads/pods/events/nodes/helm) each linking into its lens with the filter pre-set.
+- Logs: level tinting + dimmed prefixes; bottom dock (full width, drag-resize, persists across pod browsing); terminal icon on each pod row + 'l' key opens the dock; "open in window" pops a native OS window whose tail survives in-app navigation (close the window = stream closes, best effort).
+
 DD5 (palette + layout):
 - cmd+K opens the palette; typing fuzzy-filters clusters/sections/loaded pods/releases; enter navigates; esc closes; doesn't hijack typing in inputs.
 - Sidebar chevron expands to labeled mode and persists across restarts; section order is the triage order.
