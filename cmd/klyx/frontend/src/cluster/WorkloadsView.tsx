@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
-import { listWorkloads, rolloutRestart } from "../bridge/workloads";
+import { listWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
@@ -48,14 +48,17 @@ function riskLabel(resource: "cpu" | "mem", cell: ResourceCellDTO): string {
   return resource === "mem" ? `· OOM risk ${pct}%` : `· throttling risk ${pct}%`;
 }
 
-type WorkloadPending = { w: WorkloadDTO };
+type PendingRestart = { kind: "restart"; w: WorkloadDTO };
+type PendingScale = { kind: "scale"; w: WorkloadDTO; replicas: number };
+type PendingScaleInput = { kind: "scale-input"; w: WorkloadDTO };
+type Pending = PendingRestart | PendingScale | PendingScaleInput;
 
 export function WorkloadsView({ cluster }: { cluster: string }) {
   const wl = useFleet((s) => s.workloads);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
   const actionStatus = useFleet((s) => s.actionStatus);
   const clearActionStatus = useFleet((s) => s.clearActionStatus);
-  const [pending, setPending] = useState<WorkloadPending | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
 
   useEffect(() => {
     listWorkloads(cluster, "").then(() => getWorkloadMetrics(cluster, ""));
@@ -145,11 +148,32 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
                 )}
                 {expanded && (
                   <>
-                    <div style={{ padding: "6px 8px 4px 32px", background: "var(--color-background-secondary)" }}>
+                    <div style={{ padding: "6px 8px 4px 32px", background: "var(--color-background-secondary)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setPending({ w }); }}
+                        onClick={(e) => { e.stopPropagation(); setPending({ kind: "restart", w }); }}
                         style={btn}
                       >restart</button>
+                      {(w.kind === "Deployment" || w.kind === "StatefulSet") && (
+                        pending?.kind === "scale-input" && pending.w === w ? (
+                          <ScalePopover
+                            initial={w.desired}
+                            onConfirm={(n) => {
+                              if (isProtected) {
+                                setPending({ kind: "scale", w, replicas: n });
+                              } else {
+                                setPending(null);
+                                void scaleWorkload(cluster, w.kind, w.namespace, w.name, n);
+                              }
+                            }}
+                            onCancel={() => setPending(null)}
+                          />
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setPending({ kind: "scale-input", w }); }}
+                            style={btn}
+                          >scale</button>
+                        )
+                      )}
                     </div>
                     <PodTable pods={w.pods} />
                   </>
@@ -160,7 +184,7 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
         </div>
       )}
 
-      {pending && (
+      {pending?.kind === "restart" && (
         <ConfirmDialog
           title="restart"
           cluster={cluster}
@@ -172,6 +196,21 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
             const { w } = pending;
             setPending(null);
             void rolloutRestart(cluster, w.kind, w.namespace, w.name);
+          }}
+        />
+      )}
+      {pending?.kind === "scale" && (
+        <ConfirmDialog
+          title="scale"
+          cluster={cluster}
+          detail={`${pending.w.kind.toLowerCase()} ${pending.w.namespace}/${pending.w.name} → ${pending.replicas} replicas`}
+          protected={isProtected}
+          confirmLabel="Scale"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { w, replicas } = pending;
+            setPending(null);
+            void scaleWorkload(cluster, w.kind, w.namespace, w.name, replicas);
           }}
         />
       )}
@@ -194,6 +233,32 @@ function PodTable({ pods }: { pods: PodDTO[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function ScalePopover({ initial, onConfirm, onCancel }: { initial: number; onConfirm: (n: number) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(String(initial));
+  const n = parseInt(value, 10);
+  const valid = !Number.isNaN(n) && n >= 0 && n <= 10000;
+  return (
+    <span
+      onClick={(e) => e.stopPropagation()}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, padding: "2px 6px", background: "var(--color-background-primary)" }}
+    >
+      <input
+        aria-label="replica count"
+        type="number"
+        min={0}
+        max={10000}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && valid) onConfirm(n); else if (e.key === "Escape") onCancel(); }}
+        autoFocus
+        style={{ width: 52, fontSize: 11, padding: "2px 4px", fontFamily: "var(--font-mono)", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 3, color: "var(--color-text-primary)" }}
+      />
+      <button onClick={() => { if (valid) onConfirm(n); }} disabled={!valid} style={{ ...btn, padding: "2px 6px", opacity: valid ? 1 : 0.4, cursor: valid ? "pointer" : "not-allowed" }}>✓</button>
+      <button onClick={onCancel} style={{ ...btn, padding: "2px 6px" }}>✕</button>
+    </span>
   );
 }
 
