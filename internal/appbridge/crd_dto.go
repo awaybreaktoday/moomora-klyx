@@ -73,6 +73,8 @@ type InstanceDetailDTO struct {
 	SecretKeys []SecretKeyDTO `json:"secretKeys,omitempty"`
 	// ServiceBacking is non-nil only for v1 Services; omitted for everything else.
 	ServiceBacking *ServiceBackingDTO `json:"serviceBacking,omitempty"`
+	// HPAScaling is non-nil only for autoscaling HPAs; omitted for everything else.
+	HPAScaling *HPAScalingDTO `json:"hpaScaling,omitempty"`
 }
 
 // RevealResultDTO is returned by RevealSecretKey. On success Value is the
@@ -108,6 +110,28 @@ type ServiceBackingDTO struct {
 	NotReady  int               `json:"notReady"`
 	Addresses []EndpointAddrDTO `json:"addresses"`
 	Selector  map[string]string `json:"selector"`
+}
+
+// HPAMetricDTO is one spec.metrics[] entry with its matched current value.
+type HPAMetricDTO struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Target  string `json:"target"`
+	Current string `json:"current"` // "" when unknown
+}
+
+// HPAScalingDTO carries the scaling summary for an autoscaling
+// HorizontalPodAutoscaler. It is non-nil only on instance detail responses
+// for autoscaling HPAs. The omitempty tag omits it for all other kinds.
+type HPAScalingDTO struct {
+	MinReplicas     int32          `json:"minReplicas"`
+	MaxReplicas     int32          `json:"maxReplicas"`
+	CurrentReplicas int32          `json:"currentReplicas"`
+	DesiredReplicas int32          `json:"desiredReplicas"`
+	TargetKind      string         `json:"targetKind"`
+	TargetName      string         `json:"targetName"`
+	LastScaleUnix   int64          `json:"lastScaleUnix"` // 0 = never scaled
+	Metrics         []HPAMetricDTO `json:"metrics"`
 }
 
 // groupCRDs groups parsed CRDs by API group, attaches the curated category, and

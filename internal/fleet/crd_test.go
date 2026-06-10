@@ -418,6 +418,79 @@ func TestGetInstanceDetailNonServiceNoServiceBacking(t *testing.T) {
 	}
 }
 
+func TestGetInstanceDetailHPAScalingPresent(t *testing.T) {
+	hpaGVR := schema.GroupVersionResource{Group: "autoscaling", Version: "v2", Resource: "horizontalpodautoscalers"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{hpaGVR: "HorizontalPodAutoscalerList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "autoscaling/v2",
+		"kind":       "HorizontalPodAutoscaler",
+		"metadata":   map[string]interface{}{"name": "web-hpa", "namespace": "default", "uid": "uid-hpa1"},
+		"spec": map[string]interface{}{
+			"maxReplicas": int64(10),
+			"minReplicas": int64(2),
+			"scaleTargetRef": map[string]interface{}{
+				"kind": "Deployment",
+				"name": "web",
+			},
+			"metrics": []interface{}{
+				map[string]interface{}{
+					"type": "Resource",
+					"resource": map[string]interface{}{
+						"name": "cpu",
+						"target": map[string]interface{}{
+							"type":               "Utilization",
+							"averageUtilization": int64(70),
+						},
+					},
+				},
+			},
+		},
+		"status": map[string]interface{}{
+			"currentReplicas": int64(4),
+			"desiredReplicas": int64(4),
+		},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "autoscaling", "v2", "horizontalpodautoscalers", "default", "web-hpa")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.HPAScaling == nil {
+		t.Fatal("HPAScaling must be non-nil for an autoscaling HPA")
+	}
+	s := d.HPAScaling
+	if s.MaxReplicas != 10 {
+		t.Errorf("MaxReplicas: want 10, got %d", s.MaxReplicas)
+	}
+	if s.TargetKind != "Deployment" || s.TargetName != "web" {
+		t.Errorf("scaleTargetRef: kind=%q name=%q", s.TargetKind, s.TargetName)
+	}
+}
+
+func TestGetInstanceDetailNonHPANoHPAScaling(t *testing.T) {
+	wGVR := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
+	scheme := dynScheme()
+	listKinds := map[schema.GroupVersionResource]string{wGVR: "WidgetList"}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "example.com/v1",
+		"kind":       "Widget",
+		"metadata":   map[string]interface{}{"name": "w1", "namespace": "team-a", "uid": "uid-w3"},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, obj)
+	c := NewClusterConn("x", typedfake.NewSimpleClientset(), nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	d, err := c.GetInstanceDetail(context.Background(), "example.com", "v1", "widgets", "team-a", "w1")
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.HPAScaling != nil {
+		t.Fatalf("HPAScaling must be nil for non-HPA, got %+v", d.HPAScaling)
+	}
+}
+
 func partialMeta(group, version, kind, ns, name string) *metav1.PartialObjectMetadata {
 	return &metav1.PartialObjectMetadata{
 		TypeMeta:   metav1.TypeMeta{APIVersion: group + "/" + version, Kind: kind},

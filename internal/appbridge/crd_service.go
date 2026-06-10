@@ -119,12 +119,31 @@ func (s *CRDService) GetInstanceDetail(cluster, group, version, plural, namespac
 			Selector:  sel,
 		}
 	}
+	var hpaScaling *HPAScalingDTO
+	if d.HPAScaling != nil {
+		h := d.HPAScaling
+		mets := make([]HPAMetricDTO, 0, len(h.Metrics))
+		for _, m := range h.Metrics {
+			mets = append(mets, HPAMetricDTO{Name: m.Name, Type: m.Type, Target: m.Target, Current: m.Current})
+		}
+		hpaScaling = &HPAScalingDTO{
+			MinReplicas:     h.MinReplicas,
+			MaxReplicas:     h.MaxReplicas,
+			CurrentReplicas: h.CurrentReplicas,
+			DesiredReplicas: h.DesiredReplicas,
+			TargetKind:      h.TargetKind,
+			TargetName:      h.TargetName,
+			LastScaleUnix:   h.LastScaleUnix,
+			Metrics:         mets,
+		}
+	}
 	return InstanceDetailDTO{
 		Kind: d.Kind, Namespace: d.Namespace, Name: d.Name,
 		Created: rfc3339(d.Created), Labels: labels,
 		Conditions: conds, Events: events, YAML: d.YAML,
 		SecretKeys:     secretKeys,
 		ServiceBacking: serviceBacking,
+		HPAScaling:     hpaScaling,
 	}
 }
 

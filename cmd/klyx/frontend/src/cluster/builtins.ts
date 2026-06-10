@@ -17,6 +17,7 @@ export const BUILTIN_CATALOG: BuiltinCategory[] = [
       { kind: "gvr",  ref: { group: "batch", version: "v1", plural: "jobs",       kind: "Job",       scope: "Namespaced" } },
       { kind: "gvr",  ref: { group: "batch", version: "v1", plural: "cronjobs",   kind: "CronJob",   scope: "Namespaced" } },
       { kind: "gvr",  ref: { group: "apps",  version: "v1", plural: "replicasets", kind: "ReplicaSet", scope: "Namespaced" } },
+      { kind: "gvr",  ref: { group: "autoscaling", version: "v2", plural: "horizontalpodautoscalers", kind: "HorizontalPodAutoscaler", scope: "Namespaced" } },
     ],
   },
   {

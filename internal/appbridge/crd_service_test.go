@@ -253,6 +253,63 @@ func TestGetInstanceDetailNilServiceBackingOmitted(t *testing.T) {
 	}
 }
 
+func TestGetInstanceDetailHPAScalingProjected(t *testing.T) {
+	scaling := &crd.HPAScaling{
+		MinReplicas:     2,
+		MaxReplicas:     10,
+		CurrentReplicas: 4,
+		DesiredReplicas: 4,
+		TargetKind:      "Deployment",
+		TargetName:      "web",
+		LastScaleUnix:   1780308000,
+		Metrics: []crd.HPAMetric{
+			{Name: "cpu", Type: "Resource", Target: "70%", Current: "43%"},
+		},
+	}
+	conn := &fakeCRDConn{detail: crd.InstanceDetail{
+		Kind:       "HorizontalPodAutoscaler",
+		Namespace:  "default",
+		Name:       "web-hpa",
+		YAML:       "kind: HorizontalPodAutoscaler\n",
+		HPAScaling: scaling,
+	}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	d := svc.GetInstanceDetail("x", "autoscaling", "v2", "horizontalpodautoscalers", "default", "web-hpa")
+	if d.HPAScaling == nil {
+		t.Fatal("HPAScaling must be projected to DTO")
+	}
+	h := d.HPAScaling
+	if h.MinReplicas != 2 || h.MaxReplicas != 10 {
+		t.Errorf("replicas: min=%d max=%d", h.MinReplicas, h.MaxReplicas)
+	}
+	if h.TargetKind != "Deployment" || h.TargetName != "web" {
+		t.Errorf("target: kind=%q name=%q", h.TargetKind, h.TargetName)
+	}
+	if h.LastScaleUnix != 1780308000 {
+		t.Errorf("LastScaleUnix: want 1780308000, got %d", h.LastScaleUnix)
+	}
+	if len(h.Metrics) != 1 || h.Metrics[0].Name != "cpu" || h.Metrics[0].Target != "70%" || h.Metrics[0].Current != "43%" {
+		t.Errorf("metrics: %+v", h.Metrics)
+	}
+}
+
+func TestGetInstanceDetailNilHPAScalingOmitted(t *testing.T) {
+	conn := &fakeCRDConn{detail: crd.InstanceDetail{
+		Kind:       "Deployment",
+		Namespace:  "default",
+		Name:       "web",
+		YAML:       "kind: Deployment\n",
+		HPAScaling: nil,
+	}}
+	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })
+
+	d := svc.GetInstanceDetail("x", "apps", "v1", "deployments", "default", "web")
+	if d.HPAScaling != nil {
+		t.Fatalf("HPAScaling must be nil for non-HPA detail, got %+v", d.HPAScaling)
+	}
+}
+
 func TestCountKind(t *testing.T) {
 	conn := &fakeCRDConn{counts: map[string]int{"ciliumendpoints": crd.Cap, "certificates": 4}}
 	svc := NewCRDService(func(string) (CRDConn, bool) { return conn, true })

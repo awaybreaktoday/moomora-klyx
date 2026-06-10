@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO, ServiceBackingDTO } from "../store/fleet";
+import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO, ServiceBackingDTO, HPAScalingDTO } from "../store/fleet";
 import { getInstanceDetail, revealSecretKey, copyText } from "../bridge/crd";
 import { openPodDetail } from "../bridge/pods";
 import { ForwardPopover } from "./ForwardPopover";
@@ -135,6 +135,132 @@ function SecretDataSection({
           </div>
         );
       })}
+    </Section>
+  );
+}
+
+// ageFromUnix formats a Unix timestamp as a human-readable age string.
+// Returns "never" when unix is 0.
+function ageFromUnix(unix: number): string {
+  if (unix === 0) return "never";
+  const ms = Date.now() - unix * 1000;
+  if (Number.isNaN(ms) || ms < 0) return "";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
+// parsePercent parses an integer percentage string like "70%" → 70.
+// Returns null if the string doesn't end in "%".
+function parsePercent(s: string): number | null {
+  if (!s.endsWith("%")) return null;
+  const n = parseInt(s.slice(0, -1), 10);
+  return Number.isNaN(n) ? null : n;
+}
+
+// HPAScalingSection renders the scaling summary for an autoscaling HPA:
+// replica line, scale-target line (with workloads lens link for
+// Deployment/StatefulSet), per-metric table, and last-scale age.
+function HPAScalingSection({ cluster, scaling }: { cluster: string; scaling: HPAScalingDTO }) {
+  const atMax = scaling.currentReplicas >= scaling.maxReplicas && scaling.desiredReplicas >= scaling.maxReplicas;
+  const replicaMismatch = scaling.desiredReplicas !== scaling.currentReplicas;
+
+  const replicaColor = atMax
+    ? "var(--color-text-warning)"
+    : replicaMismatch
+    ? "var(--color-text-info)"
+    : "var(--color-text-primary)";
+
+  // Cross-link: for Deployment and StatefulSet, switch to the workloads lens
+  // and expand the matching row using the live store state. The workload key
+  // is "<kind>/<namespace>/<name>" — we don't know the namespace from the HPA
+  // alone so we toggle by name lookup; `toggleWorkloadExpand` handles the key.
+  // Since we don't have the HPA's namespace here (the section is standalone),
+  // we navigate to workloads and let the user pick; the link is still more
+  // useful than plain text.
+  const isWorkloadTarget = scaling.targetKind === "Deployment" || scaling.targetKind === "StatefulSet";
+
+  const handleTargetLink = () => {
+    useFleet.getState().setSection("workloads");
+  };
+
+  const targetEl = isWorkloadTarget ? (
+    <button
+      onClick={handleTargetLink}
+      data-testid="hpa-target-link"
+      style={{
+        background: "none", border: "none", padding: 0, cursor: "pointer",
+        color: "var(--color-text-info)", fontFamily: "var(--font-mono)", fontSize: 11,
+      }}
+    >
+      {scaling.targetKind}/{scaling.targetName}
+    </button>
+  ) : (
+    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)" }}>
+      {scaling.targetKind}/{scaling.targetName}
+    </span>
+  );
+
+  return (
+    <Section title="Scaling">
+      {/* Replica line: current → desired (min N / max N) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+        <span style={{ color: replicaColor, fontWeight: 500, fontSize: 12 }}>
+          {scaling.currentReplicas} → {scaling.desiredReplicas}
+        </span>
+        <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>
+          (min {scaling.minReplicas} / max {scaling.maxReplicas})
+        </span>
+        {atMax && (
+          <span style={{
+            fontSize: 10, background: "var(--color-text-warning)", color: "var(--color-background-primary)",
+            padding: "1px 5px", borderRadius: 3, fontWeight: 600,
+          }}>
+            at max
+          </span>
+        )}
+      </div>
+
+      {/* Scale target line */}
+      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 6 }}>
+        scales {targetEl}
+      </div>
+
+      {/* Metrics table */}
+      {scaling.metrics.length > 0 && (
+        <div style={{ marginBottom: 6 }}>
+          {scaling.metrics.map((m, i) => {
+            // Colour current value warning when both current and target are "%"
+            // and current exceeds target (the classic saturation signal).
+            // We only parse percentages — other quantity formats (e.g. "100m") are
+            // left neutral because their ordering semantics differ by metric type.
+            const targetPct = parsePercent(m.target);
+            const currentPct = parsePercent(m.current);
+            const currentOverLimit = targetPct !== null && currentPct !== null && currentPct > targetPct;
+            const currentColor = currentOverLimit
+              ? "var(--color-text-warning)"
+              : "var(--color-text-primary)";
+            const currentDisplay = m.current === ""
+              ? <span style={{ color: "var(--color-text-tertiary)" }}>—</span>
+              : <span style={{ color: currentColor }}>{m.current}</span>;
+
+            return (
+              <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 11, padding: "2px 0" }}>
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-primary)", minWidth: 60 }}>{m.name}</span>
+                <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>{m.type}</span>
+                <span style={{ color: "var(--color-text-secondary)" }}>{currentDisplay} / {m.target}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Last scale */}
+      <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+        last scaled: {ageFromUnix(scaling.lastScaleUnix)}
+      </div>
     </Section>
   );
 }
@@ -282,6 +408,11 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
                 <span key={k} style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 10, padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)" }}>{k}={v}</span>
               ))}
             </div>
+          )}
+
+          {/* HPA scaling section — rendered ABOVE yaml, ONLY for autoscaling HPAs */}
+          {d.hpaScaling != null && (
+            <HPAScalingSection cluster={cluster} scaling={d.hpaScaling} />
           )}
 
           {/* Service backing section — rendered ABOVE yaml, ONLY for v1 Services */}

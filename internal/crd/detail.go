@@ -49,6 +49,9 @@ type InstanceDetail struct {
 	SecretKeys []SecretKeyInfo
 	// ServiceBacking is populated only for v1 Services. Nil for all other kinds.
 	ServiceBacking *ServiceBacking
+	// HPAScaling is populated only for autoscaling HorizontalPodAutoscalers
+	// (any version; v2 is what we list). Nil for all other kinds.
+	HPAScaling *HPAScaling
 }
 
 // ParseConditions maps status.conditions[] (a near-universal convention). Empty
