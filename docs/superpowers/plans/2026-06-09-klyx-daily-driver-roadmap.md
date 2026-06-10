@@ -171,6 +171,46 @@ Branch: `feat/dd5-palette-layout`
       + a11y pass on rows (the standing backlog item).
 - [x] T5 Gate + final whole-app review + merge. Update CLAUDE.md milestone status.
 
+### G1 — Live lists (watch-driven, owner gap-closer 2026-06-10)
+Branch: `feat/g1-live-lists`
+Design: watches as DIRTY SIGNALS + existing list functions as source of truth
+(no blind polling - principle; no informer-cache reassembly - risk). Watch event
+→ mark dirty; 1s debounce ticker → re-run existing ListPods/ListWorkloads →
+emit full ResultDTO via Emitter; frontend subscribes and calls the EXISTING
+setPods/setWorkloads (wholesale replace; selection/expand survive via keys).
+- [ ] T1 Go: live watch registry (per service, key cluster+ns, single-subscriber
+      replace, watch reconnect w/ backoff, live:false status on failure,
+      CloseAll on shutdown) for PodsService.OpenLive/CloseLive +
+      WorkloadsService likewise. ADVERSARIAL REVIEW (lifecycle).
+- [ ] T2 FE: subscribe on mount/ns-change, close on unmount; "live" dot in the
+      controls row (green live / muted "refresh manually" when watch down);
+      refresh button forces immediate. Events view same pattern (watch events).
+- [ ] T3 Gate + verify on nelli (pod delete shows recreation WITHOUT refresh),
+      merge.
+
+### G2 — Multi-pod log aggregation
+Branch: `feat/g2-aggregate-logs`
+- [ ] T1 Go: LogsService.OpenWorkloadLogStream(cluster, ns, kind, name,
+      container, tailLines) - resolve the workload's pods (selector join),
+      open per-pod sub-streams internally (cap 10 pods, log a marker line when
+      capped), fan-in lines prefixed `<pod-short> › ` into ONE batched stream
+      id; Close tears down all sub-streams; aggregate = one registry entry.
+- [ ] T2 FE: "logs" affordance on WorkloadsView rows (icon + dock, like pods);
+      LogsPane workload mode (container picker from workload containers, pod
+      prefix rendered dim via logline parse extension). Popout works too.
+- [ ] T3 Gate + verify (2-replica deploy on nelli, both pods' lines interleave
+      with prefixes), merge.
+
+### G3 — Metric sparklines
+Branch: `feat/g3-sparklines`
+- [ ] T1 Go: metrics client RangeVector (query_range, 30m window, 60s step,
+      NaN/Inf skipped, gaps stay gaps); fleet WorkloadSparklines(ns, kind,
+      name) → cpu+mem series; ClusterSparklines → cluster cpu/mem.
+- [ ] T2 FE: tiny inline SVG Sparkline component (pure, no deps, honest gaps);
+      wire into workload expand D-block (cpu+mem 30m) and Overview resources
+      rows. Capability-gated with metrics as ever.
+- [ ] T3 Gate + verify on nelli (sparkline matches prom graph shape), merge.
+
 ## Deferred / explicitly out
 - Live YAML editing & resource creation (Git owns desired state — unchanged).
 - Helm install/uninstall, chart browsing.
