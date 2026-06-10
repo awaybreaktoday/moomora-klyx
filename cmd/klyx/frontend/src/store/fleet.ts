@@ -67,7 +67,7 @@ export type GitOpsSlice = {
   detail: ResourceDetailDTO | null;
 };
 
-export type ClusterSection = "overview" | "gitops" | "network" | "resources" | "observability" | "workloads" | "pods" | "events" | "nodes";
+export type ClusterSection = "overview" | "gitops" | "helm" | "network" | "resources" | "observability" | "workloads" | "pods" | "events" | "nodes";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -146,6 +146,7 @@ export type Route =
 export const SECTION_LABELS: Record<ClusterSection, string> = {
   overview: "Overview",
   gitops: "GitOps",
+  helm: "Helm",
   network: "Network",
   resources: "Resources",
   observability: "Observability",
@@ -226,6 +227,43 @@ export type NodesSlice = {
   detail: NodeDetailDTO | null;
   detailLoading: boolean;
 };
+
+// ---- Helm types ---------------------------------------------------------------
+
+export type HelmReleaseDTO = {
+  name: string;
+  namespace: string;
+  chart: string;
+  appVersion: string;
+  status: string;
+  revision: number;
+  updatedUnix: number;
+};
+
+export type HelmHistoryEntryDTO = {
+  revision: number;
+  status: string;
+  chart: string;
+  appVersion: string;
+  description: string;
+  updatedUnix: number;
+};
+
+export type HelmRef = { namespace: string; name: string };
+
+export type HelmSlice = {
+  cluster: string | null;
+  releases: HelmReleaseDTO[];
+  available: boolean;
+  message: string;
+  loading: boolean;
+  selected: HelmRef | null;
+  history: HelmHistoryEntryDTO[];
+  values: string;
+  detailLoading: boolean;
+};
+
+// ---- / Helm types -------------------------------------------------------------
 
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
@@ -315,6 +353,12 @@ type FleetState = {
   selectNode: (ref: NodeRef | null) => void;
   setNodeDetail: (ref: NodeRef, detail: NodeDetailDTO) => void;
   clearNodes: () => void;
+  helm: HelmSlice;
+  setHelmLoading: (cluster: string) => void;
+  setHelm: (cluster: string, available: boolean, message: string, releases: HelmReleaseDTO[]) => void;
+  selectHelmRelease: (ref: HelmRef | null) => void;
+  setHelmDetail: (ref: HelmRef, history: HelmHistoryEntryDTO[], values: string) => void;
+  clearHelm: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -490,4 +534,14 @@ export const useFleet = create<FleetState>((set) => ({
     return { nodes: { ...s.nodes, detail, detailLoading: false } };
   }),
   clearNodes: () => set({ nodes: { cluster: null, items: [], loading: false, selected: null, detail: null, detailLoading: false } }),
+  helm: { cluster: null, releases: [], available: true, message: "", loading: false, selected: null, history: [], values: "", detailLoading: false },
+  setHelmLoading: (cluster) => set((s) => ({ helm: { ...s.helm, cluster, loading: true } })),
+  setHelm: (cluster, available, message, releases) => set((s) => ({ helm: { ...s.helm, cluster, available, message, releases, loading: false } })),
+  selectHelmRelease: (ref) => set((s) => ({ helm: { ...s.helm, selected: ref, history: [], values: "", detailLoading: ref !== null } })),
+  setHelmDetail: (ref, history, values) => set((s) => {
+    const sel = s.helm.selected;
+    if (!sel || sel.namespace !== ref.namespace || sel.name !== ref.name) return {};
+    return { helm: { ...s.helm, history, values, detailLoading: false } };
+  }),
+  clearHelm: () => set({ helm: { cluster: null, releases: [], available: true, message: "", loading: false, selected: null, history: [], values: "", detailLoading: false } }),
 }));

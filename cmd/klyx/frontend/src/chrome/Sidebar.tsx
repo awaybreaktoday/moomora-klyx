@@ -1,6 +1,6 @@
 import {
   IconLayoutGrid, IconLayoutDashboard, IconStack2, IconGitBranch,
-  IconRoute, IconChartLine, IconTerminal2, IconSettings, IconBox, IconCircleDot, IconAlertTriangle, IconServer,
+  IconRoute, IconChartLine, IconTerminal2, IconSettings, IconBox, IconCircleDot, IconAlertTriangle, IconServer, IconAnchor,
 } from "@tabler/icons-react";
 import { useFleet, ClusterSection, SECTION_LABELS } from "../store/fleet";
 
@@ -8,6 +8,7 @@ const SECTION_ICONS: { section: ClusterSection; Icon: typeof IconLayoutDashboard
   { section: "overview", Icon: IconLayoutDashboard },
   { section: "resources", Icon: IconStack2 },
   { section: "gitops", Icon: IconGitBranch },
+  { section: "helm", Icon: IconAnchor },
   { section: "network", Icon: IconRoute },
   { section: "workloads", Icon: IconBox },
   { section: "pods", Icon: IconCircleDot },

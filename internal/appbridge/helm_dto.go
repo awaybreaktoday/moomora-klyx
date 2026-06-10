@@ -1,0 +1,43 @@
+package appbridge
+
+// HelmReleaseDTO is the JSON projection of a single Helm release.
+type HelmReleaseDTO struct {
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	Chart       string `json:"chart"`
+	AppVersion  string `json:"appVersion"`
+	Status      string `json:"status"`
+	Revision    int    `json:"revision"`
+	UpdatedUnix int64  `json:"updatedUnix"`
+}
+
+// HelmReleasesResultDTO is the response from ListHelmReleases.
+// Available is false when the helm binary is not on PATH or the cluster has no
+// kubeContext; in that case Message explains why and Releases is nil.
+type HelmReleasesResultDTO struct {
+	Available bool             `json:"available"`
+	Message   string           `json:"message,omitempty"`
+	Releases  []HelmReleaseDTO `json:"releases"`
+}
+
+// HelmHistoryEntryDTO is one row in a release's rollout history.
+type HelmHistoryEntryDTO struct {
+	Revision    int    `json:"revision"`
+	Status      string `json:"status"`
+	Chart       string `json:"chart"`
+	AppVersion  string `json:"appVersion"`
+	Description string `json:"description"`
+	UpdatedUnix int64  `json:"updatedUnix"`
+}
+
+// HelmHistoryResultDTO is the response from GetHelmHistory.
+type HelmHistoryResultDTO struct {
+	History []HelmHistoryEntryDTO `json:"history"`
+	Error   string                `json:"error,omitempty"`
+}
+
+// HelmValuesResultDTO is the response from GetHelmValues.
+type HelmValuesResultDTO struct {
+	Values string `json:"values"` // YAML string; "" means no user values set
+	Error  string `json:"error,omitempty"`
+}
