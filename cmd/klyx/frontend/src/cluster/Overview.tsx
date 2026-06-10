@@ -2,19 +2,26 @@ import { useEffect } from "react";
 import { useFleet } from "../store/fleet";
 import type { ClusterDTO, MetricsDTO } from "../store/fleet";
 import { getClusterMetrics } from "../bridge/metrics";
+import { fetchOverviewSummary } from "../bridge/overview";
 import { stateColor } from "./stateColors";
 
 export function Overview({ c }: { c: ClusterDTO }) {
   const tags = [c.env, c.region, c.provider, c.group].filter(Boolean);
   const metrics = useFleet((s) => s.metrics);
   const loading = useFleet((s) => s.metrics.loading);
+  const summary = useFleet((s) => s.overviewSummary);
 
   useEffect(() => {
     getClusterMetrics(c.name, false);
-    return () => useFleet.getState().clearMetrics();
+    fetchOverviewSummary(c.name);
+    return () => {
+      useFleet.getState().clearMetrics();
+      useFleet.getState().clearOverviewSummary();
+    };
   }, [c.name]);
 
   const m: MetricsDTO | null = metrics.cluster === c.name ? metrics.dto : null;
+  const s = summary.cluster === c.name ? summary : null;
 
   return (
     <div style={{ padding: "16px 20px", maxWidth: 720 }}>
@@ -28,6 +35,8 @@ export function Overview({ c }: { c: ClusterDTO }) {
         {tags.map((t) => <Badge key={t}>{t}</Badge>)}
       </div>
 
+      <AttentionStrip summary={s} loading={summary.loading && summary.cluster === c.name} />
+
       <Section title="Health">
         <Row label="state"><span style={{ color: stateColor[c.state] }}>{c.state}</span></Row>
         {c.reason && <Row label="reason">{c.reason}</Row>}
@@ -37,6 +46,7 @@ export function Overview({ c }: { c: ClusterDTO }) {
       <Section title="Capacity">
         <Row label="nodes">{c.nodesReady}/{c.nodesTotal}</Row>
         <Row label="pods">{c.pods}</Row>
+        {s && s.namespaces !== null && <Row label="namespaces">{s.namespaces}</Row>}
       </Section>
 
       <Section title="Resources">
@@ -52,6 +62,120 @@ export function Overview({ c }: { c: ClusterDTO }) {
     </div>
   );
 }
+
+// ---- Attention strip -----------------------------------------------------------
+
+type SummaryForStrip = {
+  unhealthyWorkloads: number | null;
+  podsNotReady: number | null;
+  warningEvents: number | null;
+  nodeProblems: number | null;
+  helmAvailable: boolean;
+  failedReleases: number | null;
+};
+
+function AttentionStrip({ summary, loading }: { summary: SummaryForStrip | null; loading: boolean }) {
+  const nav = useFleet.getState();
+
+  function goWorkloads() {
+    nav.setSection("workloads");
+    nav.setWorkloadsNeedsAttention(true);
+  }
+  function goPods() {
+    nav.setSection("pods");
+    nav.setPodsNeedsAttention(true);
+  }
+  function goEvents() {
+    nav.setSection("events");
+    nav.setWarningsOnly(true);
+  }
+  function goNodes() {
+    nav.setSection("nodes");
+  }
+  function goHelm() {
+    nav.setSection("helm");
+  }
+
+  const tiles: Array<{
+    key: string;
+    count: number | null;
+    label: string;
+    variant: "danger" | "warning";
+    onClick: () => void;
+    hidden?: boolean;
+  }> = [
+    { key: "workloads", count: summary?.unhealthyWorkloads ?? null, label: "unhealthy workloads", variant: "danger", onClick: goWorkloads },
+    { key: "pods", count: summary?.podsNotReady ?? null, label: "pods not ready", variant: "danger", onClick: goPods },
+    { key: "events", count: summary?.warningEvents ?? null, label: "warning events", variant: "warning", onClick: goEvents },
+    { key: "nodes", count: summary?.nodeProblems ?? null, label: "node problems", variant: "danger", onClick: goNodes },
+    { key: "helm", count: summary?.failedReleases ?? null, label: "failed releases", variant: "danger", onClick: goHelm, hidden: !(summary?.helmAvailable ?? false) },
+  ];
+
+  const visibleTiles = tiles.filter((t) => !t.hidden);
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+      {visibleTiles.map((tile) => (
+        <StatTile
+          key={tile.key}
+          count={loading ? null : tile.count}
+          label={tile.label}
+          variant={tile.variant}
+          onClick={tile.onClick}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatTile({
+  count,
+  label,
+  variant,
+  onClick,
+}: {
+  count: number | null;
+  label: string;
+  variant: "danger" | "warning";
+  onClick: () => void;
+}) {
+  // count === null means still loading OR fetch failed for this tile.
+  const isLoading = count === null;
+  const isAlert = !isLoading && count > 0;
+  const countColor = isLoading
+    ? "var(--color-text-tertiary)"
+    : isAlert
+      ? variant === "danger"
+        ? "var(--color-text-danger)"
+        : "var(--color-text-warning)"
+      : "var(--color-text-tertiary)";
+
+  return (
+    <button
+      onClick={onClick}
+      title={count === null ? "failed to load" : undefined}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 2,
+        padding: "6px 10px",
+        border: "0.5px solid var(--color-border-tertiary)",
+        borderRadius: 6,
+        background: "var(--color-background-primary)",
+        cursor: "pointer",
+        minWidth: 80,
+      }}
+    >
+      <span style={{ fontSize: 18, fontWeight: 500, color: countColor, lineHeight: 1 }}>
+        {count === null ? "—" : String(count)}
+      </span>
+      <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", lineHeight: 1 }}>{label}</span>
+    </button>
+  );
+}
+
+// ---- shared sub-components (unchanged) ----------------------------------------
 
 function Badge({ children }: { children: React.ReactNode }) {
   return <span style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 11, padding: "1px 6px", borderRadius: 4 }}>{children}</span>;

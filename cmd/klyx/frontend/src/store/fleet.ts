@@ -272,6 +272,19 @@ export type HelmSlice = {
 
 export type ActionStatus = { kind: "success" | "error"; message: string };
 
+// Overview triage summary — fetched once per cluster open, never mutated by the view slices.
+export type OverviewSummary = {
+  cluster: string | null;
+  loading: boolean;
+  unhealthyWorkloads: number | null;  // null = fetch failed for that tile
+  podsNotReady: number | null;
+  warningEvents: number | null;
+  nodeProblems: number | null;
+  failedReleases: number | null;       // null also means helm unavailable (tile hidden)
+  helmAvailable: boolean;
+  namespaces: number | null;
+};
+
 type FleetState = {
   clusters: ClusterDTO[];
   setClusters: (c: ClusterDTO[]) => void;
@@ -335,6 +348,7 @@ type FleetState = {
   setWorkloads: (cluster: string, namespace: string, result: WorkloadsResultDTO) => void;
   toggleWorkloadKind: (k: WorkloadKind) => void;
   toggleNeedsAttention: () => void;
+  setWorkloadsNeedsAttention: (v: boolean) => void;
   toggleWorkloadExpand: (key: string) => void;
   setWorkloadUsage: (cluster: string, namespace: string, result: WorkloadMetricsResultDTO) => void;
   toggleNearLimitSort: () => void;
@@ -343,6 +357,7 @@ type FleetState = {
   setPodsLoading: (cluster: string, namespace: string) => void;
   setPods: (cluster: string, namespace: string, result: PodsResultDTO) => void;
   togglePodsNeedsAttention: () => void;
+  setPodsNeedsAttention: (v: boolean) => void;
   setPodsSearch: (s: string) => void;
   selectPod: (ref: PodRef | null) => void;
   setPodDetail: (ref: PodRef, detail: PodDetailDTO) => void;
@@ -351,6 +366,7 @@ type FleetState = {
   setEventsLoading: (cluster: string, namespace: string) => void;
   setEvents: (cluster: string, namespace: string, result: EventsResultDTO) => void;
   toggleWarningsOnly: () => void;
+  setWarningsOnly: (v: boolean) => void;
   setEventsSearch: (s: string) => void;
   clearEvents: () => void;
   nodes: NodesSlice;
@@ -365,6 +381,10 @@ type FleetState = {
   selectHelmRelease: (ref: HelmRef | null) => void;
   setHelmDetail: (ref: HelmRef, history: HelmHistoryEntryDTO[], values: string) => void;
   clearHelm: () => void;
+  overviewSummary: OverviewSummary;
+  setOverviewSummaryLoading: (cluster: string) => void;
+  setOverviewSummary: (s: OverviewSummary) => void;
+  clearOverviewSummary: () => void;
 };
 
 export const useFleet = create<FleetState>((set) => ({
@@ -490,6 +510,7 @@ export const useFleet = create<FleetState>((set) => ({
   }),
   toggleWorkloadKind: (k) => set((s) => ({ workloads: { ...s.workloads, kindFilter: { ...s.workloads.kindFilter, [k]: !s.workloads.kindFilter[k] } } })),
   toggleNeedsAttention: () => set((s) => ({ workloads: { ...s.workloads, needsAttention: !s.workloads.needsAttention } })),
+  setWorkloadsNeedsAttention: (v) => set((s) => ({ workloads: { ...s.workloads, needsAttention: v } })),
   toggleWorkloadExpand: (key) => set((s) => ({ workloads: { ...s.workloads, expanded: s.workloads.expanded.includes(key) ? s.workloads.expanded.filter((k) => k !== key) : [...s.workloads.expanded, key] } })),
   setWorkloadUsage: (cluster, namespace, result) =>
     set((s) => {
@@ -519,6 +540,7 @@ export const useFleet = create<FleetState>((set) => ({
     return { pods: { ...s.pods, cluster, namespace, items: result.pods ?? [], namespaces, loading: false } };
   }),
   togglePodsNeedsAttention: () => set((s) => ({ pods: { ...s.pods, needsAttention: !s.pods.needsAttention } })),
+  setPodsNeedsAttention: (v) => set((s) => ({ pods: { ...s.pods, needsAttention: v } })),
   setPodsSearch: (search) => set((s) => ({ pods: { ...s.pods, search } })),
   selectPod: (ref) => set((s) => ({ pods: { ...s.pods, selected: ref, detail: null, detailLoading: ref !== null } })),
   setPodDetail: (ref, detail) => set((s) => {
@@ -536,6 +558,7 @@ export const useFleet = create<FleetState>((set) => ({
     return { events: { ...s.events, cluster, namespace, items: result.events ?? [], namespaces, loading: false } };
   }),
   toggleWarningsOnly: () => set((s) => ({ events: { ...s.events, warningsOnly: !s.events.warningsOnly } })),
+  setWarningsOnly: (v) => set((s) => ({ events: { ...s.events, warningsOnly: v } })),
   setEventsSearch: (search) => set((s) => ({ events: { ...s.events, search } })),
   clearEvents: () => set({ events: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, warningsOnly: false, search: "" } }),
   nodes: { cluster: null, items: [], loading: false, selected: null, detail: null, detailLoading: false },
@@ -558,4 +581,8 @@ export const useFleet = create<FleetState>((set) => ({
     return { helm: { ...s.helm, history, values, detailLoading: false } };
   }),
   clearHelm: () => set({ helm: { cluster: null, releases: [], available: true, message: "", loading: false, selected: null, history: [], values: "", detailLoading: false } }),
+  overviewSummary: { cluster: null, loading: false, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null },
+  setOverviewSummaryLoading: (cluster) => set({ overviewSummary: { cluster, loading: true, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null } }),
+  setOverviewSummary: (s) => set({ overviewSummary: s }),
+  clearOverviewSummary: () => set({ overviewSummary: { cluster: null, loading: false, unhealthyWorkloads: null, podsNotReady: null, warningEvents: null, nodeProblems: null, failedReleases: null, helmAvailable: false, namespaces: null } }),
 }));

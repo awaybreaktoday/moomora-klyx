@@ -1,0 +1,244 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { useFleet } from "../store/fleet";
+
+// Mock all five services before importing the bridge module.
+vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
+  WorkloadsService: {
+    ListWorkloads: vi.fn(),
+  },
+  PodsService: {
+    ListPods: vi.fn(),
+  },
+  EventsService: {
+    ListEvents: vi.fn(),
+  },
+  NodesService: {
+    ListNodes: vi.fn(),
+  },
+  HelmService: {
+    ListHelmReleases: vi.fn(),
+  },
+}));
+
+import {
+  WorkloadsService,
+  PodsService,
+  EventsService,
+  NodesService,
+  HelmService,
+} from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
+
+import { summarise, fetchOverviewSummary, SummariseInput } from "./overview";
+
+// ---- summarise() pure-function tests -------------------------------------------
+
+describe("summarise", () => {
+  it("counts only unhealthy+degraded workloads (not restarts)", () => {
+    const input: SummariseInput = {
+      workloads: [
+        { rank: "unhealthy" },
+        { rank: "degraded" },
+        { rank: "restarts" }, // info only — should NOT count
+        { rank: "healthy" },
+      ],
+      pods: [],
+      events: [],
+      nodes: [],
+      helmAvailable: false,
+      releases: [],
+    };
+    const out = summarise(input, new Set());
+    expect(out.unhealthyWorkloads).toBe(2);
+  });
+
+  it("counts only unhealthy+degraded pods (not restarts)", () => {
+    const input: SummariseInput = {
+      workloads: [],
+      pods: [
+        { rank: "unhealthy" },
+        { rank: "restarts" },
+        { rank: "healthy" },
+      ],
+      events: [],
+      nodes: [],
+      helmAvailable: false,
+      releases: [],
+    };
+    const out = summarise(input, new Set());
+    expect(out.podsNotReady).toBe(1);
+  });
+
+  it("counts Warning events only (not Normal)", () => {
+    const input: SummariseInput = {
+      workloads: [],
+      pods: [],
+      events: [
+        { type: "Warning" },
+        { type: "Warning" },
+        { type: "Normal" },
+      ],
+      nodes: [],
+      helmAvailable: false,
+      releases: [],
+    };
+    const out = summarise(input, new Set());
+    expect(out.warningEvents).toBe(2);
+  });
+
+  it("counts node problems: !ready, problems.length>0, unschedulable", () => {
+    const input: SummariseInput = {
+      workloads: [],
+      pods: [],
+      events: [],
+      nodes: [
+        { ready: true,  problems: [],      unschedulable: false }, // healthy
+        { ready: false, problems: [],      unschedulable: false }, // not ready
+        { ready: true,  problems: ["DiskPressure"], unschedulable: false }, // has problems
+        { ready: true,  problems: [],      unschedulable: true  }, // unschedulable
+      ],
+      helmAvailable: false,
+      releases: [],
+    };
+    const out = summarise(input, new Set());
+    expect(out.nodeProblems).toBe(3);
+  });
+
+  it("returns null failedReleases when helmAvailable=false", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: false,
+      releases: [{ status: "failed" }],
+    };
+    const out = summarise(input, new Set());
+    expect(out.failedReleases).toBeNull();
+  });
+
+  it("counts failed releases when helmAvailable=true", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: true,
+      releases: [{ status: "failed" }, { status: "deployed" }, { status: "failed" }],
+    };
+    const out = summarise(input, new Set());
+    expect(out.failedReleases).toBe(2);
+  });
+
+  it("returns zero counts for empty datasets", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: true, releases: [],
+    };
+    const out = summarise(input, new Set());
+    expect(out.unhealthyWorkloads).toBe(0);
+    expect(out.podsNotReady).toBe(0);
+    expect(out.warningEvents).toBe(0);
+    expect(out.nodeProblems).toBe(0);
+    expect(out.failedReleases).toBe(0);
+  });
+
+  it("derives namespace count from the provided set", () => {
+    const input: SummariseInput = {
+      workloads: [], pods: [], events: [], nodes: [],
+      helmAvailable: false, releases: [],
+    };
+    const ns = new Set(["kube-system", "monitoring", "default"]);
+    const out = summarise(input, ns);
+    expect(out.namespaces).toBe(3);
+  });
+});
+
+// ---- fetchOverviewSummary stale-guard test ------------------------------------
+
+describe("fetchOverviewSummary stale guard", () => {
+  beforeEach(() => {
+    useFleet.getState().clearOverviewSummary();
+    vi.clearAllMocks();
+  });
+
+  it("drops result when cluster changes mid-flight", async () => {
+    // First call in-flight for cluster-a.
+    let resolveWorkloads!: (v: unknown) => void;
+    (WorkloadsService.ListWorkloads as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((res) => { resolveWorkloads = res; }),
+    );
+    (PodsService.ListPods as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], pods: [] });
+    (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], events: [] });
+    (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [] });
+    (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({ available: false, releases: [] });
+
+    // Start fetch for cluster-a — don't await yet.
+    const fetchA = fetchOverviewSummary("cluster-a");
+
+    // Simulate cluster change: fetch for cluster-b resets the slice.
+    useFleet.getState().setOverviewSummaryLoading("cluster-b");
+
+    // Now resolve the in-flight workloads call for cluster-a.
+    resolveWorkloads({ workloads: [] });
+    await fetchA;
+
+    // The store should still be in loading state for cluster-b, not have cluster-a data.
+    const state = useFleet.getState().overviewSummary;
+    expect(state.cluster).toBe("cluster-b");
+    expect(state.loading).toBe(true); // cluster-b fetch never completed
+  });
+});
+
+// ---- fetchOverviewSummary happy-path test ------------------------------------
+
+describe("fetchOverviewSummary integration", () => {
+  beforeEach(() => {
+    useFleet.getState().clearOverviewSummary();
+    vi.clearAllMocks();
+  });
+
+  it("writes expected counts into the store on success", async () => {
+    (WorkloadsService.ListWorkloads as ReturnType<typeof vi.fn>).mockResolvedValue({
+      fluxPresent: false, namespaces: [], workloads: [
+        { rank: "unhealthy" }, { rank: "degraded" }, { rank: "healthy" },
+      ],
+    });
+    (PodsService.ListPods as ReturnType<typeof vi.fn>).mockResolvedValue({
+      namespaces: ["default", "kube-system"],
+      pods: [
+        { rank: "unhealthy", namespace: "default" },
+        { rank: "healthy",   namespace: "kube-system" },
+      ],
+    });
+    (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({
+      namespaces: [], events: [{ type: "Warning" }, { type: "Normal" }],
+    });
+    (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: [{ ready: false, problems: [], unschedulable: false }],
+    });
+    (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({
+      available: true, releases: [{ status: "failed" }, { status: "deployed" }],
+    });
+
+    await fetchOverviewSummary("homelab");
+
+    const s = useFleet.getState().overviewSummary;
+    expect(s.cluster).toBe("homelab");
+    expect(s.loading).toBe(false);
+    expect(s.unhealthyWorkloads).toBe(2);
+    expect(s.podsNotReady).toBe(1);
+    expect(s.warningEvents).toBe(1);
+    expect(s.nodeProblems).toBe(1);
+    expect(s.helmAvailable).toBe(true);
+    expect(s.failedReleases).toBe(1);
+    expect(s.namespaces).toBe(2); // "default" + "kube-system"
+  });
+
+  it("shows null counts for tiles that fail to load", async () => {
+    (WorkloadsService.ListWorkloads as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("rpc error"));
+    (PodsService.ListPods as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], pods: [] });
+    (EventsService.ListEvents as ReturnType<typeof vi.fn>).mockResolvedValue({ namespaces: [], events: [] });
+    (NodesService.ListNodes as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [] });
+    (HelmService.ListHelmReleases as ReturnType<typeof vi.fn>).mockResolvedValue({ available: false, releases: [] });
+
+    await fetchOverviewSummary("homelab");
+
+    const s = useFleet.getState().overviewSummary;
+    expect(s.unhealthyWorkloads).toBeNull(); // workloads fetch rejected
+    expect(s.podsNotReady).toBe(0);         // pods fetch succeeded
+  });
+});
