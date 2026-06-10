@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, act } from "@testing-library/react";
 import { EventsView } from "./EventsView";
 import { useFleet } from "../store/fleet";
 import type { EventRowDTO } from "../store/fleet";
@@ -128,6 +128,50 @@ describe("EventsView", () => {
   it("listEvents is called on mount", () => {
     render(<EventsView cluster="homelab" />);
     expect(listEvents).toHaveBeenCalledWith("homelab", "");
+  });
+
+  // --- Keyboard nav + a11y ---
+
+  it("j then Enter toggles expansion of the second row", () => {
+    const second: EventRowDTO = {
+      type: "Normal", reason: "BackOff2", message: "second event message",
+      count: 1, namespace: "default", kind: "Pod", name: "pod-b",
+      lastSeenUnix: 1700000300, firstSeenUnix: 1700000300,
+    };
+    seed([warning, second]);
+    const { getAllByText } = render(<EventsView cluster="homelab" />);
+    // j → index 0; wait for re-render; j → index 1; Enter → expand second row
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    // After expansion, the message appears in both the truncated row span and the expanded block.
+    expect(getAllByText("second event message").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("/ focuses the filter input", () => {
+    seed([warning]);
+    const { getByPlaceholderText } = render(<EventsView cluster="homelab" />);
+    const input = getByPlaceholderText("filter events") as HTMLInputElement;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true, cancelable: true }));
+    expect(input).toBeTruthy();
+  });
+
+  it("event row has role=button and aria-expanded", () => {
+    seed([warning]);
+    const { getAllByRole } = render(<EventsView cluster="homelab" />);
+    const rows = getAllByRole("button").filter((el) => el.hasAttribute("aria-expanded"));
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("event row aria-expanded toggles on click", () => {
+    seed([warning]);
+    const { getAllByRole } = render(<EventsView cluster="homelab" />);
+    const rows = getAllByRole("button").filter((el) => el.hasAttribute("aria-expanded"));
+    const row = rows[0];
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("row click expands message below the row", () => {

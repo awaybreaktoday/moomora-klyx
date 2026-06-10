@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 
 /**
  * VirtualList — lightweight windowed list renderer.
@@ -11,9 +11,18 @@ import { useRef, useState, useCallback } from "react";
  * rows). Variable-height content (e.g. EventsView expanded message rows)
  * breaks the math. Callers are expected to detect that case and bail to plain
  * rendering — see EventsView for the documented pattern.
+ *
+ * scrollToIndex: exposed via forwardRef/useImperativeHandle. Plain path (<100
+ * items) scrolls the matching row into view via a data attribute lookup on the
+ * container element. Virtual path sets scrollTop = idx * rowHeight directly on
+ * the container.
  */
 
 const PLAIN_THRESHOLD = 100;
+
+export type VirtualListHandle = {
+  scrollToIndex: (idx: number) => void;
+};
 
 interface VirtualListProps<T> {
   items: T[];
@@ -24,13 +33,12 @@ interface VirtualListProps<T> {
   style?: React.CSSProperties;
 }
 
-export function VirtualList<T>({
-  items,
-  rowHeight,
-  overscan = 8,
-  render,
-  style,
-}: VirtualListProps<T>) {
+// forwardRef with generics requires the inner function to be typed carefully.
+// We export a wrapper that re-asserts the generic so call sites remain typed.
+function VirtualListInner<T>(
+  { items, rowHeight, overscan = 8, render, style }: VirtualListProps<T>,
+  ref: React.Ref<VirtualListHandle>,
+) {
   const [scrollTop, setScrollTop] = useState(0);
   const rafRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,11 +52,32 @@ export function VirtualList<T>({
     });
   }, []);
 
+  useImperativeHandle(ref, () => ({
+    scrollToIndex(idx: number) {
+      const el = containerRef.current;
+      if (!el) return;
+      if (items.length < PLAIN_THRESHOLD) {
+        // Plain path: rows are direct children; find by data-vl-idx attribute.
+        const row = el.querySelector(`[data-vl-idx="${idx}"]`);
+        if (row && typeof (row as HTMLElement).scrollIntoView === "function") {
+          (row as HTMLElement).scrollIntoView({ block: "nearest" });
+        }
+      } else {
+        // Virtual path: compute offset and set scrollTop imperatively.
+        el.scrollTop = idx * rowHeight;
+      }
+    },
+  }), [items.length, rowHeight]);
+
   // Plain render for short lists — no virtualization overhead.
   if (items.length < PLAIN_THRESHOLD) {
     return (
-      <div style={style}>
-        {items.map((item, i) => render(item, i))}
+      <div ref={containerRef} style={style}>
+        {items.map((item, i) => (
+          <div key={i} data-vl-idx={i} style={{ display: "contents" }}>
+            {render(item, i)}
+          </div>
+        ))}
       </div>
     );
   }
@@ -81,3 +110,8 @@ export function VirtualList<T>({
     </div>
   );
 }
+
+// Cast to preserve generic typing across the forwardRef boundary.
+export const VirtualList = forwardRef(VirtualListInner) as <T>(
+  props: VirtualListProps<T> & { ref?: React.Ref<VirtualListHandle> },
+) => React.ReactElement;

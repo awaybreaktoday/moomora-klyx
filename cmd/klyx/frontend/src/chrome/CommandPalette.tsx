@@ -10,6 +10,14 @@ import { fuzzyMatch } from "./fuzzy";
 // On open it reads buildCommands(useFleet.getState()) fresh — no stale index —
 // indexing only what's already loaded (footer: "showing loaded data").
 
+// Module-level flag so useListKeys (and any other consumer) can read palette open
+// state without prop-drilling or store overhead. Written by the component on
+// open/close via setPaletteOpen; read via getPaletteOpen.
+let _paletteOpen = false;
+export const getPaletteOpen = () => _paletteOpen;
+/** Exported for tests only — do not call from application code. */
+export const _setPaletteOpenForTest = (v: boolean) => { _paletteOpen = v; };
+
 type Ranked = { cmd: Command; positions: number[] };
 
 const LIMIT = 50;
@@ -71,12 +79,14 @@ export function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => {
+    _paletteOpen = false;
     setOpen(false);
     setQuery("");
     setSel(0);
   }, []);
 
   const openPalette = useCallback(() => {
+    _paletteOpen = true;
     setCommands(buildCommands(useFleet.getState())); // fresh index, no stale data
     setQuery("");
     setSel(0);

@@ -8,7 +8,9 @@ import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 import { ForwardPopover } from "./ForwardPopover";
 import { VirtualList } from "../chrome/VirtualList";
+import type { VirtualListHandle } from "../chrome/VirtualList";
 import { useResizablePanel } from "../chrome/useResizablePanel";
+import { useListKeys } from "../chrome/useListKeys";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -33,6 +35,10 @@ export function PodsView({ cluster }: { cluster: string }) {
   const pods = useFleet((s) => s.pods);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
 
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<VirtualListHandle>(null);
+
   useEffect(() => {
     void listPods(cluster, "");
     return () => { useFleet.getState().clearPods(); };
@@ -50,6 +56,44 @@ export function PodsView({ cluster }: { cluster: string }) {
     return true;
   });
 
+  // Clamp selectedIdx when list changes.
+  const clampedIdx = filtered.length === 0 ? -1 : selectedIdx >= filtered.length ? filtered.length - 1 : selectedIdx;
+  const effectiveIdx = clampedIdx;
+
+  const handleSelect = useCallback((idx: number) => {
+    setSelectedIdx(idx);
+    listRef.current?.scrollToIndex(idx);
+  }, []);
+
+  const handleActivate = useCallback((idx: number) => {
+    const p = filtered[idx];
+    if (p) void openPodDetail(cluster, p.namespace, p.name);
+  }, [filtered, cluster]);
+
+  const handleEscape = useCallback(() => {
+    if (pods.selected) {
+      useFleet.getState().selectPod(null);
+    }
+  }, [pods.selected]);
+
+  useListKeys({
+    count: filtered.length,
+    selected: effectiveIdx,
+    onSelect: handleSelect,
+    onActivate: handleActivate,
+    onEscape: handleEscape,
+    searchRef,
+  });
+
+  // Reset selection when filter changes.
+  useEffect(() => {
+    setSelectedIdx((prev) => {
+      if (filtered.length === 0) return -1;
+      return prev >= filtered.length ? filtered.length - 1 : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pods.search, pods.needsAttention, pods.namespace]);
+
   return (
     <div style={{ padding: "16px 20px", display: "flex", gap: 0, height: "100%", boxSizing: "border-box", position: "relative" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -66,6 +110,7 @@ export function PodsView({ cluster }: { cluster: string }) {
           </select>
           <Chip on={pods.needsAttention} onClick={() => useFleet.getState().togglePodsNeedsAttention()}>needs attention</Chip>
           <input
+            ref={searchRef}
             value={pods.search}
             onChange={(e) => useFleet.getState().setPodsSearch(e.target.value)}
             placeholder="filter pods"
@@ -91,22 +136,41 @@ export function PodsView({ cluster }: { cluster: string }) {
             </div>
             {/* Rows — VirtualList for >=100 items, plain render for smaller lists */}
             <VirtualList
+              ref={listRef}
               items={filtered}
               rowHeight={32}
               style={{ flex: 1, minHeight: 0 }}
-              render={(p) => {
+              render={(p, i) => {
+                const isKbSelected = i === effectiveIdx;
                 const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
                 const nonInitContainers = p.containers.filter((c) => !c.init);
                 const readyCount = nonInitContainers.filter((c) => c.ready).length;
                 return (
                   <div
                     key={`${p.namespace}/${p.name}`}
-                    onClick={() => void openPodDetail(cluster, p.namespace, p.name)}
+                    role="button"
+                    tabIndex={0}
+                    aria-selected={isKbSelected}
+                    onClick={() => {
+                      setSelectedIdx(i);
+                      void openPodDetail(cluster, p.namespace, p.name);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedIdx(i);
+                        void openPodDetail(cluster, p.namespace, p.name);
+                      }
+                    }}
                     style={{
                       display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
                       padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
                       cursor: "pointer",
-                      background: isSelected ? "var(--color-background-secondary)" : undefined,
+                      background: isKbSelected
+                        ? "var(--color-background-secondary)"
+                        : isSelected ? "var(--color-background-secondary)" : undefined,
+                      boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+                      outline: "none",
                     }}
                   >
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
@@ -174,7 +238,10 @@ function PodDetailPanel({
   const [pending, setPending] = useState<PodPendingAction | null>(null);
   const { width, handleProps } = useResizablePanel();
 
-  // Close on Escape
+  // Close on Escape — the panel's own handler takes priority; useListKeys in
+  // the parent also calls onEscape which calls selectPod(null) but only when
+  // the panel is open, so there is no double-handling: both paths end up doing
+  // the same selectPod(null) call which is idempotent.
   const handleKey = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") { if (pending) setPending(null); else onClose(); }
   }, [onClose, pending]);
@@ -201,7 +268,7 @@ function PodDetailPanel({
         <span style={{ fontWeight: 500, ...ellipsis, flex: 1 }} title={`${namespace}/${name}`}>
           <span style={{ color: "var(--color-text-tertiary)" }}>{namespace}</span>/{name}
         </span>
-        <button onClick={onClose} style={{ ...btn, padding: "2px 8px", fontSize: 12 }}>✕</button>
+        <button onClick={onClose} style={{ ...btn, padding: "2px 8px", fontSize: 12 }} aria-label="close pod detail panel">✕</button>
       </div>
 
       {/* Tabs */}

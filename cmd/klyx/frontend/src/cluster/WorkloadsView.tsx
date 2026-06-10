@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
 import { listWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
+import { useListKeys } from "../chrome/useListKeys";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -57,6 +58,8 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
   const wl = useFleet((s) => s.workloads);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     listWorkloads(cluster, "").then(() => getWorkloadMetrics(cluster, ""));
@@ -77,6 +80,52 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
   const filtered = wl.items.filter((w) => wl.kindFilter[w.kind as WorkloadKind] && (!wl.needsAttention || w.rank !== "healthy"));
   const rows = showMetrics && wl.nearLimitSort ? nearLimitSort(filtered) : filtered;
 
+  // Clamp selection when list changes.
+  const effectiveIdx = rows.length === 0 ? -1 : selectedIdx >= rows.length ? rows.length - 1 : selectedIdx;
+
+  const handleSelect = useCallback((idx: number) => {
+    setSelectedIdx(idx);
+    // WorkloadsView renders a plain list (no VirtualList), so no scrollToIndex needed —
+    // the selected row uses scrollIntoView via data-wl-row attribute.
+    const el = document.querySelector(`[data-wl-row="${idx}"]`);
+    if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
+      (el as HTMLElement).scrollIntoView({ block: "nearest" });
+    }
+  }, []);
+
+  const handleActivate = useCallback((idx: number) => {
+    const w = rows[idx];
+    if (w) useFleet.getState().toggleWorkloadExpand(keyOf(w));
+  }, [rows]);
+
+  const handleEscape = useCallback(() => {
+    // Collapse selected row if expanded, else no-op.
+    if (effectiveIdx >= 0) {
+      const w = rows[effectiveIdx];
+      if (w && wl.expanded.includes(keyOf(w))) {
+        useFleet.getState().toggleWorkloadExpand(keyOf(w));
+      }
+    }
+  }, [effectiveIdx, rows, wl.expanded]);
+
+  useListKeys({
+    count: rows.length,
+    selected: effectiveIdx,
+    onSelect: handleSelect,
+    onActivate: handleActivate,
+    onEscape: handleEscape,
+    searchRef,
+  });
+
+  // Reset selection on filter change.
+  useEffect(() => {
+    setSelectedIdx((prev) => {
+      if (rows.length === 0) return -1;
+      return prev >= rows.length ? rows.length - 1 : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wl.needsAttention, wl.kindFilter, wl.namespace, wl.nearLimitSort]);
+
   return (
     <div style={{ padding: "16px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
@@ -92,6 +141,13 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
         {showMetrics && (
           <Chip on={wl.nearLimitSort} onClick={() => useFleet.getState().toggleNearLimitSort()}>near limit</Chip>
         )}
+        {/* Search input — hidden visually but focusable via "/" key */}
+        <input
+          ref={searchRef}
+          aria-label="filter workloads"
+          placeholder="filter workloads"
+          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
+        />
         <button onClick={onRefresh} style={btn}>refresh</button>
       </div>
 
@@ -107,12 +163,37 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
             {showMetrics && <span>mem</span>}
             <span>gitops</span>
           </div>
-          {rows.map((w) => {
+          {rows.map((w, i) => {
             const expanded = wl.expanded.includes(keyOf(w));
+            const isKbSelected = i === effectiveIdx;
             return (
               <div key={keyOf(w)}>
-                <div onClick={() => useFleet.getState().toggleWorkloadExpand(keyOf(w))}
-                  style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center", padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)", cursor: "pointer" }}>
+                <div
+                  data-wl-row={i}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={expanded}
+                  aria-selected={isKbSelected}
+                  onClick={() => {
+                    setSelectedIdx(i);
+                    useFleet.getState().toggleWorkloadExpand(keyOf(w));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedIdx(i);
+                      useFleet.getState().toggleWorkloadExpand(keyOf(w));
+                    }
+                  }}
+                  style={{
+                    display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+                    padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                    cursor: "pointer",
+                    background: isKbSelected ? "var(--color-background-secondary)" : undefined,
+                    boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+                    outline: "none",
+                  }}
+                >
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[w.rank] }} />
                   <span style={{ color: "var(--color-text-tertiary)" }}>{kindShort[w.kind as WorkloadKind]}</span>
                   <span><span style={{ color: "var(--color-text-tertiary)" }}>{w.namespace}</span> / <span style={{ fontWeight: 500 }}>{w.name}</span></span>
