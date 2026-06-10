@@ -14,6 +14,7 @@ import { getPaletteOpen } from "./CommandPalette";
  *   Enter          → onActivate(selected)
  *   Escape         → onEscape()
  *   /              → preventDefault + focus searchRef
+ *   <extraKeys>    → caller-supplied single-character handlers (same guards apply)
  *
  * Guards (all suppress the key):
  *   - event.target is INPUT, TEXTAREA, or contentEditable
@@ -34,6 +35,12 @@ export interface UseListKeysOptions {
   onEscape?: () => void;
   /** Ref to the search/filter input to focus on "/" */
   searchRef?: React.RefObject<HTMLInputElement | null>;
+  /**
+   * Extra single-key bindings. Each handler receives the currently selected
+   * index. The same guards (editable target, palette open, modifiers) apply.
+   * Only fires when selected >= 0 and selected < count.
+   */
+  extraKeys?: Record<string, (selected: number) => void>;
 }
 
 function inEditable(t: EventTarget | null): boolean {
@@ -55,6 +62,7 @@ export function useListKeys({
   onActivate,
   onEscape,
   searchRef,
+  extraKeys,
 }: UseListKeysOptions): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -84,10 +92,15 @@ export function useListKeys({
           e.preventDefault();
           searchRef.current.focus();
         }
+      } else if (extraKeys && e.key in extraKeys) {
+        if (selected >= 0 && selected < count) {
+          e.preventDefault();
+          extraKeys[e.key](selected);
+        }
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [count, selected, onSelect, onActivate, onEscape, searchRef]);
+  }, [count, selected, onSelect, onActivate, onEscape, searchRef, extraKeys]);
 }

@@ -189,4 +189,52 @@ describe("useListKeys", () => {
     keydown("j");
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  // --- extraKeys ---
+
+  it("extraKeys handler fires for registered key with selected index", () => {
+    const onL = vi.fn() as (idx: number) => void;
+    renderHook(() => useListKeys({ count: 3, selected: 1, onSelect, onActivate, extraKeys: { l: onL } }));
+    keydown("l");
+    expect(onL).toHaveBeenCalledWith(1);
+  });
+
+  it("extraKeys handler does not fire when selected is -1", () => {
+    const onL = vi.fn() as (idx: number) => void;
+    renderHook(() => useListKeys({ count: 3, selected: -1, onSelect, onActivate, extraKeys: { l: onL } }));
+    keydown("l");
+    expect(onL).not.toHaveBeenCalled();
+  });
+
+  it("extraKeys handler does not fire when selected >= count", () => {
+    const onL = vi.fn() as (idx: number) => void;
+    renderHook(() => useListKeys({ count: 2, selected: 5, onSelect, onActivate, extraKeys: { l: onL } }));
+    keydown("l");
+    expect(onL).not.toHaveBeenCalled();
+  });
+
+  it("extraKeys handler is guarded by palette open", () => {
+    _setPaletteOpenForTest(true);
+    const onL = vi.fn() as (idx: number) => void;
+    renderHook(() => useListKeys({ count: 3, selected: 1, onSelect, onActivate, extraKeys: { l: onL } }));
+    keydown("l");
+    expect(onL).not.toHaveBeenCalled();
+  });
+
+  it("extraKeys handler is guarded by modifier keys", () => {
+    const onL = vi.fn() as (idx: number) => void;
+    renderHook(() => useListKeys({ count: 3, selected: 1, onSelect, onActivate, extraKeys: { l: onL } }));
+    keydown("l", { metaKey: true });
+    expect(onL).not.toHaveBeenCalled();
+  });
+
+  it("extraKeys handler is guarded by editable target", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    const onL = vi.fn() as (idx: number) => void;
+    renderHook(() => useListKeys({ count: 3, selected: 1, onSelect, onActivate, extraKeys: { l: onL } }));
+    keydown("l", { target: input });
+    expect(onL).not.toHaveBeenCalled();
+    document.body.removeChild(input);
+  });
 });

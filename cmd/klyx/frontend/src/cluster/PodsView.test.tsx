@@ -440,6 +440,51 @@ describe("PodsView", () => {
     expect(rows[0].getAttribute("aria-selected")).toBe("false");
   });
 
+  // --- Row logs affordance ---
+
+  it("each row has a logs icon button rendered", () => {
+    seed([broken, healthy]);
+    const { getAllByRole } = render(<PodsView cluster="homelab" />);
+    const logsBtns = getAllByRole("button").filter((el) =>
+      el.getAttribute("aria-label")?.startsWith("logs for ")
+    );
+    expect(logsBtns.length).toBe(2);
+  });
+
+  it("row logs button opens dock with that pod without opening detail panel", () => {
+    seed([broken, healthy]);
+    const { getAllByRole, getByTestId } = render(<PodsView cluster="homelab" />);
+    const logsBtn = getAllByRole("button").find((el) =>
+      el.getAttribute("aria-label") === "logs for default/api-crash"
+    );
+    expect(logsBtn).toBeTruthy();
+    fireEvent.click(logsBtn!);
+    // Dock opened with the correct pod
+    const dock = getByTestId("logs-dock");
+    const dockText = dock.textContent ?? "";
+    expect(dockText).toContain("api-crash");
+    expect(dockText).toContain("default");
+    // Detail panel NOT opened — selected state stays null
+    expect(useFleet.getState().pods.selected).toBeNull();
+    // openPodDetail bridge was NOT called
+    expect(openPodDetail).not.toHaveBeenCalled();
+  });
+
+  it("keyboard 'l' on second row opens dock for that pod", () => {
+    const second: PodSummaryDTO = { ...broken, namespace: "default", name: "pod-second" };
+    seed([broken, second]);
+    const { getByTestId } = render(<PodsView cluster="homelab" />);
+    // j → select index 0; j → select index 1 (second)
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    // l → open logs for selected (index 1 = pod-second)
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "l", bubbles: true, cancelable: true })); });
+    const dock = getByTestId("logs-dock");
+    const dockText = dock.textContent ?? "";
+    expect(dockText).toContain("pod-second");
+    expect(dockText).toContain("default");
+  });
+
   it("StatefulSet owner calls rolloutRestart directly without name transformation", () => {
     const stsPod: PodSummaryDTO = {
       ...healthy, namespace: "db", name: "postgres-0",
