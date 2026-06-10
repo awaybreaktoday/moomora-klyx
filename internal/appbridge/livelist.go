@@ -146,7 +146,12 @@ func (r *liveRegistry) open(
 		// no watch there is nothing to drive re-lists.
 		emitLive(false)
 		if payload, ok := compute(); ok {
-			emit(payload)
+			// Guard: if this sub was replaced while compute ran, drop the stale emit.
+			select {
+			case <-sub.cancel:
+			default:
+				emit(payload)
+			}
 		}
 		r.mu.Lock()
 		// Only deregister if we are still the registered sub (a racing re-open may
@@ -165,8 +170,13 @@ func (r *liveRegistry) open(
 	watchUp = true
 	mu.Unlock()
 	if payload, ok := compute(); ok {
-		emit(payload)
-		report(true)
+		// Guard: if a replace arrived while compute ran, drop the stale emit.
+		select {
+		case <-sub.cancel:
+		default:
+			emit(payload)
+			report(true)
+		}
 	} else {
 		report(false)
 	}
@@ -192,6 +202,13 @@ func (r *liveRegistry) open(
 					continue
 				}
 				if payload, ok := compute(); ok {
+					// Guard: if this sub was replaced/cancelled while compute ran,
+					// drop the stale emit rather than clobbering fresh state.
+					select {
+					case <-sub.cancel:
+						continue
+					default:
+					}
 					emit(payload)
 					report(true)
 				} else {

@@ -324,6 +324,200 @@ func TestLiveList_WatchStartError_OneShotComputeThenExit(t *testing.T) {
 	}
 }
 
+// TestReplaceDropsStaleEmitFromBlockedCompute reproduces the race: the OLD sub's
+// compute blocks while the NEW sub (triggered by a replace/re-open) completes and
+// emits "NEW". When the old compute unblocks it must NOT emit its stale payload on
+// the same event name.
+//
+// The test uses a blocking compute controlled by a channel so we can hold the old
+// sub's compute past stopSub's drain window, then verify that no stale payload
+// appears after the replace completed.
+func TestReplaceDropsStaleEmitFromBlockedCompute(t *testing.T) {
+	const key = "pods:c:block"
+
+	// blockOld controls whether the next ListPods call should block.
+	// unblockCh releases a blocked ListPods.
+	var (
+		mu       sync.Mutex
+		blockOld bool
+	)
+	unblockCh := make(chan struct{})
+
+	type emitRecord struct {
+		name string
+		data any
+	}
+	var (
+		emitMu  sync.Mutex
+		emitted []emitRecord
+	)
+	recordEmit := func(name string, data any) {
+		emitMu.Lock()
+		emitted = append(emitted, emitRecord{name, data})
+		emitMu.Unlock()
+	}
+	countPayload := func(wantData string) int {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		n := 0
+		for _, e := range emitted {
+			if e.name == "livePods:c:block" {
+				if pods, ok := e.data.([]workloads.PodSummary); ok {
+					for _, p := range pods {
+						if p.Name == wantData {
+							n++
+						}
+					}
+				}
+			}
+		}
+		return n
+	}
+
+	// replaceMarkCh is closed once the NEW sub has emitted at least once.
+	replaceMarkCh := make(chan struct{})
+	var replaceMarkOnce sync.Once
+
+	// blockingConn is the OLD sub's connection: first ListPods blocks until
+	// unblockCh is signalled; subsequent calls return normally.
+	blockingConn := &fakeLivePodConn{}
+	// We wrap its ListPods by standing up a custom emitter/service. Instead of
+	// fakeLivePodConn's fixed ListPods we want a blocking one. We build a small
+	// liveRegistry directly so we can inject arbitrary compute closures.
+	//
+	// Rather than reimplementing registry internals, we drive the existing
+	// PodsService with a custom fake that lets us intercept compute.
+	//
+	// Simpler: use a direct liveRegistry with injected closures.
+	reg := newLiveRegistry()
+	reg.interval = 10 * time.Millisecond
+
+	// emitterFn wraps recordEmit as an Emitter-compatible closure.
+	emitterFn := func(name string) func(any) {
+		return func(data any) { recordEmit(name, data) }
+	}
+	emitLiveFn := func(name string) func(bool) {
+		return func(live bool) { recordEmit(name+"Status", liveStatusDTO{Live: live}) }
+	}
+
+	// watchStart always succeeds, dirty/live callbacks stored in blockingConn.
+	watchStartFn := func(onDirty func(), onLive func(bool)) (func(), error) {
+		mu.Lock()
+		blockingConn.onDirty = onDirty
+		blockingConn.onLive = onLive
+		mu.Unlock()
+		return func() {}, nil
+	}
+
+	// OLD sub's compute: blocks when blockOld==true.
+	oldComputeFn := func() (any, bool) {
+		mu.Lock()
+		shouldBlock := blockOld
+		mu.Unlock()
+		if shouldBlock {
+			<-unblockCh // blocks until test releases it
+		}
+		return []workloads.PodSummary{{Namespace: "ns", Name: "OLD"}}, true
+	}
+
+	// Open OLD sub; let its immediate (non-blocking) compute run.
+	reg.open(key, watchStartFn, oldComputeFn,
+		emitterFn("livePods:c:block"), emitLiveFn("livePodsStatus:c:block"))
+
+	// Wait for the OLD sub's immediate emit.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if countPayload("OLD") >= 1 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if countPayload("OLD") < 1 {
+		t.Fatal("OLD sub never emitted initial payload")
+	}
+
+	// Now arm the block: next compute on the old sub will block.
+	mu.Lock()
+	blockOld = true
+	mu.Unlock()
+
+	// Fire dirty so the OLD sub's ticker picks it up and enters the blocked compute.
+	mu.Lock()
+	od := blockingConn.onDirty
+	mu.Unlock()
+	if od != nil {
+		od()
+	}
+
+	// Give the old sub's goroutine time to enter compute() and block there.
+	// We detect this by watching that its goroutine is scheduled and blocked.
+	// A short sleep is necessary here because we can't observe the goroutine's
+	// internal state directly - but 50ms is well above the 10ms ticker.
+	time.Sleep(50 * time.Millisecond)
+
+	// NEW sub's compute always returns "NEW" immediately.
+	newComputeFn := func() (any, bool) {
+		return []workloads.PodSummary{{Namespace: "ns", Name: "NEW"}}, true
+	}
+	newWatchStartFn := func(onDirty func(), onLive func(bool)) (func(), error) {
+		return func() {}, nil
+	}
+
+	// Open the NEW sub (replaces old). stopSub has a 2s drain window but the old
+	// compute is still blocked - stopSub will time out and proceed. The new sub
+	// emits its payload immediately.
+	reg.open(key, newWatchStartFn, newComputeFn,
+		func(data any) {
+			recordEmit("livePods:c:block", data)
+			replaceMarkOnce.Do(func() { close(replaceMarkCh) })
+		},
+		emitLiveFn("livePodsStatus:c:block"))
+
+	// Wait for the new sub to emit at least once.
+	select {
+	case <-replaceMarkCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("NEW sub never emitted after replace")
+	}
+
+	// Record how many emissions exist at this point (new sub is live).
+	emitMu.Lock()
+	snapAfterReplace := make([]emitRecord, len(emitted))
+	copy(snapAfterReplace, emitted)
+	emitMu.Unlock()
+
+	// Now unblock the OLD compute. Without the fix it would emit "OLD" again.
+	close(unblockCh)
+
+	// Let the unblocked goroutine run.
+	time.Sleep(30 * time.Millisecond)
+
+	// Assert: any "livePods:c:block" event emitted AFTER the replace must not
+	// carry the OLD payload. We check this by counting "OLD" in the post-replace
+	// window. There should be none.
+	emitMu.Lock()
+	postReplace := emitted[len(snapAfterReplace):]
+	emitMu.Unlock()
+
+	for _, ev := range postReplace {
+		if ev.name != "livePods:c:block" {
+			continue
+		}
+		pods, ok := ev.data.([]workloads.PodSummary)
+		if !ok {
+			continue
+		}
+		for _, p := range pods {
+			if p.Name == "OLD" {
+				t.Errorf("stale OLD payload emitted after replace completed (post-replace events: %d)", len(postReplace))
+			}
+		}
+	}
+
+	// Cleanup.
+	reg.closeAll()
+}
+
 func TestLiveList_NoGoroutineLeakAcrossLifecycles(t *testing.T) {
 	runtime.GC()
 	before := runtime.NumGoroutine()
