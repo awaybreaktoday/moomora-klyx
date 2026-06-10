@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useFleet } from "../store/fleet";
 import type { EventRowDTO } from "../store/fleet";
 import { listEvents } from "../bridge/events";
 import { openPodDetail } from "../bridge/pods";
+import { VirtualList } from "../chrome/VirtualList";
+import type { VirtualListHandle } from "../chrome/VirtualList";
+import { useListKeys } from "../chrome/useListKeys";
 
 function ago(unix: number): string {
   const s = Math.floor(Date.now() / 1000) - unix;
@@ -23,6 +26,9 @@ const gridCols = "10px 32px 44px minmax(0,0.9fr) minmax(0,1.1fr) 90px minmax(0,2
 export function EventsView({ cluster }: { cluster: string }) {
   const events = useFleet((s) => s.events);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<VirtualListHandle>(null);
 
   useEffect(() => {
     void listEvents(cluster, "");
@@ -46,6 +52,8 @@ export function EventsView({ cluster }: { cluster: string }) {
     return true;
   });
 
+  const rowKey = (e: EventRowDTO, i: number) => `${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`;
+
   const toggleExpand = (key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -54,6 +62,48 @@ export function EventsView({ cluster }: { cluster: string }) {
       return next;
     });
   };
+
+  // Clamp selection when list changes.
+  const effectiveIdx = filtered.length === 0 ? -1 : selectedIdx >= filtered.length ? filtered.length - 1 : selectedIdx;
+
+  const handleSelect = useCallback((idx: number) => {
+    setSelectedIdx(idx);
+    listRef.current?.scrollToIndex(idx);
+  }, []);
+
+  const handleActivate = useCallback((idx: number) => {
+    const e = filtered[idx];
+    if (e) toggleExpand(rowKey(e, idx));
+  }, [filtered]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleEscape = useCallback(() => {
+    // Collapse selected row if expanded, else no-op.
+    if (effectiveIdx >= 0) {
+      const e = filtered[effectiveIdx];
+      if (e) {
+        const key = rowKey(e, effectiveIdx);
+        if (expanded.has(key)) toggleExpand(key);
+      }
+    }
+  }, [effectiveIdx, filtered, expanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useListKeys({
+    count: filtered.length,
+    selected: effectiveIdx,
+    onSelect: handleSelect,
+    onActivate: handleActivate,
+    onEscape: handleEscape,
+    searchRef,
+  });
+
+  // Reset selection on filter change.
+  useEffect(() => {
+    setSelectedIdx((prev) => {
+      if (filtered.length === 0) return -1;
+      return prev >= filtered.length ? filtered.length - 1 : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events.search, events.warningsOnly, events.namespace]);
 
   return (
     <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box" }}>
@@ -69,6 +119,7 @@ export function EventsView({ cluster }: { cluster: string }) {
         </select>
         <Chip on={events.warningsOnly} onClick={() => useFleet.getState().toggleWarningsOnly()}>warnings only</Chip>
         <input
+          ref={searchRef}
           value={events.search}
           onChange={(e) => useFleet.getState().setEventsSearch(e.target.value)}
           placeholder="filter events"
@@ -87,32 +138,53 @@ export function EventsView({ cluster }: { cluster: string }) {
             : "No events match the current filter."}
         </div>
       ) : (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, flex: 1, overflowY: "auto" }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
             <span /><span>×</span><span>age</span><span>namespace</span><span>involved</span><span>reason</span><span>message</span>
           </div>
-          {/* Rows */}
-          {filtered.map((e, i) => (
-            <EventRow
-              key={`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`}
-              event={e}
-              cluster={cluster}
-              expanded={expanded.has(`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`)}
-              onToggle={() => toggleExpand(`${e.namespace}/${e.kind}/${e.name}/${e.reason}/${i}`)}
-            />
-          ))}
+          {/*
+           * VirtualList windows >=100 rows. An expanded row has variable height
+           * which breaks fixed-row windowing math, so any expansion forces the
+           * plain path (forcePlain) - users expand rows to read details, at
+           * which point full rendering is the correct tradeoff.
+           */}
+          <VirtualList
+            ref={listRef}
+            items={filtered}
+            rowHeight={30}
+            forcePlain={expanded.size > 0}
+            style={{ flex: 1, minHeight: 0, ...(expanded.size > 0 ? { overflowY: "auto" } : {}) }}
+            render={(e, i) => {
+              const key = rowKey(e, i);
+              const isKbSelected = i === effectiveIdx;
+              const isExpanded = expanded.has(key);
+              return (
+                <EventRow
+                  key={key}
+                  event={e}
+                  cluster={cluster}
+                  expanded={isExpanded}
+                  kbSelected={isKbSelected}
+                  onToggle={() => toggleExpand(key)}
+                  onKbSelect={() => handleSelect(i)}
+                />
+              );
+            }}
+          />
         </div>
       )}
     </div>
   );
 }
 
-function EventRow({ event: e, cluster, expanded, onToggle }: {
+function EventRow({ event: e, cluster, expanded, kbSelected, onToggle, onKbSelect }: {
   event: EventRowDTO;
   cluster: string;
   expanded: boolean;
+  kbSelected: boolean;
   onToggle: () => void;
+  onKbSelect: () => void;
 }) {
   const isWarning = e.type === "Warning";
 
@@ -146,12 +218,27 @@ function EventRow({ event: e, cluster, expanded, onToggle }: {
   return (
     <>
       <div
-        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-selected={kbSelected}
+        onClick={() => { onKbSelect(); onToggle(); }}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            onKbSelect();
+            onToggle();
+          }
+        }}
         style={{
           display: "grid", gridTemplateColumns: gridCols, gap: 8, alignItems: "center",
           padding: "6px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
           cursor: "pointer",
-          background: expanded ? "var(--color-background-secondary)" : undefined,
+          background: kbSelected
+            ? "var(--color-background-secondary)"
+            : expanded ? "var(--color-background-secondary)" : undefined,
+          boxShadow: kbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+          outline: "none",
         }}
       >
         {/* Type dot */}

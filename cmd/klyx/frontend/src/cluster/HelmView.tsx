@@ -3,6 +3,7 @@ import { useFleet } from "../store/fleet";
 import type { HelmReleaseDTO, HelmHistoryEntryDTO } from "../store/fleet";
 import { listHelmReleases, openHelmRelease, helmRollback } from "../bridge/helm";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
+import { useResizablePanel } from "../chrome/useResizablePanel";
 
 // Helm status color map — deployed/failed/superseded/pending-*
 const statusColor = (status: string): string => {
@@ -55,8 +56,6 @@ const gridCols = "12px minmax(0,1.4fr) minmax(0,0.8fr) minmax(0,1.2fr) 80px 52px
 export function HelmView({ cluster }: { cluster: string }) {
   const helm = useFleet((s) => s.helm);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const actionStatus = useFleet((s) => s.actionStatus);
-  const clearActionStatus = useFleet((s) => s.clearActionStatus);
 
   useEffect(() => {
     void listHelmReleases(cluster);
@@ -83,16 +82,6 @@ export function HelmView({ cluster }: { cluster: string }) {
         {/* Controls row */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <button onClick={onRefresh} style={btn}>refresh</button>
-          {actionStatus && (
-            <span style={{
-              fontSize: 11, padding: "2px 8px", borderRadius: 3,
-              color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
-              background: actionStatus.kind === "error" ? "var(--color-background-danger, transparent)" : "var(--color-background-success, transparent)",
-            }}>
-              {actionStatus.message}
-              <button onClick={clearActionStatus} style={{ marginLeft: 6, background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "inherit" }}>✕</button>
-            </span>
-          )}
         </div>
 
         {/* List */}
@@ -168,6 +157,7 @@ function HelmDetailPanel({
   onClose: () => void;
 }) {
   const [rollbackPending, setRollbackPending] = useState<RollbackPending | null>(null);
+  const { width, handleProps } = useResizablePanel();
 
   // Current revision = max revision in history, or fallback from release list
   const currentRevision = history.length > 0
@@ -191,7 +181,7 @@ function HelmDetailPanel({
 
   return (
     <div style={{
-      width: 480, flexShrink: 0,
+      width, flexShrink: 0, position: "relative",
       borderLeft: "0.5px solid var(--color-border-tertiary)",
       overflowY: "auto",
       fontFamily: "var(--font-mono)",
@@ -199,6 +189,9 @@ function HelmDetailPanel({
       paddingLeft: 16,
       marginLeft: 16,
     }}>
+      {/* Resize handle — drag left edge */}
+      <div {...handleProps} />
+
       {/* Panel header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, position: "sticky", top: 0, background: "var(--color-background-primary)", paddingTop: 2, paddingBottom: 6, borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
         <div style={{ flex: 1, minWidth: 0 }}>

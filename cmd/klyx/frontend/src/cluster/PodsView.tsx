@@ -7,6 +7,10 @@ import { copyExecCommand, openExecTerminal } from "../bridge/exec";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 import { ForwardPopover } from "./ForwardPopover";
+import { VirtualList } from "../chrome/VirtualList";
+import type { VirtualListHandle } from "../chrome/VirtualList";
+import { useResizablePanel } from "../chrome/useResizablePanel";
+import { useListKeys } from "../chrome/useListKeys";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -30,8 +34,10 @@ const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px";
 export function PodsView({ cluster }: { cluster: string }) {
   const pods = useFleet((s) => s.pods);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const actionStatus = useFleet((s) => s.actionStatus);
-  const clearActionStatus = useFleet((s) => s.clearActionStatus);
+
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<VirtualListHandle>(null);
 
   useEffect(() => {
     void listPods(cluster, "");
@@ -50,6 +56,44 @@ export function PodsView({ cluster }: { cluster: string }) {
     return true;
   });
 
+  // Clamp selectedIdx when list changes.
+  const clampedIdx = filtered.length === 0 ? -1 : selectedIdx >= filtered.length ? filtered.length - 1 : selectedIdx;
+  const effectiveIdx = clampedIdx;
+
+  const handleSelect = useCallback((idx: number) => {
+    setSelectedIdx(idx);
+    listRef.current?.scrollToIndex(idx);
+  }, []);
+
+  const handleActivate = useCallback((idx: number) => {
+    const p = filtered[idx];
+    if (p) void openPodDetail(cluster, p.namespace, p.name);
+  }, [filtered, cluster]);
+
+  const handleEscape = useCallback(() => {
+    if (pods.selected) {
+      useFleet.getState().selectPod(null);
+    }
+  }, [pods.selected]);
+
+  useListKeys({
+    count: filtered.length,
+    selected: effectiveIdx,
+    onSelect: handleSelect,
+    onActivate: handleActivate,
+    onEscape: handleEscape,
+    searchRef,
+  });
+
+  // Reset selection when filter changes.
+  useEffect(() => {
+    setSelectedIdx((prev) => {
+      if (filtered.length === 0) return -1;
+      return prev >= filtered.length ? filtered.length - 1 : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pods.search, pods.needsAttention, pods.namespace]);
+
   return (
     <div style={{ padding: "16px 20px", display: "flex", gap: 0, height: "100%", boxSizing: "border-box", position: "relative" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -66,6 +110,7 @@ export function PodsView({ cluster }: { cluster: string }) {
           </select>
           <Chip on={pods.needsAttention} onClick={() => useFleet.getState().togglePodsNeedsAttention()}>needs attention</Chip>
           <input
+            ref={searchRef}
             value={pods.search}
             onChange={(e) => useFleet.getState().setPodsSearch(e.target.value)}
             placeholder="filter pods"
@@ -84,54 +129,78 @@ export function PodsView({ cluster }: { cluster: string }) {
               : "No pods match the current filter."}
           </div>
         ) : (
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
             {/* Header */}
-            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
               <span /><span>pod</span><span>ready</span><span>phase</span><span>restarts</span><span>node</span><span>age</span>
             </div>
-            {/* Rows */}
-            {filtered.map((p) => {
-              const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
-              const nonInitContainers = p.containers.filter((c) => !c.init);
-              const readyCount = nonInitContainers.filter((c) => c.ready).length;
-              return (
-                <div
-                  key={`${p.namespace}/${p.name}`}
-                  onClick={() => void openPodDetail(cluster, p.namespace, p.name)}
-                  style={{
-                    display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
-                    padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
-                    cursor: "pointer",
-                    background: isSelected ? "var(--color-background-secondary)" : undefined,
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
-                  <span>
-                    <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
-                    {" / "}
-                    <span style={{ fontWeight: 500 }}>{p.name}</span>
-                  </span>
-                  <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
-                    {readyCount}/{nonInitContainers.length}
-                  </span>
-                  <span>
-                    <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
-                      {p.phase}
+            {/* Rows — VirtualList for >=100 items, plain render for smaller lists */}
+            <VirtualList
+              ref={listRef}
+              items={filtered}
+              rowHeight={32}
+              style={{ flex: 1, minHeight: 0 }}
+              render={(p, i) => {
+                const isKbSelected = i === effectiveIdx;
+                const isSelected = pods.selected?.namespace === p.namespace && pods.selected?.name === p.name;
+                const nonInitContainers = p.containers.filter((c) => !c.init);
+                const readyCount = nonInitContainers.filter((c) => c.ready).length;
+                return (
+                  <div
+                    key={`${p.namespace}/${p.name}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-selected={isKbSelected}
+                    onClick={() => {
+                      setSelectedIdx(i);
+                      void openPodDetail(cluster, p.namespace, p.name);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedIdx(i);
+                        void openPodDetail(cluster, p.namespace, p.name);
+                      }
+                    }}
+                    style={{
+                      display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+                      padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                      cursor: "pointer",
+                      background: isKbSelected
+                        ? "var(--color-background-secondary)"
+                        : isSelected ? "var(--color-background-secondary)" : undefined,
+                      boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+                      outline: "none",
+                    }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[p.rank] }} />
+                    <span>
+                      <span style={{ color: "var(--color-text-tertiary)" }}>{p.namespace}</span>
+                      {" / "}
+                      <span style={{ fontWeight: 500 }}>{p.name}</span>
                     </span>
-                    {p.reason && (
-                      <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
-                        {p.reason}
+                    <span style={{ color: readyCount === nonInitContainers.length ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
+                      {readyCount}/{nonInitContainers.length}
+                    </span>
+                    <span>
+                      <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
+                        {p.phase}
                       </span>
-                    )}
-                  </span>
-                  <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
-                    {p.restarts}
-                  </span>
-                  <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
-                  <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
-                </div>
-              );
-            })}
+                      {p.reason && (
+                        <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", marginLeft: 4, fontSize: 10 }}>
+                          {p.reason}
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
+                      {p.restarts}
+                    </span>
+                    <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
+                    <span style={{ color: "var(--color-text-tertiary)" }}>{ago(p.ageSeconds)}</span>
+                  </div>
+                );
+              }}
+            />
           </div>
         )}
       </div>
@@ -145,8 +214,6 @@ export function PodsView({ cluster }: { cluster: string }) {
           detail={pods.detail}
           loading={pods.detailLoading}
           isProtected={isProtected}
-          actionStatus={actionStatus}
-          clearActionStatus={clearActionStatus}
           onClose={() => useFleet.getState().selectPod(null)}
         />
       )}
@@ -157,7 +224,7 @@ export function PodsView({ cluster }: { cluster: string }) {
 type PodPendingAction = { verb: "restart" | "delete"; summary: PodSummaryDTO };
 
 function PodDetailPanel({
-  cluster, namespace, name, detail, loading, isProtected, actionStatus, clearActionStatus, onClose,
+  cluster, namespace, name, detail, loading, isProtected, onClose,
 }: {
   cluster: string;
   namespace: string;
@@ -165,16 +232,25 @@ function PodDetailPanel({
   detail: PodDetailDTO | null;
   loading: boolean;
   isProtected: boolean;
-  actionStatus: import("../store/fleet").ActionStatus | null;
-  clearActionStatus: () => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"info" | "logs" | "yaml">("info");
   const [pending, setPending] = useState<PodPendingAction | null>(null);
+  const { width, handleProps } = useResizablePanel();
 
-  // Close on Escape
+  // Close on Escape. With a confirm pending, Esc cancels ONLY the confirm:
+  // stopPropagation keeps the event from reaching the window-level useListKeys
+  // handler (which would also close the whole panel). Without a pending confirm
+  // both handlers resolve to the same idempotent selectPod(null).
   const handleKey = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") { if (pending) setPending(null); else onClose(); }
+    if (e.key === "Escape") {
+      if (pending) {
+        e.stopPropagation();
+        setPending(null);
+      } else {
+        onClose();
+      }
+    }
   }, [onClose, pending]);
   useEffect(() => {
     document.addEventListener("keydown", handleKey);
@@ -183,7 +259,7 @@ function PodDetailPanel({
 
   return (
     <div style={{
-      width: 480, flexShrink: 0,
+      width, flexShrink: 0, position: "relative",
       borderLeft: "0.5px solid var(--color-border-tertiary)",
       overflowY: "auto",
       fontFamily: "var(--font-mono)",
@@ -191,12 +267,15 @@ function PodDetailPanel({
       paddingLeft: 16,
       marginLeft: 16,
     }}>
+      {/* Resize handle — drag left edge */}
+      <div {...handleProps} />
+
       {/* Panel header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, position: "sticky", top: 0, background: "var(--color-background-primary)", paddingTop: 2, paddingBottom: 6, borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
         <span style={{ fontWeight: 500, ...ellipsis, flex: 1 }} title={`${namespace}/${name}`}>
           <span style={{ color: "var(--color-text-tertiary)" }}>{namespace}</span>/{name}
         </span>
-        <button onClick={onClose} style={{ ...btn, padding: "2px 8px", fontSize: 12 }}>✕</button>
+        <button onClick={onClose} style={{ ...btn, padding: "2px 8px", fontSize: 12 }} aria-label="close pod detail panel">✕</button>
       </div>
 
       {/* Tabs */}
@@ -214,19 +293,6 @@ function PodDetailPanel({
           >{t}</button>
         ))}
       </div>
-
-      {/* Action status toast */}
-      {actionStatus && (
-        <div
-          onClick={clearActionStatus}
-          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
-            background: "var(--color-background-secondary)",
-            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
-            border: "0.5px solid var(--color-border-tertiary)" }}
-        >
-          {actionStatus.message}
-        </div>
-      )}
 
       {loading && !detail ? (
         <div style={{ color: "var(--color-text-secondary)" }}>Loading detail…</div>

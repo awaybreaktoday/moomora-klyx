@@ -38,8 +38,6 @@ export function GitOps({ cluster }: { cluster: string }) {
   const expand = useFleet((s) => s.expand);
   const collapse = useFleet((s) => s.collapse);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const actionStatus = useFleet((s) => s.actionStatus);
-  const clearActionStatus = useFleet((s) => s.clearActionStatus);
   const [pending, setPending] = useState<null | { verb: "reconcile" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
   const absent = tier === "Absent";
 
@@ -77,18 +75,6 @@ export function GitOps({ cluster }: { cluster: string }) {
         <span>ready <b style={{ color: "var(--color-text-success)" }}>{ready}</b></span>
         <span>not ready <b style={{ color: notReady ? "var(--color-text-warning)" : "var(--color-text-primary)" }}>{notReady}</b></span>
       </div>
-
-      {actionStatus && (
-        <div
-          onClick={clearActionStatus}
-          style={{ marginBottom: 10, padding: "6px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
-            background: "var(--color-background-secondary)",
-            color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
-            border: "0.5px solid var(--color-border-tertiary)" }}
-        >
-          {actionStatus.message}
-        </div>
-      )}
 
       {gitops.loading && rows.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading reconciliation state…</div>

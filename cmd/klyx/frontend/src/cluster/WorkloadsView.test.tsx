@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, act } from "@testing-library/react";
 import { WorkloadsView } from "./WorkloadsView";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO } from "../store/fleet";
@@ -141,6 +141,51 @@ describe("WorkloadsView", () => {
     fireEvent.change(input, { target: { value: "3" } });
     fireEvent.click(getByText("✓")); // confirm in popover
     expect(scaleWorkload).toHaveBeenCalledWith("homelab-nelli", "Deployment", "ollama-prod", "ollama", 3);
+  });
+
+  // --- Keyboard nav + a11y ---
+
+  it("j then Enter expands the second row", () => {
+    const second: WorkloadDTO = {
+      kind: "Deployment", namespace: "default", name: "second-workload",
+      desired: 1, ready: 1, available: 1, updated: 1, restarts: 0,
+      reason: "Available", rank: "healthy", gitops: null, pods: [], resources: noResources,
+    };
+    seed([broken, second]);
+    const { queryByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    expect(queryByText("second-workload")).toBeTruthy();
+    // j → index 0; wait for re-render; j → index 1; Enter → expand second row
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true, cancelable: true })); });
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    // The "restart" button appears in the expanded section
+    expect(queryByText("restart")).toBeTruthy();
+  });
+
+  it("/ focuses the filter input", () => {
+    seed([broken]);
+    const { getByPlaceholderText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    const input = getByPlaceholderText("filter workloads") as HTMLInputElement;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true, cancelable: true }));
+    expect(input).toBeTruthy();
+  });
+
+  it("workload row has role=button and aria-expanded", () => {
+    seed([broken]);
+    const { getAllByRole } = render(<WorkloadsView cluster="homelab-nelli" />);
+    const rows = getAllByRole("button").filter((el) => el.hasAttribute("aria-expanded"));
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("workload row aria-expanded toggles on click", () => {
+    seed([broken]);
+    const { getAllByRole } = render(<WorkloadsView cluster="homelab-nelli" />);
+    const rows = getAllByRole("button").filter((el) => el.hasAttribute("aria-expanded"));
+    const row = rows[0];
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("cancelling scale popover hides the input", () => {

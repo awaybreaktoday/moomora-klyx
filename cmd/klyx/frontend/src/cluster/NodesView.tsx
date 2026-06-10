@@ -5,6 +5,7 @@ import type { NodeDetailDTO, NodeSummaryDTO, PodOnNodeDTO } from "../store/fleet
 import { listNodes, openNodeDetail, cordonNode, startDrain, cancelDrain } from "../bridge/nodes";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { fmtMem } from "./saturation";
+import { useResizablePanel } from "../chrome/useResizablePanel";
 
 function ago(s: number): string {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
@@ -210,7 +211,6 @@ function DrainModal({ cluster, node, onClose }: { cluster: string; node: string;
 export function NodesView({ cluster }: { cluster: string }) {
   const nodes = useFleet((s) => s.nodes);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const actionStatus = useFleet((s) => s.actionStatus);
 
   const [drainNode, setDrainNode] = useState<string | null>(null);
   const [cordonPending, setCordonPending] = useState<{ node: string; cordon: boolean } | null>(null);
@@ -229,16 +229,6 @@ export function NodesView({ cluster }: { cluster: string }) {
         {/* Controls row */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <button onClick={onRefresh} style={btn}>refresh</button>
-          {actionStatus && (
-            <span style={{
-              fontSize: 11, padding: "2px 8px", borderRadius: 3,
-              color: actionStatus.kind === "error" ? "var(--color-text-danger)" : "var(--color-text-success)",
-              background: actionStatus.kind === "error" ? "var(--color-background-danger, transparent)" : "var(--color-background-success, transparent)",
-            }}>
-              {actionStatus.message}
-              <button onClick={() => useFleet.getState().clearActionStatus()} style={{ marginLeft: 6, background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "inherit" }}>✕</button>
-            </span>
-          )}
         </div>
 
         {/* Table */}
@@ -382,6 +372,7 @@ function NodeDetailPanel({
 }) {
   const [tab, setTab] = useState<"info" | "yaml">("info");
   const [labelsExpanded, setLabelsExpanded] = useState(false);
+  const { width, handleProps } = useResizablePanel();
 
   // suppress unused warning — isProtected propagated for cordon/drain callers above
   void isProtected;
@@ -396,7 +387,7 @@ function NodeDetailPanel({
 
   return (
     <div style={{
-      width: 480, flexShrink: 0,
+      width, flexShrink: 0, position: "relative",
       borderLeft: "0.5px solid var(--color-border-tertiary)",
       overflowY: "auto",
       fontFamily: "var(--font-mono)",
@@ -404,6 +395,9 @@ function NodeDetailPanel({
       paddingLeft: 16,
       marginLeft: 16,
     }}>
+      {/* Resize handle — drag left edge */}
+      <div {...handleProps} />
+
       {/* Panel header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, position: "sticky", top: 0, background: "var(--color-background-primary)", paddingTop: 2, paddingBottom: 6, borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
         <span style={{ fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>{name}</span>
