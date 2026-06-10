@@ -205,13 +205,17 @@ Branch: `feat/g2-aggregate-logs`
 
 ### G3 — Metric sparklines
 Branch: `feat/g3-sparklines`
-- [ ] T1 Go: metrics client RangeVector (query_range, 30m window, 60s step,
+- [x] T1 Go: metrics client RangeVector (query_range, 30m window, 60s step,
       NaN/Inf skipped, gaps stay gaps); fleet WorkloadSparklines(ns, kind,
       name) → cpu+mem series; ClusterSparklines → cluster cpu/mem.
-- [ ] T2 FE: tiny inline SVG Sparkline component (pure, no deps, honest gaps);
+- [x] T2 FE: tiny inline SVG Sparkline component (pure, no deps, honest gaps);
       wire into workload expand D-block (cpu+mem 30m) and Overview resources
       rows. Capability-gated with metrics as ever.
-- [ ] T3 Gate + verify on nelli (sparkline matches prom graph shape), merge.
+- [x] T3 Gate + verify on nelli (sparkline matches prom graph shape), merge.
+      VERIFIED 2026-06-10: headless harness — cluster cpu/mem 31 points/1800s
+      (cpu 0.170–0.180, mem ~0.84), source-controller workload series live;
+      independent curl query_range via port-forward returned the same 31-point
+      shape and value range.
 
 ## Deferred / explicitly out
 - Live YAML editing & resource creation (Git owns desired state — unchanged).
@@ -265,6 +269,11 @@ G2 (aggregate workload logs):
 - Multi-replica workload: lines from different pods visibly interleave; scale to >10 pods and the stream notes the cap with a marker line.
 - Dock header shows kind + ns/name; pop-out button moves the tail to a native window (title "logs · ns/name (kind)") and closes the dock.
 - If a pod's stream dies mid-tail, a `… N of M pod streams failed` marker appears instead of silent loss.
+
+G3 (sparklines):
+- Workloads: expand a row (with monitoring present) — "cpu 30m" and "mem 30m" sparklines render under the usage line and roughly match the Grafana/prom graph shape for the same window.
+- Overview: small sparklines next to the cpu/mem percent bars; absent (no error) when monitoring is unavailable.
+- Gaps are honest: if Prometheus had a hole in the window the line breaks instead of bridging it.
 - Detail panels drag-resize from the left edge (persists); pods/events lists stay smooth on big clusters.
 - One toast bottom-center for all actions (auto-dismisses ~6s).
 - j/k moves row selection, enter opens/expands, / focuses search, esc closes panel; esc during a confirm only cancels the confirm.

@@ -78,6 +78,12 @@ func (f *fakeConn) WorkloadPods(context.Context, string, string, string) ([]stri
 func (f *fakeConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
 	return nil, workloads.UsageStatus{}
 }
+func (f *fakeConn) WorkloadSparklines(context.Context, string, string, string) (SparklineSet, error) {
+	return SparklineSet{}, nil
+}
+func (f *fakeConn) ClusterSparklines(context.Context) (SparklineSet, error) {
+	return SparklineSet{}, nil
+}
 func (f *fakeConn) RolloutRestart(context.Context, string, string, string) error { return nil }
 func (f *fakeConn) ScaleWorkload(context.Context, string, string, string, int32) error {
 	return nil

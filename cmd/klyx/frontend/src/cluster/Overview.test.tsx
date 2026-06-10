@@ -4,7 +4,15 @@ import { Overview } from "./Overview";
 import { useFleet } from "../store/fleet";
 import type { ClusterDTO, MetricsDTO, OverviewSummary } from "../store/fleet";
 
-vi.mock("../bridge/metrics", () => ({ getClusterMetrics: vi.fn() }));
+// Default: sparklines unavailable so existing tests render without them.
+import type { SparklinesDTO } from "../bridge/metrics";
+const mockGetClusterSparklines = vi.fn<(cluster: string) => Promise<SparklinesDTO>>(() =>
+  Promise.resolve({ available: false, message: "metrics unavailable", cpu: [], mem: [] }),
+);
+vi.mock("../bridge/metrics", () => ({
+  getClusterMetrics: vi.fn(),
+  getClusterSparklines: (cluster: string) => mockGetClusterSparklines(cluster),
+}));
 vi.mock("../bridge/overview", () => ({ fetchOverviewSummary: vi.fn().mockResolvedValue(undefined) }));
 
 const dto: ClusterDTO = {
@@ -232,5 +240,29 @@ describe("Overview capacity namespace row", () => {
     seedSummary("homelab-nelli", { namespaces: null });
     const { queryByText } = render(<Overview c={dto} />);
     expect(queryByText("namespaces")).toBeNull();
+  });
+});
+
+describe("Overview sparklines", () => {
+  beforeEach(() => {
+    useFleet.setState({ metrics: { cluster: null, dto: null, loading: false } });
+    useFleet.getState().clearOverviewSummary();
+  });
+
+  it("renders cpu/mem sparklines when the range series are available", async () => {
+    mockGetClusterSparklines.mockResolvedValueOnce({
+      available: true,
+      cpu: [{ t: 100, v: 0.4 }, { t: 160, v: 0.5 }],
+      mem: [{ t: 100, v: 0.6 }, { t: 160, v: 0.7 }],
+    });
+    const { findAllByRole } = render(<Overview c={dto} />);
+    const sparks = await findAllByRole("img", { name: /metric sparkline/i });
+    expect(sparks.length).toBe(2);
+  });
+
+  it("renders no sparklines when unavailable (default mock)", async () => {
+    const { queryAllByRole, findByText } = render(<Overview c={dto} />);
+    await findByText("cpu used"); // settle
+    expect(queryAllByRole("img", { name: /metric sparkline/i }).length).toBe(0);
   });
 });

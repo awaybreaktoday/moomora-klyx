@@ -4,7 +4,10 @@ import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
 import { listWorkloads, openLiveWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
+import { getWorkloadSparklines } from "../bridge/metrics";
+import type { SparklinesDTO } from "../bridge/metrics";
 import { openWorkloadLogsWindow } from "../bridge/windows";
+import { Sparkline } from "../chrome/Sparkline";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
@@ -248,6 +251,9 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
                     <span><span style={{ color: "var(--color-text-tertiary)" }}>mem</span> {w.pods.length === 0 ? "—" : `usage ${w.resources.mem.usage == null ? "—" : fmtMem(w.resources.mem.usage)} · req ${w.resources.mem.request == null ? "—" : fmtMem(w.resources.mem.request)} · ${w.resources.mem.limit == null ? "no limit" : `lim ${fmtMem(w.resources.mem.limit)}`}`} <span style={{ color: tierColor[saturation("mem", w.resources.mem.usage, w.resources.mem.limit).tier] }}>{riskLabel("mem", w.resources.mem)}</span></span>
                   </div>
                 )}
+                {expanded && showMetrics && (
+                  <WorkloadSparkRow cluster={cluster} kind={w.kind} namespace={w.namespace} name={w.name} />
+                )}
                 {expanded && (
                   <>
                     <div style={{ padding: "6px 8px 4px 32px", background: "var(--color-background-secondary)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -332,6 +338,42 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// WorkloadSparkRow — 30m cpu/mem sparklines for an expanded workload row.
+// Fetched once per expand (component mount); not polled. Renders nothing while
+// loading and a muted reason when the series are unavailable.
+function WorkloadSparkRow({ cluster, kind, namespace, name }: { cluster: string; kind: string; namespace: string; name: string }) {
+  const [spark, setSpark] = useState<SparklinesDTO | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getWorkloadSparklines(cluster, namespace, kind, name).then((dto) => {
+      if (!cancelled) setSpark(dto);
+    });
+    return () => { cancelled = true; };
+  }, [cluster, namespace, kind, name]);
+
+  if (spark === null) return null;
+  if (!spark.available) {
+    return (
+      <div style={{ padding: "0 8px 6px 32px", background: "var(--color-background-secondary)", fontSize: 10, color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+        sparklines unavailable{spark.message ? `: ${spark.message}` : ""}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 28, alignItems: "center", padding: "0 8px 8px 32px", background: "var(--color-background-secondary)", fontSize: 10, fontFamily: "var(--font-mono)" }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ color: "var(--color-text-tertiary)" }}>cpu 30m</span>
+        <Sparkline points={spark.cpu} />
+      </span>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ color: "var(--color-text-tertiary)" }}>mem 30m</span>
+        <Sparkline points={spark.mem} />
+      </span>
     </div>
   );
 }
