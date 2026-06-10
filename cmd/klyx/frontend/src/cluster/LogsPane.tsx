@@ -598,7 +598,13 @@ const LogLine = React.forwardRef<
     paddingBottom: 2,
     userSelect: "text",
     background: activeMatch ? "var(--color-background-secondary)" : undefined,
-    overflowX: wrap ? undefined : "auto",
+    // In no-wrap mode the row must NOT scroll itself (a per-line overflow gives
+    // every long line its own macOS overlay scrollbar - dark bars across the
+    // text). The row grows to its content width and the VIEWPORT provides the
+    // single horizontal scrollbar; minWidth keeps short rows' match-highlight
+    // background spanning the full scroll width.
+    width: wrap ? undefined : "max-content",
+    minWidth: wrap ? undefined : "100%",
   };
 
   const text = parsed.text;
