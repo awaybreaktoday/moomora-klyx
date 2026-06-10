@@ -72,6 +72,9 @@ func (f *fakeConn) PodDetail(context.Context, string, string) (PodDetail, error)
 func (f *fakeConn) PodLogStream(context.Context, string, string, string, bool, int64) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
+func (f *fakeConn) WorkloadPods(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
 func (f *fakeConn) WorkloadMetrics(context.Context, string) (map[string]workloads.Usage, workloads.UsageStatus) {
 	return nil, workloads.UsageStatus{}
 }

@@ -15,6 +15,7 @@ import (
 // bridges to the real fleet.Conn; the interface keeps fleet out of appbridge.
 type LogsConn interface {
 	PodLogStream(ctx context.Context, namespace, pod, container string, previous bool, tailLines int64) (io.ReadCloser, error)
+	WorkloadPods(ctx context.Context, kind, namespace, name string) ([]string, error)
 }
 
 const (

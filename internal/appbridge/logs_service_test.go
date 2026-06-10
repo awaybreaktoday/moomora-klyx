@@ -63,6 +63,9 @@ type stringConn struct{ body string }
 func (c *stringConn) PodLogStream(_ context.Context, _, _, _ string, _ bool, _ int64) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(c.body)), nil
 }
+func (c *stringConn) WorkloadPods(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
 
 // pipeConn hands back the read end of an io.Pipe whose write end never advances,
 // so a Read blocks until the ReadCloser is closed. Closing it makes Read return
@@ -71,6 +74,9 @@ type pipeConn struct{ r *io.PipeReader }
 
 func (c *pipeConn) PodLogStream(_ context.Context, _, _, _ string, _ bool, _ int64) (io.ReadCloser, error) {
 	return c.r, nil
+}
+func (c *pipeConn) WorkloadPods(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
 }
 
 // errConn returns a reader that yields one line then a non-EOF error.
@@ -92,6 +98,9 @@ func (r *errReader) Close() error { return nil }
 
 func (c *errConn) PodLogStream(_ context.Context, _, _, _ string, _ bool, _ int64) (io.ReadCloser, error) {
 	return &errReader{}, nil
+}
+func (c *errConn) WorkloadPods(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
 }
 
 // missConn never used directly; cluster-miss uses a lookup returning false.
@@ -145,6 +154,9 @@ type openErrConn struct{}
 
 func (openErrConn) PodLogStream(_ context.Context, _, _, _ string, _ bool, _ int64) (io.ReadCloser, error) {
 	return nil, errors.New("forbidden")
+}
+func (openErrConn) WorkloadPods(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func TestOpenLogStream_BatchesLinesThenEOF(t *testing.T) {
