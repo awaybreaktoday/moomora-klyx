@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { IconTerminal2, IconExternalLink } from "@tabler/icons-react";
+import { IconTerminal2, IconExternalLink, IconBox } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
 import { listWorkloads, openLiveWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
@@ -14,6 +14,8 @@ import { saturation, nearLimitSort, fmtCpu, fmtMem } from "./saturation";
 import { useListKeys } from "../chrome/useListKeys";
 import { useResizableDock } from "../chrome/useResizableDock";
 import { Chip } from "../chrome/Chip";
+import { EmptyState } from "../chrome/EmptyState";
+import { SkeletonRows } from "../chrome/SkeletonRows";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -186,9 +188,13 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
       </div>
 
       {wl.loading && wl.items.length === 0 ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading workloads…</div>
+        <SkeletonRows rows={8} label="loading workloads" />
       ) : rows.length === 0 ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No workloads{wl.namespace ? ` in ${wl.namespace}` : ""}.</div>
+        <EmptyState
+          icon={<IconBox size={28} stroke={1.2} />}
+          title={`No workloads${wl.namespace ? ` in ${wl.namespace}` : ""}.`}
+          hint={wl.needsAttention ? "The needs-attention filter is on - everything here is healthy." : undefined}
+        />
       ) : (
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>

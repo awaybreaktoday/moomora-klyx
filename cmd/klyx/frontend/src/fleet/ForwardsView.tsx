@@ -4,6 +4,8 @@ import { IconExternalLink, IconCopy, IconCheck } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { ForwardDTO } from "../store/fleet";
 import { stopForward, stopAllForwards } from "../bridge/forwards";
+import { EmptyState } from "../chrome/EmptyState";
+import { IconArrowsLeftRight } from "@tabler/icons-react";
 
 // ForwardsView is the fleet-level port-forwards section: every active tunnel
 // across every cluster, in working detail (the TopBar popover stays the
@@ -35,9 +37,11 @@ export function ForwardsView() {
       </div>
 
       {forwards.length === 0 ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
-          No active port-forwards. Start one from a pod's detail panel ("forward") or a service's port buttons.
-        </div>
+        <EmptyState
+          icon={<IconArrowsLeftRight size={28} stroke={1.2} />}
+          title="No active port-forwards."
+          hint={'Start one from a pod\'s detail panel ("forward") or a service\'s port buttons.'}
+        />
       ) : (
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, maxWidth: 980 }}>
           <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>

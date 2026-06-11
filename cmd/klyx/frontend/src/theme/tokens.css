@@ -59,3 +59,80 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* --- Interaction polish (professional-finish layer) ----------------------- */
+
+/* Buttons: ease state changes, give honest hover/active feedback. The hover
+   filter nudges whatever background the button already has (works for both
+   bordered buttons and active/info chips) instead of forcing one color. */
+button {
+  transition: background-color 120ms ease, border-color 120ms ease,
+    color 120ms ease, opacity 120ms ease;
+}
+button:not(:disabled):hover {
+  filter: brightness(0.97);
+}
+[data-theme="dark"] button:not(:disabled):hover {
+  filter: brightness(1.15);
+}
+button:not(:disabled):active {
+  filter: brightness(0.93);
+}
+[data-theme="dark"] button:not(:disabled):active {
+  filter: brightness(1.25);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* List rows (divs with role=button: pods, workloads, argo apps, flux rows,
+   instance lists) get cursor-over feedback like every professional table. */
+div[role="button"] {
+  transition: background-color 100ms ease;
+}
+div[role="button"]:hover {
+  background-color: var(--color-background-secondary);
+}
+
+/* Keyboard a11y: a clear themed focus ring, only for keyboard focus. */
+:focus-visible {
+  outline: 1.5px solid var(--color-text-info);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+/* Slim themed scrollbars instead of stock chrome. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-secondary);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-primary);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Text selection in the app's accent. */
+::selection {
+  background: var(--color-background-info);
+}
+
+/* Skeleton loading shimmer (SkeletonRows component). */
+@keyframes klyx-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.95; }
+}
+.klyx-skeleton {
+  background: var(--color-background-secondary);
+  border-radius: 3px;
+  animation: klyx-pulse 1.3s ease-in-out infinite;
+}
