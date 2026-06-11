@@ -278,6 +278,11 @@ Post-G3 refinements (owner-driven, 2026-06-10/11):
 - Pods: a long phase reason (OOMKilled) clips with ellipsis + hover instead of overlapping restarts.
 - Forwards section (sidebar, under Fleet, with live count): every tunnel across clusters with status dot, cluster, kind, target, :port → localhost:port, started ago, copy URL, open in browser, stop / stop all; "view all" in the TopBar popover jumps there; cmd+K "Port-forwards" works.
 
+Argo CD support (2026-06-11, M6 revived - Argo now runs on the homelab):
+- Sidebar "Argo CD" section between Flux and Helm (also cmd+K): 6 nelli apps listed with Synced/Healthy, auto tags, dest ns, short revision, reconciled ago; broken apps would sort first with a red dot + "N need attention".
+- Expand a row: source repo/path@rev, last operation, conditions; "refresh app" and "sync" behind confirm (sync never prunes - caption says so).
+- On a Flux-only cluster the section reads "Argo CD not detected" honestly.
+
 Debug shell (2026-06-11):
 - Pod detail: "debug shell" (next to open shell) opens Terminal.app running kubectl debug with a busybox ephemeral container; try it on a cert-manager pod where "open shell" fails. Multi-container pods get the picker; ps inside should show the target container's processes.
 
