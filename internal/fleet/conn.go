@@ -23,6 +23,7 @@ import (
 	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
+	"github.com/moomora/klyx/internal/gitops/argo"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
 	"github.com/moomora/klyx/internal/helmcli"
@@ -79,6 +80,9 @@ type Conn interface {
 	HelmHistory(ctx context.Context, namespace, release string) ([]helmcli.HistoryEntry, error)
 	HelmValues(ctx context.Context, namespace, release string) (string, error)
 	HelmRollback(ctx context.Context, namespace, release string, revision int) error
+	ListArgoApps(ctx context.Context) ([]argo.App, error)
+	RefreshArgoApp(ctx context.Context, namespace, name string) error
+	SyncArgoApp(ctx context.Context, namespace, name, revision string) error
 	GitOpsSummary(ctx context.Context) (GitOpsSummary, error)
 	GitOpsSummaryFlux(ctx context.Context) (fluxPresent bool, total, notReady, suspended int, err error)
 }

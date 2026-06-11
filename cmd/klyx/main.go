@@ -225,6 +225,14 @@ func main() {
 
 	configSvc := appbridge.NewConfigService(configPath(), cfg)
 
+	argoSvc := appbridge.NewArgoService(func(name string) (appbridge.ArgoConn, bool) {
+		c, ok := reg.Conn(name)
+		if !ok {
+			return nil, false
+		}
+		return c, true
+	})
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -246,6 +254,7 @@ func main() {
 			application.NewService(helmSvc),
 			application.NewService(windowsSvc),
 			application.NewService(configSvc),
+			application.NewService(argoSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

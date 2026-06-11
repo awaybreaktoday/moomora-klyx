@@ -45,6 +45,17 @@ export type ForwardDTO = {
   status: string; // "active" | "broken"
 };
 
+export type ArgoConditionDTO = { type: string; message: string };
+export type ArgoAppDTO = {
+  namespace: string; name: string; project: string;
+  syncStatus: string; healthStatus: string; broken: boolean;
+  revision: string; repoURL: string; path: string; chart: string; targetRevision: string;
+  extraSources: number; destNamespace: string; autoSync: boolean;
+  opPhase: string; opMessage: string;
+  conditions: ArgoConditionDTO[]; reconciledUnix: number;
+};
+export type ArgoResultDTO = { available: boolean; message?: string; apps: ArgoAppDTO[] };
+
 export type ConditionDTO = { type: string; status: string; reason: string; message: string };
 export type InventoryEntryDTO = { group: string; version: string; kind: string; namespace: string; name: string };
 export type ResourceDetailDTO = {
@@ -69,7 +80,7 @@ export type GitOpsSlice = {
 
 // "observability" removed 2026-06-10: metrics ship inline in overview/workloads/network lanes
 // (design principle 5); a dedicated surface can return when it has real content.
-export type ClusterSection = "overview" | "gitops" | "helm" | "network" | "resources" | "crds" | "workloads" | "pods" | "events" | "nodes";
+export type ClusterSection = "overview" | "gitops" | "argo" | "helm" | "network" | "resources" | "crds" | "workloads" | "pods" | "events" | "nodes";
 
 export type OwnerDTO = { kind: string; namespace: string; name: string };
 export type PodDTO = { name: string; ready: boolean; restarts: number; reason: string; node: string; ageSeconds: number };
@@ -159,6 +170,8 @@ export const SECTION_LABELS: Record<ClusterSection, string> = {
   // "Flux" not "GitOps": design principle 8 (speak the tool's vocabulary).
   // The view is Flux-specific; an Argo provider would get its own section.
   gitops: "Flux",
+  // Argo's own vocabulary throughout (synced/degraded), per design principle 8.
+  argo: "Argo CD",
   helm: "Helm",
   network: "Network",
   resources: "Resources",
@@ -275,6 +288,15 @@ export type HelmSlice = {
   history: HelmHistoryEntryDTO[];
   values: string;
   detailLoading: boolean;
+};
+
+type ArgoSlice = {
+  cluster: string | null;
+  apps: ArgoAppDTO[];
+  available: boolean;
+  message: string;
+  loading: boolean;
+  expanded: string[]; // "<ns>/<name>" keys
 };
 
 // ---- / Helm types -------------------------------------------------------------
@@ -395,6 +417,11 @@ type FleetState = {
   setNodeDetail: (ref: NodeRef, detail: NodeDetailDTO) => void;
   clearNodes: () => void;
   helm: HelmSlice;
+  argo: ArgoSlice;
+  setArgoLoading: (cluster: string) => void;
+  setArgo: (cluster: string, r: ArgoResultDTO) => void;
+  toggleArgoExpand: (key: string) => void;
+  clearArgo: () => void;
   setHelmLoading: (cluster: string) => void;
   setHelm: (cluster: string, available: boolean, message: string, releases: HelmReleaseDTO[]) => void;
   selectHelmRelease: (ref: HelmRef | null) => void;
@@ -610,6 +637,11 @@ export const useFleet = create<FleetState>((set) => ({
   }),
   clearNodes: () => set({ nodes: { cluster: null, items: [], loading: false, selected: null, detail: null, detailLoading: false } }),
   helm: { cluster: null, releases: [], available: true, message: "", loading: false, selected: null, history: [], values: "", detailLoading: false },
+  argo: { cluster: null, apps: [], available: true, message: "", loading: false, expanded: [] },
+  setArgoLoading: (cluster) => set((s) => ({ argo: { ...s.argo, cluster, loading: true } })),
+  setArgo: (cluster, r) => set((s) => ({ argo: { ...s.argo, cluster, apps: r.apps ?? [], available: r.available, message: r.message ?? "", loading: false } })),
+  toggleArgoExpand: (key) => set((s) => ({ argo: { ...s.argo, expanded: s.argo.expanded.includes(key) ? s.argo.expanded.filter((k) => k !== key) : [...s.argo.expanded, key] } })),
+  clearArgo: () => set({ argo: { cluster: null, apps: [], available: true, message: "", loading: false, expanded: [] } }),
   setHelmLoading: (cluster) => set((s) => ({ helm: { ...s.helm, cluster, loading: true } })),
   setHelm: (cluster, available, message, releases) => set((s) => ({ helm: { ...s.helm, cluster, available, message, releases, loading: false } })),
   selectHelmRelease: (ref) => set((s) => ({ helm: { ...s.helm, selected: ref, history: [], values: "", detailLoading: ref !== null } })),

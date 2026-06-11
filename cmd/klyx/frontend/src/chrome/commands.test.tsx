@@ -67,8 +67,9 @@ describe("buildCommands", () => {
     const setSection = vi.fn();
     const s = makeStore({ route: { name: "cluster", cluster: "dev", section: "overview" } as never, setSection });
     const sections = buildCommands(s).filter((c) => c.group === "Sections");
-    // 10 sections: observability removed; gitops label is "Flux" but id stays "gitops"
-    expect(sections.length).toBe(10);
+    // 11 sections: observability removed; gitops label is "Flux" but id stays
+    // "gitops"; Argo CD added as its own section.
+    expect(sections.length).toBe(11);
     expect(sections[0].hint).toBe("dev");
     // gitops section is still reachable by id
     sections.find((c) => c.id === "section:gitops")!.run();
@@ -79,7 +80,8 @@ describe("buildCommands", () => {
     expect(sections.find((c) => c.id === "section:observability")).toBeUndefined();
     // triage-first order: overview, workloads, pods, events, gitops, helm, network, nodes, resources, crds
     const ids = sections.map((c) => c.id.replace("section:", ""));
-    expect(ids).toEqual(["overview", "workloads", "pods", "events", "gitops", "helm", "network", "nodes", "resources", "crds"]);
+    expect(ids).toEqual(["overview", "workloads", "pods", "events", "gitops",
+      "argo", "helm", "network", "nodes", "resources", "crds"]);
   });
 
   it("omits Pods when the pods slice is empty", () => {

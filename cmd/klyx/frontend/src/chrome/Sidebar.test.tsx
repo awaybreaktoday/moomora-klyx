@@ -60,7 +60,7 @@ describe("Sidebar section order", () => {
       "Forwards",
       "Overview",
       "Workloads", "Pods", "Events",
-      "Flux", "Helm",
+      "Flux", "Argo CD", "Helm",
       "Network", "Nodes",
       "Resources", "CRDs",
       "Terminal", "Settings",

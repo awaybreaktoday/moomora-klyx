@@ -12,6 +12,7 @@ import (
 	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
+	"github.com/moomora/klyx/internal/gitops/argo"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
 	"github.com/moomora/klyx/internal/helmcli"
@@ -138,6 +139,9 @@ func (f *fakeConn) HelmHistory(context.Context, string, string) ([]helmcli.Histo
 }
 func (f *fakeConn) HelmValues(context.Context, string, string) (string, error) { return "", nil }
 func (f *fakeConn) HelmRollback(context.Context, string, string, int) error    { return nil }
+func (f *fakeConn) ListArgoApps(context.Context) ([]argo.App, error)           { return nil, nil }
+func (f *fakeConn) RefreshArgoApp(context.Context, string, string) error       { return nil }
+func (f *fakeConn) SyncArgoApp(context.Context, string, string, string) error  { return nil }
 func (f *fakeConn) GitOpsSummary(context.Context) (GitOpsSummary, error) {
 	return GitOpsSummary{}, nil
 }
