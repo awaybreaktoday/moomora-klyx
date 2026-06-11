@@ -32,12 +32,13 @@ function seed(t: TopologyDTO | null, loading = false, metrics?: { routeMetrics?:
 beforeEach(() => { vi.clearAllMocks(); seed(topo); });
 
 describe("NetworkTopology", () => {
-  it("renders the gateway + route + service + pods lane", () => {
+  it("renders the route + service(+pods) + traffic lane (gateway lives in the header)", () => {
     const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
-    expect(getByText("eg")).toBeTruthy();
+    expect(getByText("eg")).toBeTruthy(); // header
     expect(getByText("share")).toBeTruthy();
     expect(getByText("share-api")).toBeTruthy();
-    expect(getByText(/3 \/ 3/)).toBeTruthy();
+    expect(getByText(/pods 3\/3/)).toBeTruthy(); // folded into the service box
+    expect(getByText("traffic")).toBeTruthy(); // the lane's own traffic node
   });
 
   it("surfaces warnings", () => {
@@ -221,9 +222,9 @@ describe("NetworkTopology", () => {
       routeMetricsStatus: { available: true, message: "", updatedAt: new Date().toISOString() },
     });
     const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
-    expect(getByText("12 rps")).toBeTruthy(); // fmtRps rounds >=10
-    expect(getByText("p99 42ms")).toBeTruthy();
-    expect(getByText("err 0.3%")).toBeTruthy();
+    expect(getByText(/12 rps/)).toBeTruthy(); // fmtRps rounds >=10
+    expect(getByText(/p99 42ms/)).toBeTruthy();
+    expect(getByText(/err 0.3%/)).toBeTruthy();
   });
 
   it("shows labels with — for an idle route (no fake zeros)", () => {
@@ -232,8 +233,8 @@ describe("NetworkTopology", () => {
       routeMetricsStatus: { available: true, message: "", updatedAt: new Date().toISOString() },
     });
     const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
-    expect(getByText("0 rps")).toBeTruthy();
-    expect(getByText("p50 —")).toBeTruthy(); // label shown even when nil
+    expect(getByText(/0 rps/)).toBeTruthy();
+    expect(getByText(/p50 —/)).toBeTruthy(); // label shown even when nil
   });
 
   it("shows the unavailable caption when route metrics are unavailable", () => {
@@ -297,6 +298,14 @@ describe("NetworkTopology", () => {
       // Lane order in the DOM: the rejected route's name renders before the healthy one's.
       const names = getAllByText(/aa-healthy|zz-broken/).map((el) => el.textContent);
       expect(names[0]).toBe("zz-broken");
+    });
+
+    it("a broken lane states 'no data path' in the traffic node", () => {
+      const broken = route("apps", "rejected-app", "/x");
+      broken.accepted = false;
+      seed({ ...topo, routes: [broken] });
+      const { getByText } = render(<NetworkTopology cluster="c" gateway={gateway} />);
+      expect(getByText("— no data path")).toBeTruthy();
     });
   });
 });
