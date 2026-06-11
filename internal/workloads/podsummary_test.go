@@ -446,3 +446,43 @@ func TestSummarizePods_Fields(t *testing.T) {
 		t.Errorf("AgeSeconds: got %d, want 600 (10min)", s.AgeSeconds)
 	}
 }
+
+func TestSummarizePods_ContainerPorts(t *testing.T) {
+	p := makePod("default", "web", corev1.PodRunning, true)
+	p.Spec.InitContainers = []corev1.Container{{
+		Name: "setup", Image: "busybox:1.36",
+		Ports: []corev1.ContainerPort{{ContainerPort: 9999}}, // declared but init ports are never offered
+	}}
+	p.Spec.Containers = []corev1.Container{
+		{
+			Name: "app", Image: "app:1",
+			Ports: []corev1.ContainerPort{
+				{Name: "http", ContainerPort: 3000, Protocol: corev1.ProtocolTCP},
+				{ContainerPort: 9090}, // unnamed, protocol unset -> defaults TCP
+			},
+		},
+		{Name: "sidecar", Image: "sc:1"}, // no declared ports
+	}
+
+	out := SummarizePods([]corev1.Pod{p}, psNow)
+	s := out[0]
+	if len(s.Containers) != 3 {
+		t.Fatalf("want 3 containers (init+2), got %d", len(s.Containers))
+	}
+	if s.Containers[0].Ports != nil {
+		t.Errorf("init container ports must not be collected, got %+v", s.Containers[0].Ports)
+	}
+	app := s.Containers[1]
+	if len(app.Ports) != 2 {
+		t.Fatalf("app ports: want 2, got %+v", app.Ports)
+	}
+	if app.Ports[0] != (ContainerPort{Name: "http", Port: 3000, Protocol: "TCP"}) {
+		t.Errorf("port 0 wrong: %+v", app.Ports[0])
+	}
+	if app.Ports[1] != (ContainerPort{Name: "", Port: 9090, Protocol: "TCP"}) {
+		t.Errorf("port 1 must default protocol to TCP: %+v", app.Ports[1])
+	}
+	if s.Containers[2].Ports != nil {
+		t.Errorf("sidecar with no spec ports should have nil ports, got %+v", s.Containers[2].Ports)
+	}
+}

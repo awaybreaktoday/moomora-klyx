@@ -98,7 +98,9 @@ export type WorkloadsSlice = {
   live: boolean;
 };
 
-export type ContainerSummaryDTO = { name: string; image: string; ready: boolean; restarts: number; state: string; init: boolean };
+export type ContainerPortDTO = { name: string; port: number; protocol: string };
+// ports is optional in the type (older fixtures omit it); the backend always sends it.
+export type ContainerSummaryDTO = { name: string; image: string; ready: boolean; restarts: number; state: string; init: boolean; ports?: ContainerPortDTO[] };
 export type PodSummaryDTO = { namespace: string; name: string; ready: boolean; phase: string; reason: string; rank: "unhealthy"|"degraded"|"restarts"|"healthy"; restarts: number; node: string; ip: string; ownerKind: string; ownerName: string; ageSeconds: number; containers: ContainerSummaryDTO[] };
 export type PodsResultDTO = { namespaces: string[]; pods: PodSummaryDTO[] };
 export type PodDetailDTO = { summary: PodSummaryDTO; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; qosClass: string; serviceAccount: string };

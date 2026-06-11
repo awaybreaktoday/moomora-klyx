@@ -2,12 +2,21 @@ package appbridge
 
 // ContainerSummaryDTO is a single container within a pod row.
 type ContainerSummaryDTO struct {
+	Name     string             `json:"name"`
+	Image    string             `json:"image"`
+	Ready    bool               `json:"ready"`
+	Restarts int                `json:"restarts"`
+	State    string             `json:"state"` // "running" | "waiting:<Reason>" | "terminated:<Reason>" | ""
+	Init     bool               `json:"init"`
+	Ports    []ContainerPortDTO `json:"ports"`
+}
+
+// ContainerPortDTO is one declared container port - the forward popover offers
+// these as one-click target suggestions.
+type ContainerPortDTO struct {
 	Name     string `json:"name"`
-	Image    string `json:"image"`
-	Ready    bool   `json:"ready"`
-	Restarts int    `json:"restarts"`
-	State    string `json:"state"` // "running" | "waiting:<Reason>" | "terminated:<Reason>" | ""
-	Init     bool   `json:"init"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
 }
 
 // PodSummaryDTO is the pods-lens row.
