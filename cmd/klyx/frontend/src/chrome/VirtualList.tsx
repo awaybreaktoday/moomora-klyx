@@ -75,10 +75,13 @@ function VirtualListInner<T>(
     },
   }), [items.length, rowHeight, forcePlain]);
 
-  // Plain render for short lists or variable-height rows.
+  // Plain render for short lists or variable-height rows. The container still
+  // owns its scrolling (overflowY) — without it, rows overflow the flex box
+  // visibly and spill into the nearest ancestor scroll container, which then
+  // scrolls the WHOLE view (list + any side panel) together.
   if (forcePlain || items.length < PLAIN_THRESHOLD) {
     return (
-      <div ref={containerRef} style={style}>
+      <div ref={containerRef} style={{ overflowY: "auto", ...style }}>
         {items.map((item, i) => (
           <div key={i} data-vl-idx={i} style={{ display: "contents" }}>
             {render(item, i)}
