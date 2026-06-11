@@ -1,0 +1,55 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, fireEvent } from "@testing-library/react";
+import { FleetSpine } from "./FleetSpine";
+import { useFleet } from "../store/fleet";
+import type { ClusterDTO } from "../store/fleet";
+
+const cluster = (name: string, state = "Synced", reason = ""): ClusterDTO => ({
+  name, state, reason, nodesReady: 1, nodesTotal: 1, pods: 10, version: "v1.36.1",
+  gitopsTier: "Healthy", gitopsReason: "", networkTier: "Healthy", networkReason: "",
+  env: "homelab", region: "", provider: "k3s", group: "", ageSeconds: 3,
+});
+
+describe("FleetSpine", () => {
+  beforeEach(() => {
+    useFleet.setState({ clusters: [], fleetBoard: {}, route: { name: "fleet" } });
+  });
+
+  it("renders nothing with no clusters", () => {
+    const { queryByTestId } = render(<FleetSpine />);
+    expect(queryByTestId("fleet-spine")).toBeNull();
+  });
+
+  it("renders one block per cluster; click switches cluster from anywhere", () => {
+    useFleet.setState({ clusters: [cluster("nelli"), cluster("blue")], route: { name: "cluster", cluster: "nelli", section: "pods" } });
+    const { getByLabelText } = render(<FleetSpine />);
+    fireEvent.click(getByLabelText("cluster blue"));
+    expect(useFleet.getState().route).toMatchObject({ name: "cluster", cluster: "blue" });
+  });
+
+  it("marks the selected cluster with aria-current", () => {
+    useFleet.setState({ clusters: [cluster("nelli"), cluster("blue")], route: { name: "cluster", cluster: "nelli", section: "pods" } });
+    const { getByLabelText } = render(<FleetSpine />);
+    expect(getByLabelText("cluster nelli").getAttribute("aria-current")).toBe("true");
+    expect(getByLabelText("cluster blue").getAttribute("aria-current")).toBeNull();
+  });
+
+  it("an unreachable cluster gets a dashed block with the reason in the tooltip", () => {
+    useFleet.setState({ clusters: [cluster("orange", "Failed", "connect timed out")] });
+    const { getByLabelText } = render(<FleetSpine />);
+    const block = getByLabelText("cluster orange");
+    expect(block.style.border).toContain("dashed");
+    expect(block.title).toContain("connect timed out");
+  });
+
+  it("broken workloads (from the fleet board) upgrade the block to danger", () => {
+    useFleet.setState({
+      clusters: [cluster("prd")],
+      fleetBoard: { prd: { cpuFraction: null, memFraction: null, broken: 2, flux: null, argo: null } },
+    });
+    const { getByLabelText } = render(<FleetSpine />);
+    const block = getByLabelText("cluster prd");
+    expect(block.title).toContain("2 broken workloads");
+    expect(block.style.background).toContain("danger");
+  });
+});

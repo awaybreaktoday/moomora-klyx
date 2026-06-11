@@ -1,5 +1,6 @@
 import { useFleet } from "../store/fleet";
 import { Sidebar } from "../chrome/Sidebar";
+import { FleetSpine } from "../chrome/FleetSpine";
 import { TopBar } from "../chrome/TopBar";
 import { Header } from "../chrome/Header";
 import { FleetView } from "../fleet/FleetView";
@@ -16,6 +17,7 @@ export function AppShell() {
       <CommandPalette />
       <TopBar />
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <FleetSpine />
         <Sidebar />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "var(--color-background-primary)" }}>
           <Header />
