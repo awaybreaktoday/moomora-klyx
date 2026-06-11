@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import { FleetSpine } from "./FleetSpine";
+import { FleetSpine, spineCodes } from "./FleetSpine";
 import { useFleet } from "../store/fleet";
 import type { ClusterDTO } from "../store/fleet";
 
@@ -51,5 +51,31 @@ describe("FleetSpine", () => {
     const block = getByLabelText("cluster prd");
     expect(block.title).toContain("2 broken workloads");
     expect(block.style.background).toContain("danger");
+  });
+
+  it("blocks carry a short identifying code", () => {
+    useFleet.setState({ clusters: [cluster("homelab-nelli"), cluster("homelab-blue")] });
+    const { getByLabelText } = render(<FleetSpine />);
+    expect(getByLabelText("cluster homelab-nelli").textContent).toBe("hn");
+    expect(getByLabelText("cluster homelab-blue").textContent).toBe("hb");
+  });
+});
+
+describe("spineCodes", () => {
+  it("uses segment initials when distinct", () => {
+    expect(spineCodes(["homelab-blue", "homelab-nelli", "prd-weu", "prd-neu"])).toEqual({
+      "homelab-blue": "hb", "homelab-nelli": "hn", "prd-weu": "pw", "prd-neu": "pn",
+    });
+  });
+
+  it("falls back to last-segment letters on collision", () => {
+    // homelab-blue vs homelab-bee both give "hb" -> fall back to "bl"/"be".
+    expect(spineCodes(["homelab-blue", "homelab-bee"])).toEqual({
+      "homelab-blue": "bl", "homelab-bee": "be",
+    });
+  });
+
+  it("single-segment names use their first two letters", () => {
+    expect(spineCodes(["nelli"])).toEqual({ nelli: "ne" });
   });
 });
