@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { SkeletonRows } from "../chrome/SkeletonRows";
 import { useFleet } from "../store/fleet";
 import type { EventRowDTO } from "../store/fleet";
 import { listEvents, openLiveEvents } from "../bridge/events";
@@ -142,7 +143,7 @@ export function EventsView({ cluster }: { cluster: string }) {
 
       {/* Table */}
       {events.loading && events.items.length === 0 ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading events…</div>
+        <SkeletonRows rows={8} label="loading events" />
       ) : filtered.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
           {events.items.length === 0

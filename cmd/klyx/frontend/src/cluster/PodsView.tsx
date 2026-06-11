@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { IconTerminal2, IconExternalLink } from "@tabler/icons-react";
+import { IconTerminal2, IconExternalLink, IconCircleDot } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { PodDetailDTO, PodSummaryDTO, ContainerSummaryDTO } from "../store/fleet";
 import { listPods, openLivePods, openPodDetail, deletePod } from "../bridge/pods";
@@ -14,6 +14,8 @@ import type { VirtualListHandle } from "../chrome/VirtualList";
 import { useResizablePanel } from "../chrome/useResizablePanel";
 import { useResizableDock } from "../chrome/useResizableDock";
 import { useListKeys } from "../chrome/useListKeys";
+import { EmptyState } from "../chrome/EmptyState";
+import { SkeletonRows } from "../chrome/SkeletonRows";
 
 const rankDot: Record<string, string> = {
   unhealthy: "var(--color-text-danger)",
@@ -164,13 +166,13 @@ export function PodsView({ cluster }: { cluster: string }) {
 
           {/* Table */}
           {pods.loading && pods.items.length === 0 ? (
-            <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading pods…</div>
+            <SkeletonRows rows={8} label="loading pods" />
           ) : filtered.length === 0 ? (
-            <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>
-              {pods.items.length === 0
-                ? `No pods${pods.namespace ? ` in ${pods.namespace}` : ""}.`
-                : "No pods match the current filter."}
-            </div>
+            <EmptyState
+              icon={<IconCircleDot size={28} stroke={1.2} />}
+              title={pods.items.length === 0 ? `No pods${pods.namespace ? ` in ${pods.namespace}` : ""}.` : "No pods match the current filter."}
+              hint={pods.items.length === 0 ? undefined : "Adjust the filter text or the needs-attention chip."}
+            />
           ) : (
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               {/* Header */}

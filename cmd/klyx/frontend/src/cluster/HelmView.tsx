@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useState } from "react";
+import { SkeletonRows } from "../chrome/SkeletonRows";
 import { useFleet } from "../store/fleet";
 import type { HelmReleaseDTO, HelmHistoryEntryDTO } from "../store/fleet";
 import { listHelmReleases, openHelmRelease, helmRollback } from "../bridge/helm";
@@ -86,7 +87,7 @@ export function HelmView({ cluster }: { cluster: string }) {
 
         {/* List */}
         {helm.loading && helm.releases.length === 0 ? (
-          <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading releases…</div>
+          <SkeletonRows rows={6} label="loading releases" />
         ) : helm.releases.length === 0 ? (
           <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No Helm releases found.</div>
         ) : (

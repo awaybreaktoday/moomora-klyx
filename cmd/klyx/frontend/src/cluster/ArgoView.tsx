@@ -3,6 +3,9 @@ import { useFleet } from "../store/fleet";
 import type { ArgoAppDTO } from "../store/fleet";
 import { listArgoApps, refreshArgoApp, syncArgoApp } from "../bridge/argo";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
+import { EmptyState } from "../chrome/EmptyState";
+import { SkeletonRows } from "../chrome/SkeletonRows";
+import { IconGitMerge } from "@tabler/icons-react";
 
 // ArgoView is the Argo CD lens, speaking Argo's vocabulary (synced/degraded,
 // never translated into Flux terms). Apps arrive broken-first from the
@@ -59,11 +62,15 @@ export function ArgoView({ cluster }: { cluster: string }) {
       </div>
 
       {argo.loading && argo.apps.length === 0 ? (
-        <div style={emptyStyle}>Loading applications…</div>
+        <SkeletonRows rows={6} label="loading applications" />
       ) : !argo.available ? (
         <div style={emptyStyle}>{argo.message || "Argo CD is not available on this cluster."}</div>
       ) : argo.apps.length === 0 ? (
-        <div style={emptyStyle}>No Argo CD applications on this cluster.</div>
+        <EmptyState
+          icon={<IconGitMerge size={28} stroke={1.2} />}
+          title="No Argo CD applications on this cluster."
+          hint="Argo CD is installed but no Application objects exist yet."
+        />
       ) : (
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
