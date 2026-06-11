@@ -159,7 +159,7 @@ describe("WorkloadsView", () => {
     fireEvent.click(getByText("scale")); // open popover
     const input = getByRole("spinbutton", { name: /replica count/i });
     fireEvent.change(input, { target: { value: "3" } });
-    fireEvent.click(getByText("✓")); // confirm in popover
+    fireEvent.click(getByText("apply")); // confirm in popover
     expect(scaleWorkload).toHaveBeenCalledWith("homelab-nelli", "Deployment", "ollama-prod", "ollama", 3);
   });
 

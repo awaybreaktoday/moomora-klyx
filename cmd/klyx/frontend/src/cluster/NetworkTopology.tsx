@@ -235,7 +235,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
       {t.warnings && t.warnings.length > 0 && (
         <div style={{ marginTop: 10 }}>
           {t.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 11, color: "var(--color-text-warning)", padding: "2px 0" }}>⚠ {w}</div>
+            <div key={i} style={{ fontSize: 11, color: "var(--color-text-warning)", padding: "2px 0" }}>⚠︎ {w}</div>
           ))}
         </div>
       )}

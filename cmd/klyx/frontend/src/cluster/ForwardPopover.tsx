@@ -58,7 +58,7 @@ export function ForwardPopover({
           aria-label={`use port ${p.port}`}
           title={p.name ? `declared port ${p.name}` : "declared port"}
           style={{
-            fontSize: 10, padding: "1px 7px", borderRadius: 9, cursor: "pointer",
+            fontSize: 10, padding: "1px 7px", borderRadius: 11, cursor: "pointer",
             border: target === String(p.port) ? "0.5px solid var(--color-text-info)" : "0.5px solid var(--color-border-tertiary)",
             background: "transparent",
             color: target === String(p.port) ? "var(--color-text-info)" : "var(--color-text-tertiary)",

@@ -201,7 +201,7 @@ function StatTile({
         minWidth: 80,
       }}
     >
-      <span style={{ fontSize: 18, fontWeight: 500, color: countColor, lineHeight: 1 }}>
+      <span style={{ fontSize: 17, fontWeight: 500, color: countColor, lineHeight: 1 }}>
         {count === null ? "—" : String(count)}
       </span>
       <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", lineHeight: 1 }}>{label}</span>
@@ -259,7 +259,7 @@ function MonitoringLine({ dto, loading, onRefresh }: { dto: MetricsDTO | null; l
     const where = dto.mode === "explicit-endpoint" ? `endpoint ${dto.source}` : `svc ${dto.source}`;
     const label = dto.mode === "discovered-service" ? "discovered" : dto.mode === "explicit-service-ref" ? "service" : "endpoint";
     text = `monitoring: ${label} · ${where}`;
-    if (dto.warning) text += ` ⚠ ${dto.warning}`;
+    if (dto.warning) text += ` ⚠︎ ${dto.warning}`;
   }
   return (
     <div style={{ display: "flex", gap: 8, fontSize: 11, alignItems: "center", marginTop: 2 }}>

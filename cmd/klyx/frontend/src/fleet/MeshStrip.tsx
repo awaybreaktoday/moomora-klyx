@@ -2,7 +2,7 @@ import type { MeshGraphDTO } from "../store/fleet";
 
 const node: React.CSSProperties = {
   background: "var(--color-background-primary)", border: "1px solid var(--color-border-info)",
-  borderRadius: 7, padding: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11,
+  borderRadius: 6, padding: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11,
 };
 
 export function MeshStrip({ graph }: { graph: MeshGraphDTO }) {
@@ -47,7 +47,7 @@ export function MeshStrip({ graph }: { graph: MeshGraphDTO }) {
         })}
       </div>
       {graph.edges.some((e) => !e.mutual) && (
-        <div style={{ fontSize: 9, color: "var(--color-text-warning)", marginTop: 4 }}>⚠ dashed = asymmetric / off-fleet (one-way configured)</div>
+        <div style={{ fontSize: 9, color: "var(--color-text-warning)", marginTop: 4 }}>⚠︎ dashed = asymmetric / off-fleet (one-way configured)</div>
       )}
     </div>
   );

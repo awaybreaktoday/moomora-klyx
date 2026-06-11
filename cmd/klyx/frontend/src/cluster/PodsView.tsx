@@ -793,7 +793,7 @@ function ExecButtons({
         style={btn}
         title="Copy kubectl exec command to clipboard"
       >
-        {copyState === "copied" ? "copied!" : copyState === "error" ? "copy error" : "copy exec"}
+        {copyState === "copied" ? "copied" : copyState === "error" ? "copy error" : "copy exec"}
       </button>
     </div>
   );

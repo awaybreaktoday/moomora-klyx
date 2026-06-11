@@ -529,8 +529,8 @@ function ScalePopover({ initial, onConfirm, onCancel }: { initial: number; onCon
         autoFocus
         style={{ width: 52, fontSize: 11, padding: "2px 4px", fontFamily: "var(--font-mono)", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 3, color: "var(--color-text-primary)" }}
       />
-      <button onClick={() => { if (valid) onConfirm(n); }} disabled={!valid} style={{ ...btn, padding: "2px 6px", opacity: valid ? 1 : 0.4, cursor: valid ? "pointer" : "not-allowed" }}>✓</button>
-      <button onClick={onCancel} style={{ ...btn, padding: "2px 6px" }}>✕</button>
+      <button onClick={() => { if (valid) onConfirm(n); }} disabled={!valid} aria-label="apply scale" style={{ ...btn, padding: "2px 8px", opacity: valid ? 1 : 0.4, cursor: valid ? "pointer" : "not-allowed" }}>apply</button>
+      <button onClick={onCancel} aria-label="cancel scale" style={{ ...btn, padding: "2px 8px" }}>✕</button>
     </span>
   );
 }
