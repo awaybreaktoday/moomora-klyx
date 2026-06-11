@@ -278,6 +278,12 @@ Post-G3 refinements (owner-driven, 2026-06-10/11):
 - Pods: a long phase reason (OOMKilled) clips with ellipsis + hover instead of overlapping restarts.
 - Forwards section (sidebar, under Fleet, with live count): every tunnel across clusters with status dot, cluster, kind, target, :port → localhost:port, started ago, copy URL, open in browser, stop / stop all; "view all" in the TopBar popover jumps there; cmd+K "Port-forwards" works.
 
+Settings + fleet config (2026-06-11):
+- Sidebar Terminal opens Terminal.app; Settings opens the new fleet-level Settings page (also via cmd+K).
+- Settings: fleet.yaml path + clusters table (env/group/protected/metrics) + config load warnings shown in-app.
+- Kubeconfig contexts: re-scanned on every open; "in fleet"/"not in fleet" tags; tick a new context -> "add to fleet" appends to fleet.yaml WITHOUT touching your hand-written entries/comments, then banners "restart Klyx to connect".
+- Sidebar shows "Settings · N" on startup when kubeconfig has contexts not in the fleet (the new-cluster signal).
+
 G3 (sparklines):
 - Workloads: expand a row (with monitoring present) — "cpu 30m" and "mem 30m" sparklines render under the usage line and roughly match the Grafana/prom graph shape for the same window.
 - Overview: small sparklines next to the cpu/mem percent bars; absent (no error) when monitoring is unavailable.
