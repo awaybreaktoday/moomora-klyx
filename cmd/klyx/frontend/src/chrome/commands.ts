@@ -56,6 +56,13 @@ export function buildCommands(s: FleetStore): Command[] {
     title: "Fleet overview",
     run: () => s.openFleet(),
   });
+  cmds.push({
+    id: "forwards",
+    group: "Clusters",
+    title: "Port-forwards",
+    hint: (s.forwards?.length ?? 0) > 0 ? `${s.forwards.length} active` : undefined,
+    run: () => s.openForwards(),
+  });
 
   // --- Sections (only inside a cluster) --------------------------------------
   if (cluster) {

@@ -46,7 +46,7 @@ describe("buildCommands", () => {
     });
     const cmds = buildCommands(s);
     const clusterCmds = cmds.filter((c) => c.group === "Clusters");
-    expect(clusterCmds.map((c) => c.title)).toEqual(["dev", "prd", "Fleet overview"]);
+    expect(clusterCmds.map((c) => c.title)).toEqual(["dev", "prd", "Fleet overview", "Port-forwards"]);
     expect(clusterCmds[0].hint).toBe("DEV · westeurope");
   });
 

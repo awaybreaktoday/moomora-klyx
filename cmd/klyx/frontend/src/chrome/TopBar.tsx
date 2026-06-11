@@ -94,6 +94,11 @@ function ForwardsIndicator() {
               port-forwards
             </span>
             <button
+              onClick={() => { useFleet.getState().openForwards(); setOpen(false); }}
+              data-testid="forwards-view-all"
+              style={{ fontSize: 10, padding: "2px 8px", marginRight: 4, borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" }}
+            >view all</button>
+            <button
               onClick={() => void stopAllForwards()}
               data-testid="forwards-stop-all"
               style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" }}

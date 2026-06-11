@@ -57,6 +57,7 @@ describe("Sidebar section order", () => {
     // Fleet is first; then the 10 sections (grouped); then Terminal, Settings, collapse sidebar.
     const expectedOrder = [
       "Fleet",
+      "Forwards",
       "Overview",
       "Workloads", "Pods", "Events",
       "Flux", "Helm",

@@ -70,4 +70,13 @@ describe("TopBar forwards indicator", () => {
     expect(row.getAttribute("style")).toContain("var(--color-text-warning)");
     expect(row.textContent).toContain("broken");
   });
+
+  it("view all navigates to the forwards section and closes the panel", () => {
+    useFleet.getState().setForwards([active]);
+    const { getByTestId, queryByTestId } = render(<TopBar />);
+    fireEvent.click(getByTestId("forwards-chip"));
+    fireEvent.click(getByTestId("forwards-view-all"));
+    expect(useFleet.getState().route).toEqual({ name: "forwards" });
+    expect(queryByTestId("forwards-panel")).toBeNull();
+  });
 });
