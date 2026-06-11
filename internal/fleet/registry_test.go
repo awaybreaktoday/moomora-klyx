@@ -120,6 +120,9 @@ func (f *fakeConn) SetCordon(context.Context, string, bool) error { return nil }
 func (f *fakeConn) DrainNodeCmd(nodeName string) (*exec.Cmd, error) {
 	return exec.Command("true"), nil
 }
+func (f *fakeConn) DebugCommand(namespace, pod, container string) ([]string, error) {
+	return nil, nil
+}
 func (f *fakeConn) ExecCommand(namespace, pod, container string) ([]string, error) {
 	return []string{"kubectl", "exec", pod}, nil
 }

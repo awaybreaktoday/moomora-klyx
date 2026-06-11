@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -67,4 +68,42 @@ func TestExecCommand(t *testing.T) {
 			t.Errorf("error message: got %q want %q", err.Error(), want)
 		}
 	})
+}
+
+func TestDebugCommand(t *testing.T) {
+	c := &ClusterConn{kubeContext: "kubernetes-admin@homelab-nelli"}
+	argv, err := c.DebugCommand("cert-manager", "cert-manager-7d65955cff-c8s5r", "cert-manager-controller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"kubectl", "--context", "kubernetes-admin@homelab-nelli",
+		"-n", "cert-manager", "debug", "-it", "cert-manager-7d65955cff-c8s5r",
+		"--image=busybox:1.36", "--target=cert-manager-controller", "--", "sh",
+	}
+	if len(argv) != len(want) {
+		t.Fatalf("argv: got %v, want %v", argv, want)
+	}
+	for i := range want {
+		if argv[i] != want[i] {
+			t.Fatalf("argv[%d]: got %q, want %q", i, argv[i], want[i])
+		}
+	}
+}
+
+func TestDebugCommandNoTarget(t *testing.T) {
+	c := &ClusterConn{kubeContext: "ctx"}
+	argv, _ := c.DebugCommand("ns", "pod", "")
+	for _, a := range argv {
+		if strings.HasPrefix(a, "--target") {
+			t.Fatalf("empty container must omit --target: %v", argv)
+		}
+	}
+}
+
+func TestDebugCommandNoContext(t *testing.T) {
+	c := &ClusterConn{}
+	if _, err := c.DebugCommand("ns", "pod", "c"); err == nil {
+		t.Fatal("want error without kube context")
+	}
 }
