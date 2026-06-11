@@ -8,7 +8,7 @@ export function Header() {
   const route = useFleet((s) => s.route);
   const clusters = useFleet((s) => s.clusters);
   const regions = new Set(clusters.map((c) => c.region).filter(Boolean));
-  const title = route.name === "fleet" ? "Fleet" : route.name === "forwards" ? "Port-forwards" : SECTION_LABELS[route.section];
+  const title = route.name === "fleet" ? "Fleet" : route.name === "forwards" ? "Port-forwards" : route.name === "settings" ? "Settings" : SECTION_LABELS[route.section];
 
   return (
     <div style={{ padding: "10px 16px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AppShell } from "./app/AppShell";
 import { initFleetBridge } from "./bridge/fleet";
 import { initForwardsBridge } from "./bridge/forwards";
+import { refreshNewContextCount } from "./bridge/configsvc";
 
 export default function App() {
   useEffect(() => {
@@ -9,6 +10,7 @@ export default function App() {
     let offForwards = () => {};
     initFleetBridge().then((u) => (offFleet = u)).catch((e) => console.error("fleet bridge init", e));
     initForwardsBridge().then((u) => (offForwards = u)).catch((e) => console.error("forwards bridge init", e));
+    void refreshNewContextCount();
     return () => { offFleet(); offForwards(); };
   }, []);
   return <AppShell />;

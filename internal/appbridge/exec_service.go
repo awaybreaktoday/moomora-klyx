@@ -124,3 +124,20 @@ func shellQuoteArg(arg string) string {
 	// Single-quote the whole argument; escape embedded single quotes as '\''.
 	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 }
+
+// OpenTerminal opens a plain OS terminal window (no command) - the sidebar's
+// external-terminal escape hatch. macOS only for now, same constraint as
+// OpenExecTerminal.
+func (s *ExecService) OpenTerminal() ActionResultDTO {
+	if runtime.GOOS != "darwin" {
+		return ActionResultDTO{Error: "open-terminal not supported on this platform yet"}
+	}
+	script := `tell application "Terminal" to do script ""` + "\n" +
+		`tell application "Terminal" to activate`
+	cmd := exec.Command("osascript", "-e", script) //nolint:gosec // fixed script
+	if err := cmd.Start(); err != nil {
+		return ActionResultDTO{Error: "open terminal: " + err.Error()}
+	}
+	go func() { _ = cmd.Wait() }()
+	return ActionResultDTO{OK: true}
+}

@@ -151,6 +151,7 @@ export type InstanceDetailSlice = { ref: InstanceRef | null; detail: InstanceDet
 export type Route =
   | { name: "fleet" }
   | { name: "forwards" }
+  | { name: "settings" }
   | { name: "cluster"; cluster: string; section: ClusterSection; resource?: ResourceRef; instance?: InstanceRef; gateway?: GatewayRef };
 
 export const SECTION_LABELS: Record<ClusterSection, string> = {
@@ -302,6 +303,9 @@ type FleetState = {
   route: Route;
   openFleet: () => void;
   openForwards: () => void;
+  openSettings: () => void;
+  newContexts: number;
+  setNewContexts: (n: number) => void;
   openCluster: (name: string) => void;
   setSection: (s: ClusterSection) => void;
   openResource: (ref: ResourceRef) => void;
@@ -408,6 +412,9 @@ export const useFleet = create<FleetState>((set) => ({
   route: { name: "fleet" },
   openFleet: () => set({ route: { name: "fleet" } }),
   openForwards: () => set({ route: { name: "forwards" } }),
+  openSettings: () => set({ route: { name: "settings" } }),
+  newContexts: 0,
+  setNewContexts: (newContexts) => set({ newContexts }),
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
   setSection: (section) =>
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section } } : {})),

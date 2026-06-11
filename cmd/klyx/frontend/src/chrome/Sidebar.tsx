@@ -7,6 +7,7 @@ import {
   IconComponents,
 } from "@tabler/icons-react";
 import { useFleet, ClusterSection, SECTION_LABELS } from "../store/fleet";
+import { openTerminal } from "../bridge/configsvc";
 import { BUILTIN_CATALOG } from "../cluster/builtins";
 
 const COLLAPSED_WIDTH = 46;
@@ -46,6 +47,8 @@ export function Sidebar() {
   const openFleet = useFleet((s) => s.openFleet);
   const openForwards = useFleet((s) => s.openForwards);
   const forwardsCount = useFleet((s) => s.forwards.length);
+  const openSettings = useFleet((s) => s.openSettings);
+  const newContexts = useFleet((s) => s.newContexts);
   const setSection = useFleet((s) => s.setSection);
   const builtinCategory = useFleet((s) => s.crd.builtinCategory);
   const setBuiltinCategory = useFleet((s) => s.setBuiltinCategory);
@@ -165,10 +168,15 @@ export function Sidebar() {
       <div style={{ flex: 1 }} />
 
       {/* Bottom placeholders */}
-      <RailButton label="Terminal" disabled expanded={expanded}>
+      <RailButton label="Terminal" onClick={() => void openTerminal()} expanded={expanded}>
         <IconTerminal2 size={16} stroke={1.5} />
       </RailButton>
-      <RailButton label="Settings" disabled expanded={expanded}>
+      <RailButton
+        label={newContexts > 0 ? `Settings · ${newContexts}` : "Settings"}
+        active={route.name === "settings"}
+        onClick={openSettings}
+        expanded={expanded}
+      >
         <IconSettings size={16} stroke={1.5} />
       </RailButton>
 
