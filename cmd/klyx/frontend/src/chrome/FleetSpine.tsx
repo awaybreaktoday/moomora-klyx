@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { IconChevronRight, IconChevronLeft } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 
 // spineCodes derives a short (2-char) identifying code per cluster so the
@@ -42,6 +44,16 @@ export function FleetSpine() {
   const board = useFleet((s) => s.fleetBoard);
   const route = useFleet((s) => s.route);
   const openCluster = useFleet((s) => s.openCluster);
+  // Width is the user's call (persisted): slim code blocks, or expanded with
+  // full cluster names once the fleet outgrows two-letter codes.
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    try { return localStorage.getItem("klyx-spine-expanded") === "1"; } catch { return false; }
+  });
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    try { localStorage.setItem("klyx-spine-expanded", next ? "1" : "0"); } catch { /* noop */ }
+  };
 
   if (clusters.length === 0) return null;
   const selected = route.name === "cluster" ? route.cluster : null;
@@ -51,15 +63,15 @@ export function FleetSpine() {
     <div
       data-testid="fleet-spine"
       style={{
-        width: 30,
+        width: expanded ? 118 : 30,
         flexShrink: 0,
         borderRight: "0.5px solid var(--color-border-tertiary)",
         background: "var(--color-background-secondary)",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
+        alignItems: expanded ? "stretch" : "center",
         gap: 6,
-        padding: "10px 0",
+        padding: expanded ? "10px 6px" : "10px 0",
       }}
     >
       {clusters.map((c) => {
@@ -87,6 +99,40 @@ export function FleetSpine() {
           color = "var(--color-text-warning)";
         }
 
+        if (expanded) {
+          const brokenCount = board[c.name]?.broken ?? null;
+          return (
+            <button
+              key={c.name}
+              onClick={() => openCluster(c.name)}
+              aria-label={`cluster ${c.name}`}
+              aria-current={isSelected ? "true" : undefined}
+              title={title}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "3px 6px",
+                borderRadius: 4,
+                cursor: "pointer",
+                background: "transparent",
+                border: "0.5px solid transparent",
+                boxShadow: isSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+                textAlign: "left",
+              }}
+            >
+              <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background, border }} />
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 10, lineHeight: 1,
+                color: unreachable ? "var(--color-text-tertiary)" : "var(--color-text-secondary)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+              }}>{c.name}</span>
+              {brokenCount != null && brokenCount > 0 && (
+                <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-text-danger)", flexShrink: 0 }}>{brokenCount}</span>
+              )}
+            </button>
+          );
+        }
         return (
           <button
             key={c.name}
@@ -114,6 +160,21 @@ export function FleetSpine() {
           </button>
         );
       })}
+      <button
+        onClick={toggle}
+        aria-label={expanded ? "collapse fleet spine" : "expand fleet spine"}
+        title={expanded ? "collapse" : "expand"}
+        style={{
+          marginTop: "auto",
+          alignSelf: "center",
+          width: 20, height: 20,
+          padding: 0, border: "none", background: "transparent",
+          cursor: "pointer", color: "var(--color-text-tertiary)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        {expanded ? <IconChevronLeft size={13} stroke={1.5} /> : <IconChevronRight size={13} stroke={1.5} />}
+      </button>
     </div>
   );
 }
