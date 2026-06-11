@@ -10,6 +10,15 @@ const nm: React.CSSProperties = { fontSize: 11, fontWeight: 600, fontFamily: "va
 const chev: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-tertiary)" };
 
 const routeKey = (r: { namespace: string; name: string }) => `${r.namespace}/${r.name}`;
+
+// laneRank orders lanes for the topology: 0 = broken (rejected, unresolved
+// refs, or no backend at all), 1 = healthy. Sort is stable, so within each
+// tier the API order is preserved.
+function laneRank(r: RouteNodeDTO): number {
+  const svc = r.services[0];
+  const broken = !r.accepted || !r.resolvedRefs || !svc || !svc.resolved;
+  return broken ? 0 : 1;
+}
 const dot = (ok: boolean) => (ok ? "var(--color-text-success)" : "var(--color-text-danger)");
 
 // Above this many namespaces the inline chips would wrap into a wall and shove
@@ -24,6 +33,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
   const rmStatus = useFleet((s) => s.network.routeMetricsStatus);
   const rmStale = useFleet((s) => s.network.routeMetricsStale);
   const [nsFilter, setNsFilter] = useState<string | null>(null);
+  const [routeQuery, setRouteQuery] = useState("");
 
   useEffect(() => {
     void getGatewayTopology(cluster, gateway);
@@ -62,7 +72,22 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
   const namespaces = [...nsCounts.keys()].sort();
   const showFilter = namespaces.length > 1;
   const activeNs = showFilter && nsFilter && nsCounts.has(nsFilter) ? nsFilter : null;
-  const visibleRoutes = activeNs ? t.routes.filter((r) => r.namespace === activeNs) : t.routes;
+  const nsRoutes = activeNs ? t.routes.filter((r) => r.namespace === activeNs) : t.routes;
+
+  // Route filter: with dozens of routes behind one Gateway the lanes become a
+  // wall; substring-match on name, namespace, hostname, and backend service.
+  const q = routeQuery.trim().toLowerCase();
+  const filteredRoutes = q === ""
+    ? nsRoutes
+    : nsRoutes.filter((r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.namespace.toLowerCase().includes(q) ||
+        r.hostnames.some((h) => h.toLowerCase().includes(q)) ||
+        r.services.some((sv) => sv.name.toLowerCase().includes(q)));
+
+  // Diagnostic default ordering: broken lanes (rejected, unresolved refs, or no
+  // backend) float to the top so they are never buried under healthy routes.
+  const visibleRoutes = [...filteredRoutes].sort((a, b) => laneRank(a) - laneRank(b));
 
   const selected = visibleRoutes.find((r) => routeKey(r) === net.selectedRoute) ?? null;
 
@@ -96,8 +121,9 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <div style={{ marginBottom: 12, padding: "8px 10px", fontSize: 12, borderRadius: 4, background: "var(--color-background-danger)", color: "var(--color-text-danger)", border: "0.5px solid var(--color-border-danger)" }}>{t.error}</div>
       )}
 
-      {showFilter && (
+      {(showFilter || t.routes.length > 1) && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, alignItems: "center" }}>
+          {showFilter && (<>
           <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)", marginRight: 2 }}>namespace</span>
           {namespaces.length <= NS_CHIP_LIMIT ? (
             <>
@@ -118,11 +144,24 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
               ))}
             </select>
           )}
+          </>)}
+          <input
+            value={routeQuery}
+            onChange={(e) => setRouteQuery(e.target.value)}
+            placeholder="filter routes"
+            aria-label="filter routes"
+            style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
+          />
+          {visibleRoutes.length !== nsRoutes.length && (
+            <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleRoutes.length} of {nsRoutes.length} routes</span>
+          )}
         </div>
       )}
 
       {t.routes.length === 0 && !t.error ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No HTTPRoutes attached to this Gateway.</div>
+      ) : visibleRoutes.length === 0 ? (
+        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No routes match the current filter.</div>
       ) : (
         <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px 12px" }}>
           {visibleRoutes.map((r) => {

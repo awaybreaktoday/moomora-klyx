@@ -251,4 +251,52 @@ describe("NetworkTopology", () => {
     // services …"; match only the edge forms ("⇄ global →" / "⇄ global (").
     expect(queryByText(/⇄ global(?: →| \()/)).toBeNull();
   });
+
+  // --- Route filter + worst-first ordering ---
+
+  describe("route filter", () => {
+    function seedMany() {
+      const t = { ...topo, routes: [route("apps", "share", "/share"), route("apps", "billing", "/billing"), route("apps", "grafana", "/")] };
+      t.routes[2].hostnames = ["grafana.example.com"];
+      seed(t);
+    }
+
+    it("filters lanes by route name and shows the narrowed count", () => {
+      seedMany();
+      const { getByLabelText, queryByText, getByText } = render(<NetworkTopology cluster="c" gateway={gateway} />);
+      fireEvent.change(getByLabelText("filter routes"), { target: { value: "billing" } });
+      expect(getByText("billing")).toBeTruthy();
+      expect(queryByText("share")).toBeNull();
+      expect(getByText("1 of 3 routes")).toBeTruthy();
+    });
+
+    it("matches hostnames and backend service names too", () => {
+      seedMany();
+      const { getByLabelText, getByText, queryByText } = render(<NetworkTopology cluster="c" gateway={gateway} />);
+      const input = getByLabelText("filter routes");
+      fireEvent.change(input, { target: { value: "grafana.example" } });
+      expect(getByText("grafana")).toBeTruthy();
+      fireEvent.change(input, { target: { value: "billing-svc" } });
+      expect(getByText("billing")).toBeTruthy();
+      expect(queryByText("grafana")).toBeNull();
+    });
+
+    it("shows an honest empty state when nothing matches", () => {
+      seedMany();
+      const { getByLabelText, getByText } = render(<NetworkTopology cluster="c" gateway={gateway} />);
+      fireEvent.change(getByLabelText("filter routes"), { target: { value: "zzz-nope" } });
+      expect(getByText("No routes match the current filter.")).toBeTruthy();
+    });
+
+    it("broken routes sort above healthy ones", () => {
+      const broken = route("apps", "zz-broken", "/zz");
+      broken.accepted = false;
+      const t = { ...topo, routes: [route("apps", "aa-healthy", "/aa"), broken] };
+      seed(t);
+      const { getAllByText } = render(<NetworkTopology cluster="c" gateway={gateway} />);
+      // Lane order in the DOM: the rejected route's name renders before the healthy one's.
+      const names = getAllByText(/aa-healthy|zz-broken/).map((el) => el.textContent);
+      expect(names[0]).toBe("zz-broken");
+    });
+  });
 });
