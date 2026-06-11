@@ -82,21 +82,26 @@ export function FleetSpine() {
         let background = "var(--color-background-success)";
         let border = "0.5px solid var(--color-border-success)";
         let color = "var(--color-text-success)";
+        // Selection thickens the block's OWN severity color - no foreign accent.
+        let selectedBorder = "1.5px solid var(--color-text-success)";
         let title = `${c.name} — ${c.state.toLowerCase()}`;
         if (unreachable) {
           background = "transparent";
           border = "0.5px dashed var(--color-border-secondary)";
           color = "var(--color-text-tertiary)";
+          selectedBorder = "1.5px dashed var(--color-border-primary)";
           title = `${c.name} — ${c.state.toLowerCase()}${c.reason ? `: ${c.reason}` : ""}`;
         } else if (broken) {
           background = "var(--color-background-danger)";
           border = "0.5px solid var(--color-border-danger)";
           color = "var(--color-text-danger)";
+          selectedBorder = "1.5px solid var(--color-text-danger)";
           title = `${c.name} — ${board[c.name]!.broken} broken workload${board[c.name]!.broken === 1 ? "" : "s"}`;
         } else if (c.state === "Degraded") {
           background = "var(--color-background-warning)";
           border = "0.5px solid var(--color-border-warning)";
           color = "var(--color-text-warning)";
+          selectedBorder = "1.5px solid var(--color-text-warning)";
         }
 
         if (expanded) {
@@ -115,16 +120,16 @@ export function FleetSpine() {
                 padding: "3px 6px",
                 borderRadius: 4,
                 cursor: "pointer",
-                background: "transparent",
-                border: "0.5px solid transparent",
-                boxShadow: isSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
+                // Sidebar active-item idiom: the selected row becomes a card.
+                background: isSelected ? "var(--color-background-primary)" : "transparent",
+                border: isSelected ? "0.5px solid var(--color-border-secondary)" : "0.5px solid transparent",
                 textAlign: "left",
               }}
             >
               <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background, border }} />
               <span style={{
                 fontFamily: "var(--font-mono)", fontSize: 10, lineHeight: 1,
-                color: unreachable ? "var(--color-text-tertiary)" : "var(--color-text-secondary)",
+                color: unreachable ? "var(--color-text-tertiary)" : isSelected ? "var(--color-text-primary)" : "var(--color-text-secondary)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
               }}>{c.name}</span>
               {brokenCount != null && brokenCount > 0 && (
@@ -147,13 +152,11 @@ export function FleetSpine() {
               padding: 0,
               cursor: "pointer",
               background,
-              border,
+              border: isSelected ? selectedBorder : border,
               color,
               fontSize: 9,
               fontFamily: "var(--font-mono)",
               lineHeight: 1,
-              // Selection is a ring, not a color change - severity stays honest.
-              boxShadow: isSelected ? "0 0 0 1.5px var(--color-text-info)" : undefined,
             }}
           >
             {codes[c.name]}

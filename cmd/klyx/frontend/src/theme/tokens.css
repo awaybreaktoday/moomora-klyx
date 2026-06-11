@@ -96,7 +96,7 @@ div[role="button"]:hover {
 
 /* Keyboard a11y: a clear themed focus ring, only for keyboard focus. */
 :focus-visible {
-  outline: 1.5px solid var(--color-text-info);
+  outline: 1px solid var(--color-border-primary);
   outline-offset: 1px;
   border-radius: 3px;
 }
