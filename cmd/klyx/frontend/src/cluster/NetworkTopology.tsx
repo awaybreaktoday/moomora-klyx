@@ -166,14 +166,14 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px 12px" }}>
           {visibleRoutes.map((r) => {
             const svc = r.services[0];
+            const broken = laneRank(r) === 0;
             return (
-              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "170px 20px 1fr 20px 190px 20px 190px", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
-                <div style={nb}>
-                  <div style={lab}>gateway</div><div style={nm}>{t.gateway.namespace}/{t.gateway.name}</div>
-                  <div style={{ fontSize: 9, color: "var(--color-text-secondary)", marginTop: 2 }}>{t.gateway.listeners.map((l) => `${l.protocol}:${l.port}`).join(" · ")}</div>
-                </div>
-                <div style={chev}>›</div>
-                <div style={{ ...nb, borderColor: "var(--color-border-info)", cursor: "pointer", boxShadow: net.selectedRoute === routeKey(r) ? "0 0 0 1px var(--color-text-info)" : undefined }} onClick={() => selectRoute(routeKey(r))}>
+              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "3px minmax(0,1.2fr) 20px minmax(0,1fr) 20px minmax(0,0.9fr)", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
+                {/* Severity rail: broken lanes read in peripheral vision. The
+                    gateway box is gone from lanes - it was identical in every
+                    lane and the topology header already states it. */}
+                <div style={{ background: broken ? "var(--color-text-danger)" : "transparent", borderRadius: 0 }} />
+                <div style={{ ...nb, borderColor: broken ? "var(--color-border-danger)" : "var(--color-border-info)", background: broken ? "var(--color-background-danger)" : nb.background, cursor: "pointer", boxShadow: net.selectedRoute === routeKey(r) ? "0 0 0 1px var(--color-text-info)" : undefined }} onClick={() => selectRoute(routeKey(r))}>
                   <div style={{ ...lab, color: "var(--color-text-info)" }}>httproute</div>
                   <div style={{ ...nm, color: "var(--color-text-info)" }}>{r.name}</div>
                   <div style={{ fontSize: 9, marginTop: 2, ...ellipsis }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: dot(r.accepted), display: "inline-block", marginRight: 4 }} />{r.accepted ? "accepted" : "rejected"} · {r.matches[0]?.pathValue ?? "/"}</div>
@@ -184,27 +184,20 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                       ))}
                     </div>
                   )}
-                  <RouteMetricsLine m={routeMetrics[routeKey(r)]} />
                 </div>
                 <div style={chev}>›</div>
                 <div style={nb}>
                   <div style={lab}>service</div>
                   <div style={nm}>{svc ? svc.name : "—"}</div>
-                  <div style={{ fontSize: 9, color: svc?.resolved ? "var(--color-text-secondary)" : "var(--color-text-danger)", marginTop: 2 }}>{!svc ? "no backend" : svc.resolved ? `${svc.type} :${svc.port}` : "unresolved"}{r.backends.length > 1 ? ` · +${r.backends.length - 1}` : ""}</div>
-                  {svc && svc.policies.length > 0 && (
+                  <div style={{ fontSize: 9, color: svc?.resolved ? "var(--color-text-secondary)" : "var(--color-text-danger)", marginTop: 2 }}>
+                    {!svc ? "no backend" : svc.resolved ? `${svc.type} :${svc.port}` : "unresolved"}{r.backends.length > 1 ? ` · +${r.backends.length - 1}` : ""}
+                    {svc && <span style={{ color: r.pods.unknown ? "var(--color-text-tertiary)" : r.pods.ready < r.pods.total ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}> · pods {r.pods.unknown ? "unknown" : `${r.pods.ready}/${r.pods.total}`}</span>}
+                  </div>
+                  {svc && (svc.policies.length > 0 || svc.cnps.length > 0) && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
                       {svc.policies.map((p) => (
                         <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
                       ))}
-                    </div>
-                  )}
-                </div>
-                <div style={chev}>›</div>
-                <div style={nb}>
-                  <div style={lab}>pods</div>
-                  <div style={nm}>{r.pods.unknown ? "unknown" : `${r.pods.ready} / ${r.pods.total}`}</div>
-                  {svc && svc.cnps.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
                       {svc.cnps.map((p) => (
                         <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
                       ))}
@@ -216,6 +209,8 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
                     </div>
                   )}
                 </div>
+                <div style={chev}>›</div>
+                <TrafficBox broken={broken} hasBackend={!!svc && svc.resolved} m={routeMetrics[routeKey(r)]} />
               </div>
             );
           })}
@@ -268,20 +263,30 @@ function ago(iso: string): string {
 function errColor(v: number | null): string {
   return v == null ? "var(--color-text-tertiary)" : v >= 0.05 ? "var(--color-text-danger)" : v >= 0.01 ? "var(--color-text-warning)" : "var(--color-text-success)";
 }
-function RouteMetricsLine({ m }: { m: RouteMetricDTO | undefined }) {
-  const rps = m?.rps ?? null,
-    p50 = m?.p50 ?? null,
-    p99 = m?.p99 ?? null,
-    err = m?.errRate ?? null;
+// TrafficBox is the lane's live-traffic node: rps/p50/p99/err for the route.
+// A broken or backend-less lane states "no data path" - the absence is said,
+// never left blank. Metrics absence renders dashes (the footer explains why).
+function TrafficBox({ broken, hasBackend, m }: { broken: boolean; hasBackend: boolean; m: RouteMetricDTO | undefined }) {
+  if (broken || !hasBackend) {
+    return (
+      <div style={nb}>
+        <div style={lab}>traffic</div>
+        <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}>— no data path</div>
+      </div>
+    );
+  }
+  const rps = m?.rps ?? null, p50 = m?.p50 ?? null, p99 = m?.p99 ?? null, err = m?.errRate ?? null;
   return (
-    <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)", marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }}>
-      <span>{fmtRps(rps)} rps</span>
-      <span>p50 {fmtMs(p50)}</span>
-      <span>p99 {fmtMs(p99)}</span>
-      <span style={{ color: errColor(err) }}>err {fmtErr(err)}</span>
+    <div style={nb}>
+      <div style={lab}>traffic</div>
+      <div style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>{fmtRps(rps)} rps · p99 {fmtMs(p99)}</div>
+      <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", marginTop: 2, color: "var(--color-text-secondary)" }}>
+        p50 {fmtMs(p50)} · <span style={{ color: errColor(err) }}>err {fmtErr(err)}</span>
+      </div>
     </div>
   );
 }
+
 
 function Chip({ label, count, active, onClick }: { label: string; count?: number; active: boolean; onClick: () => void }) {
   return (
