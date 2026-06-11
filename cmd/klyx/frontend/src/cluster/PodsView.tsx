@@ -32,7 +32,7 @@ const condColor = (status: string) =>
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" };
 
-const gridCols = "12px minmax(0,1.2fr) 60px 100px 55px minmax(0,1.3fr) 52px 28px";
+const gridCols = "12px minmax(0,1.2fr) 60px minmax(110px,0.8fr) 55px minmax(0,1.1fr) 52px 28px";
 
 // Containers table in the detail panel: state must fit "terminated" untruncated
 // and image gets real flexible space (it shares the title-attr full ref).
@@ -290,7 +290,7 @@ function PodRow({
       <span style={{ color: readyCount === nonInitCount ? "var(--color-text-success)" : "var(--color-text-warning)" }}>
         {readyCount}/{nonInitCount}
       </span>
-      <span>
+      <span style={ellipsis} title={p.reason ? `${p.phase} · ${p.reason}` : p.phase}>
         <span style={{ color: p.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
           {p.phase}
         </span>
