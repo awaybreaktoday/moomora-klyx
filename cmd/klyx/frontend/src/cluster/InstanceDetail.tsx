@@ -446,7 +446,7 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
               {d.conditions.map((c) => (
                 <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status, c.type), display: "inline-block" }} />
-                  <span style={{ fontWeight: 500, width: 90 }}>{c.type}</span>
+                  <span style={{ fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{c.type}</span>
                   <span style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={c.message}>{c.message || c.reason}</span>
                 </div>
               ))}

@@ -669,7 +669,7 @@ function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
           {detail.conditions.map((c) => (
             <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 11 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status), display: "inline-block", flexShrink: 0 }} />
-              <span style={{ fontWeight: 500, width: 80, flexShrink: 0 }}>{c.type}</span>
+              <span style={{ fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{c.type}</span>
               <span style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={c.message}>{c.message || c.reason}</span>
             </div>
           ))}
