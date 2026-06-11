@@ -63,7 +63,7 @@ export function FleetSpine() {
     <div
       data-testid="fleet-spine"
       style={{
-        width: expanded ? 118 : 30,
+        width: expanded ? 118 : 38,
         flexShrink: 0,
         borderRight: "0.5px solid var(--color-border-tertiary)",
         background: "var(--color-background-secondary)",
@@ -146,15 +146,15 @@ export function FleetSpine() {
             aria-current={isSelected ? "true" : undefined}
             title={title}
             style={{
-              width: 22,
-              height: 18,
+              width: 26,
+              height: 22,
               borderRadius: 4,
               padding: 0,
               cursor: "pointer",
               background,
               border: isSelected ? selectedBorder : border,
               color,
-              fontSize: 9,
+              fontSize: 10,
               fontFamily: "var(--font-mono)",
               lineHeight: 1,
             }}
