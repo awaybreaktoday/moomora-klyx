@@ -45,6 +45,16 @@ export type ForwardDTO = {
   status: string; // "active" | "broken"
 };
 
+// FleetBoardEntry enriches one fleet card: utilization fractions, GitOps
+// counts per tool, and the broken-workloads count. null = not loaded/failed.
+export type FleetBoardEntry = {
+  cpuFraction: number | null;
+  memFraction: number | null;
+  broken: number | null;
+  flux: { total: number; notReady: number } | null;
+  argo: { total: number; broken: number } | null;
+};
+
 export type ArgoConditionDTO = { type: string; message: string };
 export type ArgoAppDTO = {
   namespace: string; name: string; project: string;
@@ -328,6 +338,8 @@ type FleetState = {
   openSettings: () => void;
   newContexts: number;
   setNewContexts: (n: number) => void;
+  fleetBoard: Record<string, FleetBoardEntry>;
+  setFleetBoardEntry: (cluster: string, e: FleetBoardEntry) => void;
   openCluster: (name: string) => void;
   setSection: (s: ClusterSection) => void;
   openResource: (ref: ResourceRef) => void;
@@ -442,6 +454,8 @@ export const useFleet = create<FleetState>((set) => ({
   openSettings: () => set({ route: { name: "settings" } }),
   newContexts: 0,
   setNewContexts: (newContexts) => set({ newContexts }),
+  fleetBoard: {},
+  setFleetBoardEntry: (cluster, e) => set((s) => ({ fleetBoard: { ...s.fleetBoard, [cluster]: e } })),
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
   setSection: (section) =>
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section } } : {})),
