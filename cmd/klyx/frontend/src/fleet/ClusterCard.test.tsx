@@ -15,9 +15,9 @@ describe("ClusterCard", () => {
   it("renders name, version and counts", () => {
     const { getByText } = render(<ClusterCard c={base} />);
     expect(getByText("plt-sea-prd-we-aks-01")).toBeTruthy();
-    expect(getByText("v1.30.4")).toBeTruthy();
-    expect(getByText("12/12")).toBeTruthy();
-    expect(getByText("487")).toBeTruthy();
+    expect(getByText(/v1\.30\.4/)).toBeTruthy(); // provider · version joined in the header
+    expect(getByText(/12\/12 nodes/)).toBeTruthy();
+    expect(getByText(/487 pods/)).toBeTruthy();
   });
 
   it("shows the reason for a failed cluster", () => {
@@ -68,4 +68,34 @@ it("shows 'mesh enabled, no peers' for an installed-but-peerless cluster", () =>
   const nelli = { name: "ctx-nelli", state: "Ready", networkTier: "Healthy" } as any;
   const { getByText } = render(<ClusterCard c={nelli} />);
   expect(getByText(/mesh enabled, no peers/i)).toBeTruthy();
+});
+
+describe("ClusterCard fleet board", () => {
+  // --- Fleet board enrichment ---
+
+  it("renders the gitops line in each tool's vocabulary when board data exists", () => {
+    useFleet.setState({ fleetBoard: { [base.name]: { cpuFraction: 0.62, memFraction: 0.81, broken: 0, flux: { total: 47, notReady: 0 }, argo: { total: 6, broken: 1 } } } });
+    const { getByText } = render(<ClusterCard c={base} />);
+    expect(getByText("quiet")).toBeTruthy();
+    expect(getByText("47 ready")).toBeTruthy();
+    expect(getByText("1 not synced")).toBeTruthy();
+    expect(getByText("62%")).toBeTruthy();
+    expect(getByText("81%")).toBeTruthy();
+  });
+
+  it("broken workloads show a count, never hidden", () => {
+    useFleet.setState({ fleetBoard: { [base.name]: { cpuFraction: null, memFraction: null, broken: 3, flux: null, argo: null } } });
+    const { getByText } = render(<ClusterCard c={base} />);
+    expect(getByText("3 broken")).toBeTruthy();
+    expect(getByText("gitops —")).toBeTruthy(); // no tools detected reads dash
+  });
+
+  it("an unreachable cluster renders as a ghost stating reason and recovery", () => {
+    const down = { ...base, name: "homelab-orange", state: "Failed", reason: "connect timed out", ageSeconds: 7200 };
+    const { getByText, queryByText } = render(<ClusterCard c={down} />);
+    expect(getByText(/failed · 2h/)).toBeTruthy();
+    expect(getByText("connect timed out")).toBeTruthy();
+    expect(getByText(/reconnects automatically/)).toBeTruthy();
+    expect(queryByText(/nodes/)).toBeNull(); // no fabricated stats
+  });
 });
