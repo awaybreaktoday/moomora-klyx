@@ -94,4 +94,16 @@ describe("VirtualList", () => {
       expect(row.getAttribute("data-idx")).toBe(String(i));
     });
   });
+
+  it("plain path owns its scrolling (overflowY auto on the container)", () => {
+    const items = Array.from({ length: 5 }, (_, i) => `row-${i}`);
+    const { container } = render(
+      <VirtualList items={items} rowHeight={32} style={{ flex: 1, minHeight: 0 }} render={(it) => <div key={it}>{it}</div>} />,
+    );
+    const outer = container.firstElementChild as HTMLElement;
+    // Without this, short lists overflow visibly and the nearest ancestor
+    // scroll container scrolls the whole view (list + detail panel) together.
+    expect(outer.style.overflowY).toBe("auto");
+    expect(outer.style.flex).toBe("1 1 0%"); // caller style still applies
+  });
 });
