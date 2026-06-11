@@ -270,6 +270,10 @@ G2 (aggregate workload logs):
 - Dock header shows kind + ns/name; pop-out button moves the tail to a native window (title "logs · ns/name (kind)") and closes the dock.
 - If a pod's stream dies mid-tail, a `… N of M pod streams failed` marker appears instead of silent loss.
 
+Post-G3 refinements (owner-driven, 2026-06-10/11):
+- Pod detail containers table: state fits "terminated", image shows short name:tag (full ref on hover).
+- Forward popover (pod path): declared container ports render as one-click chips; a single declared port prefills the target; multi-container ports dedupe. Try it on grafana (3000) vs a chip-less bare pod.
+
 G3 (sparklines):
 - Workloads: expand a row (with monitoring present) — "cpu 30m" and "mem 30m" sparklines render under the usage line and roughly match the Grafana/prom graph shape for the same window.
 - Overview: small sparklines next to the cpu/mem percent bars; absent (no error) when monitoring is unavailable.
