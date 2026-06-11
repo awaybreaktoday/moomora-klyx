@@ -273,6 +273,7 @@ G2 (aggregate workload logs):
 Post-G3 refinements (owner-driven, 2026-06-10/11):
 - Pod detail containers table: state fits "terminated", image shows short name:tag (full ref on hover).
 - Forward popover (pod path): declared container ports render as one-click chips; a single declared port prefills the target; multi-container ports dedupe. Try it on grafana (3000) vs a chip-less bare pod.
+- Forwards section (sidebar, under Fleet, with live count): every tunnel across clusters with status dot, cluster, kind, target, :port → localhost:port, started ago, copy URL, open in browser, stop / stop all; "view all" in the TopBar popover jumps there; cmd+K "Port-forwards" works.
 
 G3 (sparklines):
 - Workloads: expand a row (with monitoring present) — "cpu 30m" and "mem 30m" sparklines render under the usage line and roughly match the Grafana/prom graph shape for the same window.
