@@ -55,6 +55,20 @@ export type FleetBoardEntry = {
   argo: { total: number; broken: number } | null;
 };
 
+// TapeCounts is the persistent triage tape's per-lens attention counts.
+// null = that lens could not be read (its chip is skipped, never zeroed).
+export type TapeCounts = {
+  workloads: number | null;
+  pods: number | null;
+  events: number | null;
+  nodes: number | null;
+  helm: number | null;
+  flux: number | null;
+  argo: number | null;
+};
+type TapeSlice = { cluster: string | null; loading: boolean; counts: TapeCounts };
+const emptyTapeCounts: TapeCounts = { workloads: null, pods: null, events: null, nodes: null, helm: null, flux: null, argo: null };
+
 export type ArgoConditionDTO = { type: string; message: string };
 export type ArgoAppDTO = {
   namespace: string; name: string; project: string;
@@ -340,6 +354,10 @@ type FleetState = {
   setNewContexts: (n: number) => void;
   fleetBoard: Record<string, FleetBoardEntry>;
   setFleetBoardEntry: (cluster: string, e: FleetBoardEntry) => void;
+  tape: TapeSlice;
+  setTapeLoading: (cluster: string) => void;
+  setTape: (cluster: string, counts: TapeCounts) => void;
+  clearTape: () => void;
   openCluster: (name: string) => void;
   setSection: (s: ClusterSection) => void;
   openResource: (ref: ResourceRef) => void;
@@ -456,6 +474,10 @@ export const useFleet = create<FleetState>((set) => ({
   setNewContexts: (newContexts) => set({ newContexts }),
   fleetBoard: {},
   setFleetBoardEntry: (cluster, e) => set((s) => ({ fleetBoard: { ...s.fleetBoard, [cluster]: e } })),
+  tape: { cluster: null, loading: false, counts: emptyTapeCounts },
+  setTapeLoading: (cluster) => set({ tape: { cluster, loading: true, counts: emptyTapeCounts } }),
+  setTape: (cluster, counts) => set({ tape: { cluster, loading: false, counts } }),
+  clearTape: () => set({ tape: { cluster: null, loading: false, counts: emptyTapeCounts } }),
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
   setSection: (section) =>
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section } } : {})),
