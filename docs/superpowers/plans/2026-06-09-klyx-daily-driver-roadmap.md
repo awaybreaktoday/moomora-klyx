@@ -278,6 +278,12 @@ Post-G3 refinements (owner-driven, 2026-06-10/11):
 - Pods: a long phase reason (OOMKilled) clips with ellipsis + hover instead of overlapping restarts.
 - Forwards section (sidebar, under Fleet, with live count): every tunnel across clusters with status dot, cluster, kind, target, :port → localhost:port, started ago, copy URL, open in browser, stop / stop all; "view all" in the TopBar popover jumps there; cmd+K "Port-forwards" works.
 
+UI finish layer (2026-06-11):
+- Rows highlight on cursor hover in every list; buttons ease and dim slightly on hover/press; keyboard focus draws a blue ring.
+- Loading states are shimmering skeleton rows (pods/workloads/events/helm/argo) instead of "Loading…" text.
+- Empty states are centered icon + title + hint (pods/workloads/argo/forwards).
+- Scrollbars are slim and theme-matched; text selection uses the accent. Check both light AND dark.
+
 Argo CD support (2026-06-11, M6 revived - Argo now runs on the homelab):
 - Sidebar "Argo CD" section between Flux and Helm (also cmd+K): 6 nelli apps listed with Synced/Healthy, auto tags, dest ns, short revision, reconciled ago; broken apps would sort first with a red dot + "N need attention".
 - Expand a row: source repo/path@rev, last operation, conditions; "refresh app" and "sync" behind confirm (sync never prunes - caption says so).
