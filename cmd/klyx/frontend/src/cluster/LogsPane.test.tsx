@@ -368,7 +368,7 @@ describe("LogsPane", () => {
   // New tests: copy button
   // -------------------------------------------------------------------------
 
-  it("copy button writes full buffer to clipboard and shows 'copied!'", async () => {
+  it("copy button writes full buffer to clipboard and shows 'copied'", async () => {
     mockOpenLogStream.mockImplementation(() => openSuccess("s-copy"));
     const { getByRole, getByText } = render(<LogsPane cluster="homelab" pod={defaultPod} />);
     await waitFor(() => expect(eventHandlers["podlogs:s-copy"]).toBeDefined());
@@ -383,7 +383,7 @@ describe("LogsPane", () => {
     });
 
     await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith("line A\nline B\nline C"));
-    await waitFor(() => expect(getByText("copied!")).toBeTruthy());
+    await waitFor(() => expect(getByText("copied")).toBeTruthy());
   });
 
   // -------------------------------------------------------------------------

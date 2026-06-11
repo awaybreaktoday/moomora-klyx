@@ -72,7 +72,7 @@ export function SettingsView() {
         {cfg.warnings.length > 0 && (
           <div style={{ marginBottom: 8 }}>
             {cfg.warnings.map((w, i) => (
-              <div key={i} style={{ fontSize: 11, color: "var(--color-text-warning)", padding: "2px 0" }}>⚠ {w}</div>
+              <div key={i} style={{ fontSize: 11, color: "var(--color-text-warning)", padding: "2px 0" }}>⚠︎ {w}</div>
             ))}
           </div>
         )}
@@ -160,7 +160,7 @@ function PathRow({ label, path }: { label: string; path: string }) {
           style={{ ...btn, padding: "1px 7px", fontSize: 10 }}
           aria-label={`copy ${label} path`}
         >
-          {copied ? "copied!" : "copy"}
+          {copied ? "copied" : "copy"}
         </button>
       )}
     </div>

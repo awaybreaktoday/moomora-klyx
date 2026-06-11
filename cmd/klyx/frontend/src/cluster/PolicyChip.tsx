@@ -47,7 +47,7 @@ export function PolicyChip({ p, align = "left" }: { p: PolicyRefDTO; align?: "le
           display: "inline-flex",
           alignItems: "center",
           gap: 4,
-          fontSize: 8,
+          fontSize: 9,
           padding: "1px 5px",
           borderRadius: 3,
           fontFamily: "var(--font-mono)",

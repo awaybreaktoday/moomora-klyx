@@ -187,7 +187,7 @@ export function CommandPalette() {
           maxWidth: "92vw",
           background: "var(--color-background-primary)",
           border: "0.5px solid var(--color-border-secondary)",
-          borderRadius: 10,
+          borderRadius: 11,
           boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
           overflow: "hidden",
           display: "flex",

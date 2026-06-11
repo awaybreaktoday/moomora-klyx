@@ -439,7 +439,7 @@ export function LogsPane({
         style={btnStyle}
         aria-label="copy logs"
       >
-        {copyState === "copied" ? "copied!" : "copy"}
+        {copyState === "copied" ? "copied" : "copy"}
       </button>
 
       {/* Expand / collapse — hidden in a pop-out window (fixed-overlay expand is

@@ -115,7 +115,7 @@ export function ArgoView({ cluster }: { cluster: string }) {
                     {a.conditions.length > 0 && (
                       <div style={{ marginBottom: 6 }}>
                         {a.conditions.map((c, i) => (
-                          <div key={i} style={{ color: "var(--color-text-danger)" }}>⚠ {c.type}: {c.message}</div>
+                          <div key={i} style={{ color: "var(--color-text-danger)" }}>⚠︎ {c.type}: {c.message}</div>
                         ))}
                       </div>
                     )}
