@@ -13,6 +13,7 @@ const cluster = (name: string, state = "Synced", reason = ""): ClusterDTO => ({
 describe("FleetSpine", () => {
   beforeEach(() => {
     useFleet.setState({ clusters: [], fleetBoard: {}, route: { name: "fleet" } });
+    localStorage.removeItem("klyx-spine-expanded");
   });
 
   it("renders nothing with no clusters", () => {
@@ -51,6 +52,28 @@ describe("FleetSpine", () => {
     const block = getByLabelText("cluster prd");
     expect(block.title).toContain("2 broken workloads");
     expect(block.style.background).toContain("danger");
+  });
+
+  it("expand toggle shows full names and persists the choice", () => {
+    useFleet.setState({ clusters: [cluster("homelab-nelli")] });
+    const { getByLabelText } = render(<FleetSpine />);
+    fireEvent.click(getByLabelText("expand fleet spine"));
+    expect(getByLabelText("cluster homelab-nelli").textContent).toContain("homelab-nelli");
+    expect(localStorage.getItem("klyx-spine-expanded")).toBe("1");
+    fireEvent.click(getByLabelText("collapse fleet spine"));
+    expect(getByLabelText("cluster homelab-nelli").textContent).toBe("hn");
+    expect(localStorage.getItem("klyx-spine-expanded")).toBe("0");
+  });
+
+  it("expanded rows show the broken count beside the name", () => {
+    localStorage.setItem("klyx-spine-expanded", "1");
+    useFleet.setState({
+      clusters: [cluster("prd")],
+      fleetBoard: { prd: { cpuFraction: null, memFraction: null, broken: 3, flux: null, argo: null } },
+    });
+    const { getByLabelText } = render(<FleetSpine />);
+    expect(getByLabelText("cluster prd").textContent).toContain("3");
+    localStorage.removeItem("klyx-spine-expanded");
   });
 
   it("blocks carry a short identifying code", () => {
