@@ -1,0 +1,124 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestAppendClustersPreservesExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fleet.yaml")
+	original := `# my hand-written header comment
+clusters:
+  - name: homelab-nelli
+    context: kubernetes-admin@homelab-nelli
+    protected: false # inline comment survives
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := AppendClusters(path, []string{"kubernetes-admin@homelab-blue"}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	s := string(got)
+	if !strings.HasPrefix(s, original) {
+		t.Fatalf("original bytes (incl. comments) must be preserved verbatim:\n%s", s)
+	}
+	if !strings.Contains(s, "- name: kubernetes-admin@homelab-blue") {
+		t.Fatalf("new entry missing:\n%s", s)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("result must load: %v", err)
+	}
+	if len(cfg.Clusters) != 2 || cfg.Clusters[1].Context != "kubernetes-admin@homelab-blue" {
+		t.Fatalf("parsed clusters wrong: %+v", cfg.Clusters)
+	}
+}
+
+func TestAppendClustersCreatesNewFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "fleet.yaml")
+
+	if err := AppendClusters(path, []string{"ctx-a", "ctx-b"}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("created file must load: %v", err)
+	}
+	if len(cfg.Clusters) != 2 || cfg.Clusters[0].Name != "ctx-a" {
+		t.Fatalf("clusters wrong: %+v", cfg.Clusters)
+	}
+}
+
+func TestAppendClustersRefusesDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fleet.yaml")
+	os.WriteFile(path, []byte("clusters:\n  - name: a\n    context: ctx-a\n"), 0o644)
+
+	// Duplicate by context AND by name are both refused.
+	if err := AppendClusters(path, []string{"ctx-a"}); err == nil {
+		t.Fatal("want duplicate-context error")
+	}
+	if err := AppendClusters(path, []string{"a"}); err == nil {
+		t.Fatal("want duplicate-name error")
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Count(string(got), "- name:") != 1 {
+		t.Fatalf("file must be unchanged on refusal:\n%s", got)
+	}
+}
+
+func TestAppendClustersLeavesInvalidExistingAlone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fleet.yaml")
+	broken := "clusters:\n  - name: a\n  - name: a\n" // duplicate names: invalid
+	os.WriteFile(path, []byte(broken), 0o644)
+
+	if err := AppendClusters(path, []string{"ctx-new"}); err == nil {
+		t.Fatal("want error when existing config is invalid")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != broken {
+		t.Fatalf("file must be untouched:\n%s", got)
+	}
+}
+
+func TestKubeContexts(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	kubeconfig := `apiVersion: v1
+kind: Config
+contexts:
+  - name: kubernetes-admin@homelab-nelli
+    context: {cluster: nelli, user: admin}
+  - name: kubernetes-admin@homelab-blue
+    context: {cluster: blue, user: admin}
+clusters: []
+users: []
+`
+	os.WriteFile(path, []byte(kubeconfig), 0o644)
+
+	got, err := KubeContexts(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"kubernetes-admin@homelab-blue", "kubernetes-admin@homelab-nelli"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("contexts: got %v, want %v (sorted)", got, want)
+	}
+}
+
+func TestKubeContextsMissingFileIsEmptyNotError(t *testing.T) {
+	got, err := KubeContexts(filepath.Join(t.TempDir(), "nope"))
+	if err != nil || got != nil {
+		t.Fatalf("missing kubeconfig: want nil/nil, got %v/%v", got, err)
+	}
+}

@@ -223,6 +223,8 @@ func main() {
 
 	windowsSvc := appbridge.NewWindowsService(winOpener)
 
+	configSvc := appbridge.NewConfigService(configPath(), cfg)
+
 	app := application.New(application.Options{
 		Name:        "Klyx",
 		Description: "Platform-engineer-grade Kubernetes desktop client",
@@ -243,6 +245,7 @@ func main() {
 			application.NewService(execSvc),
 			application.NewService(helmSvc),
 			application.NewService(windowsSvc),
+			application.NewService(configSvc),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

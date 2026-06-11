@@ -16,6 +16,15 @@ export function Breadcrumb() {
   if (route.name === "fleet") {
     return <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Fleet</span>;
   }
+  if (route.name === "settings") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--color-text-tertiary)" }}>
+        <button onClick={openFleet} style={crumbBtn}>Fleet</button>
+        <span>/</span>
+        <span style={{ color: "var(--color-text-primary)" }}>Settings</span>
+      </div>
+    );
+  }
   if (route.name === "forwards") {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--color-text-tertiary)" }}>

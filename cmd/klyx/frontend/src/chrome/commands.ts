@@ -57,6 +57,13 @@ export function buildCommands(s: FleetStore): Command[] {
     run: () => s.openFleet(),
   });
   cmds.push({
+    id: "settings",
+    group: "Clusters",
+    title: "Settings",
+    hint: "fleet config · kubeconfig contexts",
+    run: () => s.openSettings(),
+  });
+  cmds.push({
     id: "forwards",
     group: "Clusters",
     title: "Port-forwards",
