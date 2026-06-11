@@ -33,11 +33,12 @@ describe("TriageTape", () => {
     expect(queryByRole("button")).toBeNull();
   });
 
-  it("nonzero counts render chips; click jumps to the filtered lens", () => {
+  it("nonzero counts render chips (singularized); click jumps to the filtered lens", () => {
     seed({ workloads: 1, events: 3 });
     const { getByRole, getByText } = render(<TriageTape cluster="nelli" />);
     expect(getByText("everything else is quiet")).toBeTruthy();
-    fireEvent.click(getByRole("button", { name: "1 unhealthy workloads" }));
+    expect(getByRole("button", { name: "3 warning events" })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "1 unhealthy workload" }));
     const st = useFleet.getState();
     expect(st.route).toMatchObject({ name: "cluster", section: "workloads" });
     expect(st.workloads.needsAttention).toBe(true);
@@ -46,20 +47,27 @@ describe("TriageTape", () => {
   it("argo chip navigates to the argo section", () => {
     seed({ argo: 2 });
     const { getByRole } = render(<TriageTape cluster="nelli" />);
-    fireEvent.click(getByRole("button", { name: "2 argo not synced" }));
+    fireEvent.click(getByRole("button", { name: "2 argo apps not synced" }));
     expect(useFleet.getState().route).toMatchObject({ section: "argo" });
   });
 
   it("unreadable lenses are never claimed quiet", () => {
-    useFleet.setState({ tape: { cluster: "nelli", loading: false, counts: { workloads: null, pods: null, events: null, nodes: null, helm: null, flux: null, argo: null } } });
+    useFleet.setState({ tape: { cluster: "nelli", loading: false, counts: { workloads: "unreadable", pods: "unreadable", events: "unreadable", nodes: "unreadable", helm: "unreadable", flux: "unreadable", argo: "unreadable" } } });
     const { getByText } = render(<TriageTape cluster="nelli" />);
     expect(getByText("triage unavailable")).toBeTruthy();
   });
 
-  it("partially readable shows alerts + 'some lenses unreadable'", () => {
-    useFleet.setState({ tape: { cluster: "nelli", loading: false, counts: { workloads: 2, pods: null, events: 0, nodes: null, helm: null, flux: 0, argo: null } } });
+  it("absent tools are expected, not unreadable - a Flux-only cluster is quiet", () => {
+    seed({ argo: "absent", helm: "absent" });
+    const { getByText, queryByText } = render(<TriageTape cluster="nelli" />);
+    expect(getByText("everything is quiet")).toBeTruthy();
+    expect(queryByText(/unreadable/)).toBeNull();
+  });
+
+  it("genuinely unreadable lenses are counted in the trailer", () => {
+    useFleet.setState({ tape: { cluster: "nelli", loading: false, counts: { workloads: 2, pods: "unreadable", events: 0, nodes: "unreadable", helm: "absent", flux: 0, argo: "absent" } } });
     const { getByText, getByRole } = render(<TriageTape cluster="nelli" />);
     expect(getByRole("button", { name: "2 unhealthy workloads" })).toBeTruthy();
-    expect(getByText("some lenses unreadable")).toBeTruthy();
+    expect(getByText("2 lenses unreadable")).toBeTruthy();
   });
 });

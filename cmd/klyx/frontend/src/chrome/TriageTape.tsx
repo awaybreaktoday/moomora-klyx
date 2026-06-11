@@ -11,8 +11,8 @@ import { fetchTape } from "../bridge/tape";
 
 type Chip = {
   key: string;
-  count: number | null;
-  label: string;
+  count: import("../store/fleet").LensCount;
+  label: [string, string]; // [singular, plural]
   variant: "danger" | "warning";
   go: () => void;
 };
@@ -30,24 +30,27 @@ export function TriageTape({ cluster }: { cluster: string }) {
 
   const nav = useFleet.getState();
   const chips: Chip[] = [
-    { key: "workloads", count: tape.counts.workloads, label: "unhealthy workloads", variant: "danger", go: () => { nav.setSection("workloads"); nav.setWorkloadsNeedsAttention(true); } },
-    { key: "pods", count: tape.counts.pods, label: "pods not ready", variant: "danger", go: () => { nav.setSection("pods"); nav.setPodsNeedsAttention(true); } },
-    { key: "events", count: tape.counts.events, label: "warning events", variant: "warning", go: () => { nav.setSection("events"); nav.setWarningsOnly(true); } },
-    { key: "nodes", count: tape.counts.nodes, label: "node problems", variant: "danger", go: () => nav.setSection("nodes") },
-    { key: "helm", count: tape.counts.helm, label: "failed releases", variant: "danger", go: () => nav.setSection("helm") },
-    { key: "flux", count: tape.counts.flux, label: "flux not ready", variant: "danger", go: () => nav.setSection("gitops") },
-    { key: "argo", count: tape.counts.argo, label: "argo not synced", variant: "warning", go: () => nav.setSection("argo") },
+    { key: "workloads", count: tape.counts.workloads, label: ["unhealthy workload", "unhealthy workloads"], variant: "danger", go: () => { nav.setSection("workloads"); nav.setWorkloadsNeedsAttention(true); } },
+    { key: "pods", count: tape.counts.pods, label: ["pod not ready", "pods not ready"], variant: "danger", go: () => { nav.setSection("pods"); nav.setPodsNeedsAttention(true); } },
+    { key: "events", count: tape.counts.events, label: ["warning event", "warning events"], variant: "warning", go: () => { nav.setSection("events"); nav.setWarningsOnly(true); } },
+    { key: "nodes", count: tape.counts.nodes, label: ["node problem", "node problems"], variant: "danger", go: () => nav.setSection("nodes") },
+    { key: "helm", count: tape.counts.helm, label: ["failed release", "failed releases"], variant: "danger", go: () => nav.setSection("helm") },
+    { key: "flux", count: tape.counts.flux, label: ["flux not ready", "flux not ready"], variant: "danger", go: () => nav.setSection("gitops") },
+    { key: "argo", count: tape.counts.argo, label: ["argo app not synced", "argo apps not synced"], variant: "warning", go: () => nav.setSection("argo") },
   ];
 
-  const alerts = chips.filter((c) => (c.count ?? 0) > 0);
-  const readable = chips.filter((c) => c.count !== null);
+  // Absent tools are excluded entirely - a Flux-only cluster has no argo lens,
+  // which is expected, not unreadable.
+  const present = chips.filter((c) => c.count !== "absent");
+  const alerts = present.filter((c) => typeof c.count === "number" && c.count > 0);
+  const readable = present.filter((c) => typeof c.count === "number");
+  const unreadable = present.length - readable.length;
 
   let trailer: string;
   if (tape.loading && readable.length === 0) trailer = "checking…";
   else if (readable.length === 0) trailer = "triage unavailable";
-  else if (alerts.length === 0) trailer = "everything is quiet";
-  else if (readable.length < chips.length) trailer = "some lenses unreadable";
-  else trailer = "everything else is quiet";
+  else if (alerts.length === 0) trailer = unreadable > 0 ? `quiet · ${unreadable} lens${unreadable === 1 ? "" : "es"} unreadable` : "everything is quiet";
+  else trailer = unreadable > 0 ? `${unreadable} lens${unreadable === 1 ? "" : "es"} unreadable` : "everything else is quiet";
 
   return (
     <div
@@ -68,7 +71,7 @@ export function TriageTape({ cluster }: { cluster: string }) {
         <button
           key={c.key}
           onClick={c.go}
-          aria-label={`${c.count} ${c.label}`}
+          aria-label={`${c.count} ${c.count === 1 ? c.label[0] : c.label[1]}`}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -83,7 +86,7 @@ export function TriageTape({ cluster }: { cluster: string }) {
             color: c.variant === "danger" ? "var(--color-text-danger)" : "var(--color-text-warning)",
           }}
         >
-          {c.count} {c.label}
+          {c.count} {c.count === 1 ? c.label[0] : c.label[1]}
         </button>
       ))}
       <span style={{ marginLeft: "auto", color: "var(--color-text-tertiary)" }}>{trailer}</span>

@@ -55,19 +55,21 @@ export type FleetBoardEntry = {
   argo: { total: number; broken: number } | null;
 };
 
-// TapeCounts is the persistent triage tape's per-lens attention counts.
-// null = that lens could not be read (its chip is skipped, never zeroed).
+// LensCount is one triage-tape lens: a real count, "absent" (the tool is not
+// installed - expected, excluded from the tape), or "unreadable" (the fetch
+// failed - the tape must say so rather than implying quiet).
+export type LensCount = number | "absent" | "unreadable";
 export type TapeCounts = {
-  workloads: number | null;
-  pods: number | null;
-  events: number | null;
-  nodes: number | null;
-  helm: number | null;
-  flux: number | null;
-  argo: number | null;
+  workloads: LensCount;
+  pods: LensCount;
+  events: LensCount;
+  nodes: LensCount;
+  helm: LensCount;
+  flux: LensCount;
+  argo: LensCount;
 };
 type TapeSlice = { cluster: string | null; loading: boolean; counts: TapeCounts };
-const emptyTapeCounts: TapeCounts = { workloads: null, pods: null, events: null, nodes: null, helm: null, flux: null, argo: null };
+const emptyTapeCounts: TapeCounts = { workloads: "unreadable", pods: "unreadable", events: "unreadable", nodes: "unreadable", helm: "unreadable", flux: "unreadable", argo: "unreadable" };
 
 export type ArgoConditionDTO = { type: string; message: string };
 export type ArgoAppDTO = {

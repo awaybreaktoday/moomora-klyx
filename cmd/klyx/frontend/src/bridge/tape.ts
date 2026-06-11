@@ -32,9 +32,11 @@ export async function fetchTape(cluster: string): Promise<void> {
 
   if (useFleet.getState().tape.cluster !== cluster) return; // stale guard
 
+  // Default everything to unreadable; each lens then proves itself either a
+  // real count or definitively absent.
   const counts: TapeCounts = {
-    workloads: null, pods: null, events: null, nodes: null,
-    helm: null, flux: null, argo: null,
+    workloads: "unreadable", pods: "unreadable", events: "unreadable", nodes: "unreadable",
+    helm: "unreadable", flux: "unreadable", argo: "unreadable",
   };
 
   if (workloads.status === "fulfilled" && workloads.value) {
@@ -55,15 +57,18 @@ export async function fetchTape(cluster: string): Promise<void> {
   }
   if (helm.status === "fulfilled" && helm.value) {
     const h = helm.value as { available: boolean; releases: { status: string }[] };
-    if (h.available) counts.helm = (h.releases ?? []).filter((r) => r.status === "failed").length;
+    // available=false is a definitive "helm not detected", not a failure.
+    counts.helm = h.available ? (h.releases ?? []).filter((r) => r.status === "failed").length : "absent";
   }
   if (flux.status === "fulfilled" && flux.value) {
     const f = flux.value as { fluxPresent: boolean; notReady: number };
-    if (f.fluxPresent) counts.flux = f.notReady ?? 0;
+    counts.flux = f.fluxPresent ? (f.notReady ?? 0) : "absent";
   }
   if (argo.status === "fulfilled" && argo.value) {
-    const a = argo.value as { available: boolean; apps: { broken: boolean }[] };
+    const a = argo.value as { available: boolean; apps: { broken: boolean }[]; message?: string };
     if (a.available) counts.argo = (a.apps ?? []).filter((x) => x.broken).length;
+    // "not detected" is absence; any other unavailable message is a real failure.
+    else counts.argo = (a.message ?? "").includes("not detected") ? "absent" : "unreadable";
   }
 
   useFleet.getState().setTape(cluster, counts);
