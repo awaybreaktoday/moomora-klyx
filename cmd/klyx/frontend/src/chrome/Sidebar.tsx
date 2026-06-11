@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
-  IconLayoutGrid, IconLayoutDashboard, IconStack2, IconGitBranch,
+  IconLayoutGrid,
+  IconArrowsLeftRight, IconLayoutDashboard, IconStack2, IconGitBranch,
   IconRoute, IconTerminal2, IconSettings, IconBox, IconCircleDot,
   IconAlertTriangle, IconServer, IconAnchor, IconChevronRight, IconChevronLeft,
   IconComponents,
@@ -43,6 +44,8 @@ function readPersistedExpanded(): boolean {
 export function Sidebar() {
   const route = useFleet((s) => s.route);
   const openFleet = useFleet((s) => s.openFleet);
+  const openForwards = useFleet((s) => s.openForwards);
+  const forwardsCount = useFleet((s) => s.forwards.length);
   const setSection = useFleet((s) => s.setSection);
   const builtinCategory = useFleet((s) => s.crd.builtinCategory);
   const setBuiltinCategory = useFleet((s) => s.setBuiltinCategory);
@@ -91,6 +94,16 @@ export function Sidebar() {
         expanded={expanded}
       >
         <IconLayoutGrid size={16} stroke={1.5} />
+      </RailButton>
+
+      {/* Port-forwards — fleet-level (tunnels span clusters) */}
+      <RailButton
+        label={forwardsCount > 0 ? `Forwards · ${forwardsCount}` : "Forwards"}
+        active={route.name === "forwards"}
+        onClick={openForwards}
+        expanded={expanded}
+      >
+        <IconArrowsLeftRight size={16} stroke={1.5} />
       </RailButton>
 
       {/* Section nav — grouped with semantic dividers */}

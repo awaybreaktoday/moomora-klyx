@@ -150,6 +150,7 @@ export type InstanceDetailSlice = { ref: InstanceRef | null; detail: InstanceDet
 
 export type Route =
   | { name: "fleet" }
+  | { name: "forwards" }
   | { name: "cluster"; cluster: string; section: ClusterSection; resource?: ResourceRef; instance?: InstanceRef; gateway?: GatewayRef };
 
 export const SECTION_LABELS: Record<ClusterSection, string> = {
@@ -300,6 +301,7 @@ type FleetState = {
   setClusters: (c: ClusterDTO[]) => void;
   route: Route;
   openFleet: () => void;
+  openForwards: () => void;
   openCluster: (name: string) => void;
   setSection: (s: ClusterSection) => void;
   openResource: (ref: ResourceRef) => void;
@@ -405,6 +407,7 @@ export const useFleet = create<FleetState>((set) => ({
   setClusters: (clusters) => set({ clusters }),
   route: { name: "fleet" },
   openFleet: () => set({ route: { name: "fleet" } }),
+  openForwards: () => set({ route: { name: "forwards" } }),
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
   setSection: (section) =>
     set((s) => (s.route.name === "cluster" ? { route: { name: "cluster", cluster: s.route.cluster, section } } : {})),
