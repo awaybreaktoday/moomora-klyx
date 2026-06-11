@@ -167,6 +167,10 @@ func (s *PodsService) DeletePod(cluster, namespace, name string) ActionResultDTO
 func toPodSummaryDTO(p workloads.PodSummary) PodSummaryDTO {
 	containers := make([]ContainerSummaryDTO, 0, len(p.Containers))
 	for _, c := range p.Containers {
+		ports := make([]ContainerPortDTO, 0, len(c.Ports))
+		for _, pt := range c.Ports {
+			ports = append(ports, ContainerPortDTO{Name: pt.Name, Port: pt.Port, Protocol: pt.Protocol})
+		}
 		containers = append(containers, ContainerSummaryDTO{
 			Name:     c.Name,
 			Image:    c.Image,
@@ -174,6 +178,7 @@ func toPodSummaryDTO(p workloads.PodSummary) PodSummaryDTO {
 			Restarts: c.Restarts,
 			State:    c.State,
 			Init:     c.Init,
+			Ports:    ports,
 		})
 	}
 	return PodSummaryDTO{

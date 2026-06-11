@@ -31,6 +31,16 @@ type ContainerSummary struct {
 	Restarts int
 	State    string // "running" | "waiting:<Reason>" | "terminated:<Reason>" | ""
 	Init     bool
+	Ports    []ContainerPort // declared spec ports (may be empty - not all containers declare them)
+}
+
+// ContainerPort is one declared port on a container spec. Port-forward
+// suggestions are built from these so the user never has to open the YAML to
+// find a containerPort.
+type ContainerPort struct {
+	Name     string // spec port name ("http", "metrics"), "" when unnamed
+	Port     int    // containerPort
+	Protocol string // "TCP" | "UDP" | "SCTP" (defaulted to TCP when unset)
 }
 
 // rankPod maps a single pod's state to a HealthRank.
@@ -148,6 +158,7 @@ func buildContainerSummaries(p *corev1.Pod) []ContainerSummary {
 			Name:  c.Name,
 			Image: c.Image,
 			Init:  false,
+			Ports: containerPorts(c.Ports),
 		}
 		if ok {
 			sum.Ready = cs.Ready
@@ -157,6 +168,24 @@ func buildContainerSummaries(p *corev1.Pod) []ContainerSummary {
 		out = append(out, sum)
 	}
 
+	return out
+}
+
+// containerPorts maps spec ports onto the summary shape. Init containers are
+// skipped by the caller (they never serve traffic); protocol defaults to TCP
+// per the API convention.
+func containerPorts(ports []corev1.ContainerPort) []ContainerPort {
+	if len(ports) == 0 {
+		return nil
+	}
+	out := make([]ContainerPort, 0, len(ports))
+	for _, p := range ports {
+		proto := string(p.Protocol)
+		if proto == "" {
+			proto = "TCP"
+		}
+		out = append(out, ContainerPort{Name: p.Name, Port: int(p.ContainerPort), Protocol: proto})
+	}
 	return out
 }
 

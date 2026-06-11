@@ -598,6 +598,7 @@ function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
             namespace={namespace}
             kind="Pod"
             name={name}
+            ports={p.containers.filter((c) => !c.init).flatMap((c) => (c.ports ?? []).map((pt) => ({ name: pt.name, port: pt.port })))}
             onClose={() => setForwarding(false)}
           />
         ) : (
