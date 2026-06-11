@@ -1,6 +1,7 @@
 import { useFleet } from "../store/fleet";
 import { Overview } from "./Overview";
 import { GitOps } from "./GitOps";
+import { ArgoView } from "./ArgoView";
 import { HelmView } from "./HelmView";
 import { CRDBrowser } from "./CRDBrowser";
 import { BuiltinsView } from "./BuiltinsView";
@@ -31,6 +32,7 @@ export function ClusterDetail() {
   }
   if (route.section === "overview") return <Overview c={cluster} />;
   if (route.section === "gitops") return <GitOps cluster={cluster.name} />;
+  if (route.section === "argo") return <ArgoView cluster={cluster.name} />;
   if (route.section === "helm") return <HelmView cluster={cluster.name} />;
   if (route.section === "resources") {
     if (route.resource && route.instance) return <InstanceDetail cluster={cluster.name} resource={route.resource} instance={route.instance} />;

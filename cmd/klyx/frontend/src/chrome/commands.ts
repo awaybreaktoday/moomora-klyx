@@ -27,6 +27,7 @@ const SECTION_ORDER: ClusterSection[] = [
   "pods",
   "events",
   "gitops",
+  "argo",
   "helm",
   "network",
   "nodes",

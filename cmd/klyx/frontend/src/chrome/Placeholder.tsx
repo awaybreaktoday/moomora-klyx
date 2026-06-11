@@ -18,6 +18,8 @@ function message(section: ClusterSection, c: ClusterDTO): string {
       return "";
     case "helm":
       return "";
+    case "argo":
+      return "";
     case "workloads":
       return "";
     case "pods":

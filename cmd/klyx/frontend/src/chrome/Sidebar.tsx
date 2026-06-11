@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   IconLayoutGrid,
-  IconArrowsLeftRight, IconLayoutDashboard, IconStack2, IconGitBranch,
+  IconArrowsLeftRight, IconLayoutDashboard, IconStack2, IconGitBranch, IconGitMerge,
   IconRoute, IconTerminal2, IconSettings, IconBox, IconCircleDot,
   IconAlertTriangle, IconServer, IconAnchor, IconChevronRight, IconChevronLeft,
   IconComponents,
@@ -26,6 +26,7 @@ const SECTION_GROUPS: { section: ClusterSection; Icon: typeof IconLayoutDashboar
   ],
   [
     { section: "gitops",    Icon: IconGitBranch },
+    { section: "argo",      Icon: IconGitMerge },
     { section: "helm",      Icon: IconAnchor },
   ],
   [
