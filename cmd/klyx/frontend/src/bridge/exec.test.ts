@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useFleet } from "../store/fleet";
 
+const mockGetDebugCommand = vi.fn();
+const mockOpenDebugTerminal = vi.fn();
+
 // Mock bindings and runtime before importing the bridge.
 vi.mock("../../bindings/github.com/moomora/klyx/internal/appbridge/index.js", () => ({
   ExecService: {
+    GetDebugCommand: (...args: unknown[]) => mockGetDebugCommand(...args),
+    OpenDebugTerminal: (...args: unknown[]) => mockOpenDebugTerminal(...args),
     GetExecCommand: vi.fn(),
     OpenExecTerminal: vi.fn(),
   },
@@ -95,5 +100,28 @@ describe("openExecTerminal", () => {
 
     const status = useFleet.getState().actionStatus;
     expect(status?.kind).toBe("error");
+  });
+});
+
+describe("debug shell bridge", () => {
+  beforeEach(() => {
+    mockGetDebugCommand.mockReset();
+    mockOpenDebugTerminal.mockReset();
+  });
+
+  it("copyDebugCommand copies the kubectl debug string", async () => {
+    mockGetDebugCommand.mockResolvedValue({ command: "kubectl --context ctx -n ns debug -it p --image=busybox:1.36 --target=c -- sh", argv: [], error: "" });
+    const { copyDebugCommand } = await import("./exec");
+    const r = await copyDebugCommand("cl", "ns", "p", "c");
+    expect(r).toBe("copied");
+    expect(mockGetDebugCommand).toHaveBeenCalledWith("cl", "ns", "p", "c");
+  });
+
+  it("openDebugTerminal surfaces errors via the action toast", async () => {
+    mockOpenDebugTerminal.mockResolvedValue({ ok: false, error: "no kubectl" });
+    const { openDebugTerminal } = await import("./exec");
+    await openDebugTerminal("cl", "ns", "p", "c");
+    expect(useFleet.getState().actionStatus?.kind).toBe("error");
+    expect(useFleet.getState().actionStatus?.message).toBe("no kubectl");
   });
 });

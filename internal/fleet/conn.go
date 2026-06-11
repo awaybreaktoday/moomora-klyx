@@ -72,6 +72,7 @@ type Conn interface {
 	SetCordon(ctx context.Context, nodeName string, cordon bool) error
 	DrainNodeCmd(nodeName string) (*exec.Cmd, error)
 	ExecCommand(namespace, pod, container string) ([]string, error)
+	DebugCommand(namespace, pod, container string) ([]string, error)
 	PortForward(ctx context.Context, namespace, pod string, localPort, targetPort int) (stop func(), actualLocal int, done <-chan error, err error)
 	ResolveServicePod(ctx context.Context, namespace, service string, port int) (pod string, targetPort int, err error)
 	HelmReleases(ctx context.Context) ([]helmcli.Release, error)

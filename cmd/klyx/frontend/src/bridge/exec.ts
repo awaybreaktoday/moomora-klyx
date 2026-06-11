@@ -62,3 +62,39 @@ export async function openExecTerminal(
   }
   // Success: terminal opened — no toast needed.
 }
+
+// copyDebugCommand copies the kubectl debug command (ephemeral busybox shell
+// targeted at the container) to the clipboard. Returns "copied" | "error".
+export async function copyDebugCommand(
+  cluster: string,
+  ns: string,
+  pod: string,
+  container: string,
+): Promise<"copied" | "error"> {
+  try {
+    const dto = (await ExecService.GetDebugCommand(cluster, ns, pod, container)) as ExecCommandDTO;
+    if (!dto || dto.error) return "error";
+    await Clipboard.SetText(dto.command);
+    return "copied";
+  } catch {
+    return "error";
+  }
+}
+
+// openDebugTerminal opens the OS terminal running kubectl debug against the
+// pod. Errors surface via the action toast, same as openExecTerminal.
+export async function openDebugTerminal(
+  cluster: string,
+  ns: string,
+  pod: string,
+  container: string,
+): Promise<void> {
+  try {
+    const r = (await ExecService.OpenDebugTerminal(cluster, ns, pod, container)) as ActionResultDTO;
+    if (!r?.ok) {
+      useFleet.getState().setActionStatus({ kind: "error", message: r?.error || "could not open debug terminal" });
+    }
+  } catch (e) {
+    useFleet.getState().setActionStatus({ kind: "error", message: String(e) });
+  }
+}

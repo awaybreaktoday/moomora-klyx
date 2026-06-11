@@ -10,6 +10,17 @@ type fakeExecConn struct {
 	kubeContext string
 }
 
+func (f *fakeExecConn) DebugCommand(namespace, pod, container string) ([]string, error) {
+	if f.kubeContext == "" {
+		return nil, errEmptyContext
+	}
+	argv := []string{"kubectl", "--context", f.kubeContext, "-n", namespace, "debug", "-it", pod, "--image=busybox:1.36"}
+	if container != "" {
+		argv = append(argv, "--target="+container)
+	}
+	return append(argv, "--", "sh"), nil
+}
+
 func (f *fakeExecConn) ExecCommand(namespace, pod, container string) ([]string, error) {
 	// Reproduce the same logic as ClusterConn.ExecCommand without importing fleet.
 	if f.kubeContext == "" {
@@ -185,5 +196,24 @@ func TestShellQuoteArgv_FullCommand(t *testing.T) {
 	// Shell expression must be single-quoted.
 	if !strings.Contains(got, "'command -v bash >/dev/null && exec bash || exec sh'") {
 		t.Errorf("expected shell expression single-quoted, got: %s", got)
+	}
+}
+
+func TestGetDebugCommand(t *testing.T) {
+	s := NewExecService(func(string) (ExecConn, bool) {
+		return &fakeExecConn{kubeContext: "ctx"}, true
+	})
+	dto := s.GetDebugCommand("c", "cert-manager", "cm-abc", "cert-manager-controller")
+	if dto.Error != "" {
+		t.Fatalf("unexpected error: %s", dto.Error)
+	}
+	want := "kubectl --context ctx -n cert-manager debug -it cm-abc --image=busybox:1.36 --target=cert-manager-controller -- sh"
+	if dto.Command != want {
+		t.Fatalf("command:\n got %q\nwant %q", dto.Command, want)
+	}
+
+	miss := NewExecService(func(string) (ExecConn, bool) { return nil, false })
+	if d := miss.GetDebugCommand("nope", "ns", "p", "c"); d.Error == "" {
+		t.Fatal("cluster miss must error")
 	}
 }

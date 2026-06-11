@@ -5,7 +5,7 @@ import type { PodDetailDTO, PodSummaryDTO, ContainerSummaryDTO } from "../store/
 import { listPods, openLivePods, openPodDetail, deletePod } from "../bridge/pods";
 import { openLogsWindow } from "../bridge/windows";
 import { rolloutRestart } from "../bridge/workloads";
-import { copyExecCommand, openExecTerminal } from "../bridge/exec";
+import { copyExecCommand, openExecTerminal, openDebugTerminal } from "../bridge/exec";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { LogsPane } from "./LogsPane";
 import { ForwardPopover } from "./ForwardPopover";
@@ -610,6 +610,12 @@ function InfoTab({ detail, cluster, namespace, name, onRestart, onDelete }: {
           pod={name}
           containers={p.containers.filter((c) => !c.init)}
         />
+        <DebugShellButton
+          cluster={cluster}
+          namespace={namespace}
+          pod={name}
+          containers={p.containers.filter((c) => !c.init)}
+        />
         <button
           onClick={() => onDelete(p)}
           style={{ ...btn, color: "var(--color-text-danger)" }}
@@ -787,6 +793,83 @@ function ExecButtons({
       >
         {copyState === "copied" ? "copied!" : copyState === "error" ? "copy error" : "copy exec"}
       </button>
+    </div>
+  );
+}
+
+// DebugShellButton opens an ephemeral busybox container attached to the pod
+// (kubectl debug -it --image=busybox --target=<container>) in the external
+// terminal - the shell for DISTROLESS containers where "open shell" has
+// nothing to exec. With more than one container a picker chooses the
+// --target (whose process namespace the shell joins).
+function DebugShellButton({
+  cluster, namespace, pod, containers,
+}: {
+  cluster: string;
+  namespace: string;
+  pod: string;
+  containers: ContainerSummaryDTO[];
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [pickerOpen]);
+
+  const open = (container: string) => {
+    setPickerOpen(false);
+    void openDebugTerminal(cluster, namespace, pod, container);
+  };
+
+  const tip = "Attach an ephemeral busybox shell (kubectl debug) - works on distroless images where open shell cannot. The ephemeral container stays listed on the pod until it is recreated.";
+
+  if (containers.length <= 1) {
+    return (
+      <button onClick={() => open(containers[0]?.name ?? "")} style={btn} title={tip}>
+        debug shell
+      </button>
+    );
+  }
+  return (
+    <div ref={pickerRef} style={{ position: "relative" }}>
+      <button onClick={() => setPickerOpen((v) => !v)} style={btn} title={tip}>
+        debug shell ▾
+      </button>
+      {pickerOpen && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, zIndex: 20, marginTop: 2,
+          background: "var(--color-background-primary)",
+          border: "0.5px solid var(--color-border-secondary)",
+          borderRadius: 4,
+          minWidth: 160,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+        }}>
+          {containers.map((c) => (
+            <button
+              key={c.name}
+              onClick={() => open(c.name)}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "5px 10px", fontSize: 11,
+                background: "transparent",
+                border: "none", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                color: "var(--color-text-secondary)", cursor: "pointer",
+              }}
+              title={`debug shell targeting ${c.name}`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

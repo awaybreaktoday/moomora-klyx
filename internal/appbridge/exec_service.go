@@ -10,6 +10,7 @@ import (
 // ExecConn is the per-cluster surface ExecService needs (lookup seam).
 type ExecConn interface {
 	ExecCommand(namespace, pod, container string) ([]string, error)
+	DebugCommand(namespace, pod, container string) ([]string, error)
 }
 
 // ExecCommandDTO is the response from GetExecCommand.
@@ -68,6 +69,42 @@ func (s *ExecService) OpenExecTerminal(cluster, ns, pod, container string) Actio
 		return ActionResultDTO{Error: err.Error()}
 	}
 
+	return openCommandInTerminal(argv)
+}
+
+// GetDebugCommand returns the kubectl debug argv (ephemeral busybox container,
+// process-namespace-targeted at the given container) and its display string -
+// the escape hatch for distroless images where exec has no shell to run.
+func (s *ExecService) GetDebugCommand(cluster, ns, pod, container string) ExecCommandDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ExecCommandDTO{Error: "cluster not connected: " + cluster}
+	}
+	argv, err := conn.DebugCommand(ns, pod, container)
+	if err != nil {
+		return ExecCommandDTO{Error: err.Error()}
+	}
+	return ExecCommandDTO{Command: shellQuoteArgv(argv), Argv: argv}
+}
+
+// OpenDebugTerminal launches the OS terminal running kubectl debug against the
+// pod. Same platform constraint as OpenExecTerminal (macOS only for now).
+func (s *ExecService) OpenDebugTerminal(cluster, ns, pod, container string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	argv, err := conn.DebugCommand(ns, pod, container)
+	if err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return openCommandInTerminal(argv)
+}
+
+// openCommandInTerminal runs argv in a new Terminal.app window via osascript.
+// The process is started but not waited on (fire-and-forget); a goroutine
+// reaps the osascript child while the terminal lives on detached.
+func openCommandInTerminal(argv []string) ActionResultDTO {
 	if runtime.GOOS != "darwin" {
 		return ActionResultDTO{Error: "open-terminal not supported on this platform yet - use copy command"}
 	}
