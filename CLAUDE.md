@@ -106,7 +106,7 @@ After M1, milestones in priority order:
 - M7: Inline observability (Prom queries) — shipped through M7-c-ii (workloads health + cpu/mem)
 - M9: Daily driver — SHIPPED 2026-06-10 (pods + live logs, events, standard resources incl. masked secrets, nodes + cordon/drain, scale, port-forward, exec escape hatch, helm releases, cmd+K palette, layout polish). Roadmap + eyeball checklist: `docs/superpowers/plans/2026-06-09-klyx-daily-driver-roadmap.md`
 - M8: `klyx serve` headless mode (after M9)
-- Deferred: Argo support + coexistence (was M6) — the owner runs Flux only and Argo ships a strong UI, so the Klyx wedge is thin and it can't be native-verified here. The M3 GitOps view is already vocabulary-correct (Flux ready/drift as its own concept), so an Argo provider can be added later if Argo enters the fleet or `klyx serve` goes multi-user (where fleet-wide Argo aggregation would beat per-instance Argo UIs).
+- M6: Argo support — SHIPPED 2026-06-11 (deferral expired when Argo CD entered the homelab). Own "Argo CD" section speaking Argo vocabulary (synced/degraded), applications lens broken-first, refresh + sync (never prune) behind confirm; verified against six live Applications on nelli. Flux and Argo coexist as parallel sections.
 
 ## References
 
