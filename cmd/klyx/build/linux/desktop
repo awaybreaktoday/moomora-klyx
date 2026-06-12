@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
-Name=My Product
-Comment=A klyx-wails-ref application
+Name=Klyx
+Comment=Platform-engineer-grade Kubernetes desktop client
 # The Exec line includes %u to pass the URL to the application
-Exec=/usr/local/bin/klyx-wails-ref %u
+Exec=/usr/local/bin/klyx %u
 Terminal=false
 Type=Application
-Icon=klyx-wails-ref
+Icon=klyx
 Categories=Utility;
-StartupWMClass=klyx-wails-ref
+StartupWMClass=klyx
 
  

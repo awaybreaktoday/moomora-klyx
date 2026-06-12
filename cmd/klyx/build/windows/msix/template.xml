@@ -8,27 +8,27 @@
         AllowPromptForPassword="false">
     </Settings>
     <Installer
-        Path="klyx-wails-ref"
+        Path="klyx.exe"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\Moomora\Klyx">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
-        PublisherName="CN=My Company"
-        PublisherDisplayName="My Company"
+        PackageName="Klyx"
+        PackageDisplayName="Klyx"
+        PublisherName="CN=Moomora"
+        PublisherDisplayName="Moomora"
         Version="0.1.0.0"
-        PackageDescription="A klyx-wails-ref application">
+        PackageDescription="Platform-engineer-grade Kubernetes desktop client">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
         </Capabilities>
         <Applications>
             <Application
-                Id="com.example.klyxwailsref"
-                Description="A klyx-wails-ref application"
-                DisplayName="My Product"
-                ExecutableName="klyx-wails-ref"
+                Id="io.moomora.klyx"
+                Description="Platform-engineer-grade Kubernetes desktop client"
+                DisplayName="Klyx"
+                ExecutableName="klyx.exe"
                 EntryPoint="Windows.FullTrustApplication">
                 
             </Application>
@@ -41,13 +41,13 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
-            <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A klyx-wails-ref application</Description>
+            <DisplayName>Klyx</DisplayName>
+            <PublisherDisplayName>Moomora</PublisherDisplayName>
+            <Description>Platform-engineer-grade Kubernetes desktop client</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>
-    <SaveLocation PackagePath="klyx-wails-ref.msix" />
+    <SaveLocation PackagePath="klyx.msix" />
     <PackageIntegrity>
         <CertificatePath></CertificatePath>
     </PackageIntegrity>

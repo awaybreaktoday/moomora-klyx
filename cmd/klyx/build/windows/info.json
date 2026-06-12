@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "My Company",
-			"FileDescription": "A klyx-wails-ref application",
-			"LegalCopyright": "© 2026, My Company",
-			"ProductName": "My Product",
-			"Comments": "This is a comment"
+			"CompanyName": "Moomora",
+			"FileDescription": "Platform-engineer-grade Kubernetes desktop client",
+			"LegalCopyright": "(c) 2026, Moomora",
+			"ProductName": "Klyx",
+			"Comments": "Klyx - Fleet-first multi-cluster Kubernetes client"
 		}
 	}
 }

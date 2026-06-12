@@ -9,7 +9,7 @@ info:
   productName: "Klyx" # The name of the application
   productIdentifier: "io.moomora.klyx" # The unique product identifier
   description: "Platform-engineer-grade Kubernetes desktop client" # The application description
-  copyright: "(c) 2025, Moomora" # Copyright text
+  copyright: "(c) 2026, Moomora" # Copyright text
   comments: "Klyx - Fleet-first multi-cluster Kubernetes client" # Comments
   version: "0.1.0" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
