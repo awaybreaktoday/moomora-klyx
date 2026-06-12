@@ -9,7 +9,7 @@ vi.mock("../bridge/forwards", () => ({
   stopForward: vi.fn().mockResolvedValue(undefined),
   stopAllForwards: vi.fn().mockResolvedValue(undefined),
 }));
-import { stopForward, stopAllForwards } from "../bridge/forwards";
+import { stopAllForwards } from "../bridge/forwards";
 
 // ThemeToggle touches matchMedia; stub it.
 vi.mock("./ThemeToggle", () => ({ ThemeToggle: () => null }));
@@ -45,12 +45,13 @@ describe("TopBar forwards indicator", () => {
     expect(chip.textContent).toContain("2");
   });
 
-  it("opens the panel and dispatches per-row stop", () => {
+  it("clicking a row navigates to the forwards section and closes the panel", () => {
     useFleet.getState().setForwards([active]);
-    const { getByTestId } = render(<TopBar />);
+    const { getByTestId, queryByTestId } = render(<TopBar />);
     fireEvent.click(getByTestId("forwards-chip"));
-    fireEvent.click(getByTestId(`forward-stop-${active.id}`));
-    expect(stopForward).toHaveBeenCalledWith(active.id);
+    fireEvent.click(getByTestId(`forward-row-${active.id}`));
+    expect(useFleet.getState().route).toEqual({ name: "forwards" });
+    expect(queryByTestId("forwards-panel")).toBeNull();
   });
 
   it("dispatches stop all", () => {
@@ -71,12 +72,11 @@ describe("TopBar forwards indicator", () => {
     expect(row.textContent).toContain("broken");
   });
 
-  it("view all navigates to the forwards section and closes the panel", () => {
-    useFleet.getState().setForwards([active]);
+  it("has no per-row stop buttons - management lives in the Forwards section", () => {
+    useFleet.getState().setForwards([active, broken]);
     const { getByTestId, queryByTestId } = render(<TopBar />);
     fireEvent.click(getByTestId("forwards-chip"));
-    fireEvent.click(getByTestId("forwards-view-all"));
-    expect(useFleet.getState().route).toEqual({ name: "forwards" });
-    expect(queryByTestId("forwards-panel")).toBeNull();
+    expect(queryByTestId(`forward-stop-${active.id}`)).toBeNull();
+    expect(queryByTestId("forwards-view-all")).toBeNull();
   });
 });
