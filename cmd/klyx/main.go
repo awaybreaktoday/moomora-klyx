@@ -223,7 +223,9 @@ func main() {
 
 	windowsSvc := appbridge.NewWindowsService(winOpener)
 
-	configSvc := appbridge.NewConfigService(configPath(), cfg)
+	configSvc := appbridge.NewConfigService(configPath(), cfg, func(cc config.ClusterConfig) error {
+		return reg.Add(ctx, cc)
+	})
 
 	argoSvc := appbridge.NewArgoService(func(name string) (appbridge.ArgoConn, bool) {
 		c, ok := reg.Conn(name)

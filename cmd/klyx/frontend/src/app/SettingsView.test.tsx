@@ -56,7 +56,7 @@ describe("SettingsView", () => {
     fireEvent.click(getByRole("button", { name: /add 1 to fleet/i }));
     await waitFor(() => expect(mockAddClusters).toHaveBeenCalledWith(["kubernetes-admin@homelab-orange"]));
     const banner = await findByTestId("settings-banner");
-    expect(banner.textContent).toContain("restart Klyx to connect");
+    expect(banner.textContent).toContain("connecting now");
   });
 
   it("add failure surfaces the error honestly", async () => {

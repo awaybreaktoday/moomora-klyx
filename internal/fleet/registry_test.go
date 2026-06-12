@@ -200,3 +200,62 @@ func TestRegistryStartIsIdempotent(t *testing.T) {
 		t.Fatalf("want 2 snapshots after double Start, got %d", got)
 	}
 }
+
+func TestRegistryAddStartsConnAtRuntime(t *testing.T) {
+	cfg := &config.Config{Clusters: []config.ClusterConfig{{Name: "a"}}}
+	started := map[string]bool{}
+	factory := func(cc config.ClusterConfig) (Conn, error) {
+		started[cc.Name] = true
+		return &fakeConn{name: cc.Name, snap: Snapshot{Name: cc.Name, State: Synced}}, nil
+	}
+	reg := NewRegistry(cfg, factory)
+	reg.Start(context.Background())
+
+	if err := reg.Add(context.Background(), config.ClusterConfig{Name: "hot", Context: "hot"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !started["hot"] {
+		t.Fatal("factory not invoked for hot-added cluster")
+	}
+	if _, ok := reg.Conn("hot"); !ok {
+		t.Fatal("hot-added conn not retrievable")
+	}
+	if got := len(reg.Snapshots()); got != 2 {
+		t.Fatalf("want 2 snapshots after Add, got %d", got)
+	}
+}
+
+func TestRegistryAddRefusesDuplicates(t *testing.T) {
+	cfg := &config.Config{Clusters: []config.ClusterConfig{{Name: "a"}, {Name: "broken"}}}
+	factory := func(cc config.ClusterConfig) (Conn, error) {
+		if cc.Name == "broken" {
+			return nil, context.DeadlineExceeded
+		}
+		return &fakeConn{name: cc.Name, snap: Snapshot{Name: cc.Name, State: Synced}}, nil
+	}
+	reg := NewRegistry(cfg, factory)
+	reg.Start(context.Background())
+
+	if err := reg.Add(context.Background(), config.ClusterConfig{Name: "a"}); err == nil {
+		t.Fatal("Add must refuse a live duplicate")
+	}
+	// Failed startup entries are also reserved - a restart retries them.
+	if err := reg.Add(context.Background(), config.ClusterConfig{Name: "broken"}); err == nil {
+		t.Fatal("Add must refuse a failed-entry duplicate")
+	}
+}
+
+func TestRegistryAddReturnsFactoryError(t *testing.T) {
+	cfg := &config.Config{}
+	factory := func(cc config.ClusterConfig) (Conn, error) { return nil, context.DeadlineExceeded }
+	reg := NewRegistry(cfg, factory)
+	reg.Start(context.Background())
+
+	if err := reg.Add(context.Background(), config.ClusterConfig{Name: "x"}); err == nil {
+		t.Fatal("factory error must surface")
+	}
+	// The error is the caller's to show; no Failed ghost entry is recorded.
+	if got := len(reg.Snapshots()); got != 0 {
+		t.Fatalf("want 0 snapshots after failed Add, got %d", got)
+	}
+}
