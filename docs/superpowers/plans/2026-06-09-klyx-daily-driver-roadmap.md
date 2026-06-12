@@ -317,3 +317,6 @@ G3 (sparklines):
 - Detail panels drag-resize from the left edge (persists); pods/events lists stay smooth on big clusters.
 - One toast bottom-center for all actions (auto-dismisses ~6s).
 - j/k moves row selection, enter opens/expands, / focuses search, esc closes panel; esc during a confirm only cancels the confirm.
+
+App identity (2026-06-12):
+- macOS menu bar reads "Klyx" (was "My Product" from the Wails scaffold); bundle identifier is io.moomora.klyx. Needs a fresh `wails3 task dev` or relaunch of bin/klyx.dev.app to show.

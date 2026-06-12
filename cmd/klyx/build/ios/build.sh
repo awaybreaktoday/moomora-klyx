@@ -2,8 +2,8 @@
 set -e
 
 # Build configuration
-APP_NAME="klyx-wails-ref"
-BUNDLE_ID="com.example.klyxwailsref"
+APP_NAME="klyx"
+BUNDLE_ID="io.moomora.klyx"
 VERSION="0.1.0"
 BUILD_NUMBER="0.1.0"
 BUILD_DIR="build/ios"
