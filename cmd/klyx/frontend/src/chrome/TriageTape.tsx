@@ -1,6 +1,11 @@
 import { useEffect } from "react";
+import { IconRefresh } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import { fetchTape } from "../bridge/tape";
+
+// Gentle re-poll cadence: the tape stays honest about a cluster that breaks
+// while you are tailing logs, without hammering seven list endpoints.
+export const tapeRepollMs = 60_000;
 
 // TriageTape — the one-line attention ribbon under the header on EVERY cluster
 // section (from the approved mockups). Each nonzero count is a chip that jumps
@@ -20,10 +25,15 @@ type Chip = {
 export function TriageTape({ cluster }: { cluster: string }) {
   const tape = useFleet((s) => s.tape);
 
-  // One fetch per cluster entry; section switches do not refetch.
+  // One fetch per cluster entry plus a gentle re-poll; section switches do
+  // not refetch. Re-polls keep the previous counts on screen (no flicker).
   useEffect(() => {
     void fetchTape(cluster);
-    return () => useFleet.getState().clearTape();
+    const t = setInterval(() => void fetchTape(cluster), tapeRepollMs);
+    return () => {
+      clearInterval(t);
+      useFleet.getState().clearTape();
+    };
   }, [cluster]);
 
   if (tape.cluster !== cluster) return null;
@@ -90,6 +100,24 @@ export function TriageTape({ cluster }: { cluster: string }) {
         </button>
       ))}
       <span style={{ marginLeft: "auto", color: "var(--color-text-tertiary)" }}>{trailer}</span>
+      <button
+        onClick={() => void fetchTape(cluster)}
+        aria-label="refresh triage"
+        title="refresh triage"
+        disabled={tape.loading}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: 2,
+          border: "none",
+          background: "transparent",
+          cursor: tape.loading ? "default" : "pointer",
+          color: "var(--color-text-tertiary)",
+          opacity: tape.loading ? 0.4 : 1,
+        }}
+      >
+        <IconRefresh size={11} stroke={1.5} />
+      </button>
     </div>
   );
 }
