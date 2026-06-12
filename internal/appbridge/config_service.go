@@ -1,7 +1,10 @@
 package appbridge
 
 import (
+	"fmt"
 	"sort"
+	"strings"
+	"sync"
 
 	"github.com/moomora/klyx/internal/config"
 )
@@ -35,26 +38,45 @@ type FleetConfigDTO struct {
 }
 
 // ConfigService exposes the fleet configuration to Settings. It reads the
-// STARTUP config (the one the registry was built from); AddClusters appends to
-// the file on disk and the caller restarts Klyx to connect - the service never
-// mutates the running fleet.
+// STARTUP config (the one the registry was built from) plus the clusters
+// hot-added this session; AddClusters appends to the file on disk AND adds
+// the conn to the running registry via the connect seam - no restart needed.
+// The startup config itself is never mutated (other services hold the same
+// pointer); session additions live in the guarded added slice.
 type ConfigService struct {
 	path string
 	cfg  *config.Config
+
+	mu    sync.Mutex
+	added []config.ClusterConfig // hot-added this session, connect succeeded
+
 	// seams for tests
 	kubeconfigPath func() string
 	kubeContexts   func(string) ([]string, error)
 	appendClusters func(string, []string) error
+	connect        func(config.ClusterConfig) error // adds to the running registry
 }
 
-func NewConfigService(path string, cfg *config.Config) *ConfigService {
+func NewConfigService(path string, cfg *config.Config, connect func(config.ClusterConfig) error) *ConfigService {
 	return &ConfigService{
 		path:           path,
 		cfg:            cfg,
 		kubeconfigPath: config.DefaultKubeconfigPath,
 		kubeContexts:   config.KubeContexts,
 		appendClusters: config.AppendClusters,
+		connect:        connect,
 	}
+}
+
+// fleetClusters returns the startup clusters plus this session's hot-added
+// ones - the live fleet as Settings should report it.
+func (s *ConfigService) fleetClusters() []config.ClusterConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]config.ClusterConfig, 0, len(s.cfg.Clusters)+len(s.added))
+	out = append(out, s.cfg.Clusters...)
+	out = append(out, s.added...)
+	return out
 }
 
 // GetFleetConfig returns the fleet file state plus a fresh kubeconfig context
@@ -65,11 +87,11 @@ func (s *ConfigService) GetFleetConfig() FleetConfigDTO {
 		Path:           s.path,
 		KubeconfigPath: s.kubeconfigPath(),
 		Warnings:       s.cfg.Warnings(),
-		Clusters:       make([]FleetClusterDTO, 0, len(s.cfg.Clusters)),
+		Clusters:       []FleetClusterDTO{},
 		Contexts:       []KubeContextDTO{},
 	}
 	inFleet := map[string]bool{}
-	for _, c := range s.cfg.Clusters {
+	for _, c := range s.fleetClusters() {
 		inFleet[c.Name] = true
 		inFleet[c.Context] = true
 		dto.Clusters = append(dto.Clusters, FleetClusterDTO{
@@ -108,14 +130,32 @@ func (s *ConfigService) NewContextCount() int {
 }
 
 // AddClusters appends the given kubeconfig contexts to the fleet file
-// (validated before write; comments preserved). The running fleet is NOT
-// reloaded - the result message tells the user to restart Klyx.
+// (validated before write; comments preserved), then hot-adds each one to the
+// running registry so no restart is needed. A connect failure after a
+// successful file append is reported honestly: the entry is on disk and a
+// restart retries it.
 func (s *ConfigService) AddClusters(contexts []string) ActionResultDTO {
 	if len(contexts) == 0 {
 		return ActionResultDTO{Error: "no contexts selected"}
 	}
 	if err := s.appendClusters(s.path, contexts); err != nil {
 		return ActionResultDTO{Error: err.Error()}
+	}
+	var failed []string
+	for _, name := range contexts {
+		cc := config.ClusterConfig{Name: name, Context: name}
+		if s.connect != nil {
+			if err := s.connect(cc); err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", name, err))
+				continue
+			}
+		}
+		s.mu.Lock()
+		s.added = append(s.added, cc)
+		s.mu.Unlock()
+	}
+	if len(failed) > 0 {
+		return ActionResultDTO{Error: "added to fleet.yaml, but connecting failed - " + strings.Join(failed, "; ") + ". Restart Klyx to retry."}
 	}
 	return ActionResultDTO{OK: true}
 }

@@ -2,6 +2,7 @@ package appbridge
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/moomora/klyx/internal/config"
@@ -13,7 +14,7 @@ func testConfigService(t *testing.T, ctxs []string, scanErr error) *ConfigServic
 		{Name: "homelab-nelli", Context: "kubernetes-admin@homelab-nelli", Tags: map[string]string{"env": "homelab"}, Protected: false},
 		{Name: "prd-weu", Context: "prd-weu", Group: "prd", Protected: true, Metrics: &config.MetricsConfig{Endpoint: "http://prom"}},
 	}}
-	s := NewConfigService("/tmp/fleet.yaml", cfg)
+	s := NewConfigService("/tmp/fleet.yaml", cfg, nil)
 	s.kubeconfigPath = func() string { return "/tmp/kubeconfig" }
 	s.kubeContexts = func(string) ([]string, error) { return ctxs, scanErr }
 	return s
@@ -79,5 +80,58 @@ func TestAddClusters(t *testing.T) {
 	s.appendClusters = func(string, []string) error { return errors.New("boom") }
 	if r := s.AddClusters([]string{"x"}); r.OK || r.Error != "boom" {
 		t.Fatalf("append error must surface: %+v", r)
+	}
+}
+
+func TestAddClustersHotAddsToRunningFleet(t *testing.T) {
+	s := testConfigService(t, []string{"ctx-new"}, nil)
+	s.appendClusters = func(string, []string) error { return nil }
+	var connected []string
+	s.connect = func(cc config.ClusterConfig) error {
+		if cc.Name != cc.Context {
+			t.Fatalf("minimal entry must use name=context, got %+v", cc)
+		}
+		connected = append(connected, cc.Name)
+		return nil
+	}
+
+	if r := s.AddClusters([]string{"ctx-new"}); !r.OK {
+		t.Fatalf("AddClusters failed: %+v", r)
+	}
+	if len(connected) != 1 || connected[0] != "ctx-new" {
+		t.Fatalf("connect not called: %v", connected)
+	}
+	// The session view reflects the addition without a restart.
+	dto := s.GetFleetConfig()
+	if len(dto.Clusters) != 3 {
+		t.Fatalf("hot-added cluster missing from GetFleetConfig: %+v", dto.Clusters)
+	}
+	for _, c := range dto.Contexts {
+		if c.Name == "ctx-new" && !c.InFleet {
+			t.Fatal("hot-added context must report inFleet")
+		}
+	}
+	if got := s.NewContextCount(); got != 0 {
+		t.Fatalf("badge must drop to 0 after hot-add, got %d", got)
+	}
+}
+
+func TestAddClustersReportsConnectFailureHonestly(t *testing.T) {
+	s := testConfigService(t, []string{"ctx-bad"}, nil)
+	s.appendClusters = func(string, []string) error { return nil }
+	s.connect = func(config.ClusterConfig) error { return errors.New("no such context") }
+
+	r := s.AddClusters([]string{"ctx-bad"})
+	if r.OK {
+		t.Fatal("connect failure must not report full success")
+	}
+	for _, want := range []string{"fleet.yaml", "ctx-bad", "no such context", "Restart Klyx"} {
+		if !strings.Contains(r.Error, want) {
+			t.Fatalf("error %q missing %q", r.Error, want)
+		}
+	}
+	// Not connected -> not claimed as in-fleet for the session.
+	if got := len(s.GetFleetConfig().Clusters); got != 2 {
+		t.Fatalf("failed connect must not join the session fleet, got %d clusters", got)
 	}
 }

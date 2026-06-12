@@ -34,7 +34,7 @@ export async function getFleetConfig(): Promise<FleetConfigDTO | null> {
 }
 
 // addClusters appends contexts to fleet.yaml (validated before write). The
-// running fleet is unchanged — the caller surfaces "restart Klyx to connect".
+// running fleet gains the new conns immediately (no restart needed).
 export async function addClusters(contexts: string[]): Promise<ActionResultDTO> {
   try {
     return (await ConfigService.AddClusters(contexts)) as ActionResultDTO;

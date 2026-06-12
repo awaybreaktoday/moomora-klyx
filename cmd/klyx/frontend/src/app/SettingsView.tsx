@@ -4,9 +4,9 @@ import type { FleetConfigDTO } from "../bridge/configsvc";
 
 // SettingsView is the fleet-configuration surface: the loaded fleet.yaml
 // (path, clusters, load warnings) and a fresh kubeconfig context scan with
-// one-click "add to fleet". Adds append to the file on disk; the running
-// fleet keeps its startup config, so a restart banner tells the truth about
-// when the new clusters connect.
+// one-click "add to fleet". Adds append to the file on disk AND join the
+// running fleet immediately - the new cluster appears in the spine within a
+// push-loop tick, no restart needed.
 
 export function SettingsView() {
   const [cfg, setCfg] = useState<FleetConfigDTO | null>(null);
@@ -34,7 +34,7 @@ export function SettingsView() {
     const r = await addClusters(selected);
     setBusy(false);
     if (r.ok) {
-      setBanner({ kind: "success", text: `Added ${selected.length} cluster${selected.length === 1 ? "" : "s"} to fleet.yaml — restart Klyx to connect.` });
+      setBanner({ kind: "success", text: `Added ${selected.length} cluster${selected.length === 1 ? "" : "s"} to fleet.yaml — connecting now, watch the fleet spine.` });
       setSelected([]);
       void load();
       void refreshNewContextCount();
@@ -132,7 +132,7 @@ export function SettingsView() {
                 >
                   {busy ? "adding…" : `add ${selected.length || ""} to fleet`.replace("  ", " ")}
                 </button>
-                <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>appends to fleet.yaml · restart Klyx to connect</span>
+                <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>appends to fleet.yaml · connects immediately</span>
               </div>
             )}
           </>

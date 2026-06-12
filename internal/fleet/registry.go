@@ -53,6 +53,33 @@ func (r *Registry) Start(ctx context.Context) {
 	}
 }
 
+// Add constructs and starts a conn for a cluster added at runtime (Settings
+// "add to fleet" - no restart). Duplicate names are refused, including ones
+// recorded as Failed at startup: those retry on restart, not here. A factory
+// error is returned to the caller rather than recorded as a Failed entry -
+// the user is watching the Settings result, and the fleet file already has
+// the entry so a restart retries it.
+func (r *Registry) Add(ctx context.Context, cc config.ClusterConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, e := range r.entries {
+		name := e.failName
+		if e.conn != nil {
+			name = e.conn.Name()
+		}
+		if name == cc.Name {
+			return fmt.Errorf("cluster %q is already in the fleet", cc.Name)
+		}
+	}
+	conn, err := r.factory(cc)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	conn.Start(ctx)
+	r.entries = append(r.entries, entry{conn: conn})
+	return nil
+}
+
 // Conn returns the live Conn for a cluster by name (nil,false if absent or failed).
 func (r *Registry) Conn(name string) (Conn, bool) {
 	r.mu.RLock()

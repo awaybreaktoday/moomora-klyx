@@ -320,3 +320,8 @@ G3 (sparklines):
 
 App identity (2026-06-12):
 - macOS menu bar reads "Klyx" (was "My Product" from the Wails scaffold); bundle identifier is io.moomora.klyx. Needs a fresh `wails3 task dev` or relaunch of bin/klyx.dev.app to show.
+
+Quick follow-ups (2026-06-12):
+- Triage tape: small refresh button at the right edge; counts also re-poll every 60s - leave a cluster view open, break a pod, the tape updates within a minute without flicker.
+- TopBar forwards dropdown is now glanceable-only: rows jump to the Forwards section (full management there), "stop all" remains.
+- Settings "add to fleet": tick a kubeconfig context -> the cluster connects IMMEDIATELY (appears in the spine within seconds) - no restart. Banner says "connecting now"; a bad context reports the connect error but keeps the fleet.yaml entry so a restart retries it.
