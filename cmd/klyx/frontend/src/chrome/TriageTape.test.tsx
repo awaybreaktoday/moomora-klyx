@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import { TriageTape } from "./TriageTape";
+import { TriageTape, tapeRepollMs } from "./TriageTape";
 import { useFleet } from "../store/fleet";
 import type { TapeCounts } from "../store/fleet";
 
@@ -28,9 +28,48 @@ describe("TriageTape", () => {
 
   it("all-zero counts state 'everything is quiet' with no chips", () => {
     seed({});
-    const { getByText, queryByRole } = render(<TriageTape cluster="nelli" />);
+    const { getByText, getAllByRole } = render(<TriageTape cluster="nelli" />);
     expect(getByText("everything is quiet")).toBeTruthy();
-    expect(queryByRole("button")).toBeNull();
+    // The only button left is the refresh affordance - no alert chips.
+    const buttons = getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].getAttribute("aria-label")).toBe("refresh triage");
+  });
+
+  it("refresh button refetches the same cluster", () => {
+    seed({});
+    const { getByRole } = render(<TriageTape cluster="nelli" />);
+    expect(fetchTape).toHaveBeenCalledTimes(1);
+    fireEvent.click(getByRole("button", { name: "refresh triage" }));
+    expect(fetchTape).toHaveBeenCalledTimes(2);
+    expect(fetchTape).toHaveBeenLastCalledWith("nelli");
+  });
+
+  it("re-polls on the gentle interval and stops on unmount", () => {
+    vi.useFakeTimers();
+    try {
+      seed({});
+      const { unmount } = render(<TriageTape cluster="nelli" />);
+      expect(fetchTape).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(tapeRepollMs);
+      expect(fetchTape).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(tapeRepollMs);
+      expect(fetchTape).toHaveBeenCalledTimes(3);
+      unmount();
+      vi.advanceTimersByTime(tapeRepollMs * 3);
+      expect(fetchTape).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("setTapeLoading keeps counts for the same cluster (no re-poll flicker) and resets for a new one", () => {
+    seed({ workloads: 2 });
+    useFleet.getState().setTapeLoading("nelli");
+    expect(useFleet.getState().tape.counts.workloads).toBe(2);
+    expect(useFleet.getState().tape.loading).toBe(true);
+    useFleet.getState().setTapeLoading("blue");
+    expect(useFleet.getState().tape.counts.workloads).toBe("unreadable");
   });
 
   it("nonzero counts render chips (singularized); click jumps to the filtered lens", () => {

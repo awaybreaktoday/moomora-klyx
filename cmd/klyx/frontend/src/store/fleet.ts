@@ -477,7 +477,12 @@ export const useFleet = create<FleetState>((set) => ({
   fleetBoard: {},
   setFleetBoardEntry: (cluster, e) => set((s) => ({ fleetBoard: { ...s.fleetBoard, [cluster]: e } })),
   tape: { cluster: null, loading: false, counts: emptyTapeCounts },
-  setTapeLoading: (cluster) => set({ tape: { cluster, loading: true, counts: emptyTapeCounts } }),
+  // Re-claiming the SAME cluster keeps the existing counts so a re-poll or
+  // manual refresh never flickers the tape back to "checking…".
+  setTapeLoading: (cluster) =>
+    set((s) => ({
+      tape: { cluster, loading: true, counts: s.tape.cluster === cluster ? s.tape.counts : emptyTapeCounts },
+    })),
   setTape: (cluster, counts) => set({ tape: { cluster, loading: false, counts } }),
   clearTape: () => set({ tape: { cluster: null, loading: false, counts: emptyTapeCounts } }),
   openCluster: (name) => set({ route: { name: "cluster", cluster: name, section: "overview" } }),
