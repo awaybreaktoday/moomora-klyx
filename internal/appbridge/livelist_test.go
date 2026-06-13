@@ -82,6 +82,7 @@ type fakeLivePodConn struct {
 	onDirty     func()
 	onLive      func(bool)
 	watchErr    error
+	noInitialUp bool
 	computeFail bool
 	listCalls   int
 }
@@ -111,6 +112,9 @@ func (f *fakeLivePodConn) WatchDirty(_ context.Context, _ string, _ []string, on
 	f.mu.Unlock()
 	if werr != nil {
 		return nil, werr
+	}
+	if !f.noInitialUp && onLive != nil {
+		onLive(true)
 	}
 	return func() {}, nil
 }
@@ -302,6 +306,39 @@ func TestLiveList_ComputeFailureEmitsLiveFalseOnce(t *testing.T) {
 		return ok && v
 	}) {
 		t.Fatal("recovery: never reported live(true)")
+	}
+}
+
+func TestLiveList_DoesNotReportLiveTrueBeforeWatchUp(t *testing.T) {
+	em := &anyEmitter{}
+	conn := &fakeLivePodConn{noInitialUp: true}
+	svc := newFastPodsSvc(conn, em)
+
+	res := svc.OpenLivePods("c", "ns")
+	if !res.OK {
+		t.Fatalf("open failed: %+v", res)
+	}
+	defer svc.CloseLivePods("c", "ns")
+
+	if !liveWaitUntil(t, time.Second, func() bool { return em.countOf("livePods:c:ns") >= 1 }) {
+		t.Fatal("no immediate data emit")
+	}
+	if v, ok := em.lastLive("livePodsStatus:c:ns"); ok && v {
+		t.Fatal("reported live(true) before the watch emitted onLive(true)")
+	}
+
+	conn.mu.Lock()
+	onLive := conn.onLive
+	conn.mu.Unlock()
+	if onLive == nil {
+		t.Fatal("watch live callback was not captured")
+	}
+	onLive(true)
+	if !liveWaitUntil(t, time.Second, func() bool {
+		v, ok := em.lastLive("livePodsStatus:c:ns")
+		return ok && v
+	}) {
+		t.Fatal("did not report live(true) after explicit watch-up edge")
 	}
 }
 

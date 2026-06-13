@@ -3,6 +3,7 @@ import { IconTerminal2, IconExternalLink, IconBox } from "@tabler/icons-react";
 import { useFleet } from "../store/fleet";
 import type { WorkloadDTO, PodDTO, WorkloadKind, ResourceCellDTO } from "../store/fleet";
 import { listWorkloads, openLiveWorkloads, rolloutRestart, scaleWorkload } from "../bridge/workloads";
+import { deletePod } from "../bridge/pods";
 import { getWorkloadMetrics } from "../bridge/workload-metrics";
 import { getWorkloadSparklines } from "../bridge/metrics";
 import type { SparklinesDTO } from "../bridge/metrics";
@@ -26,7 +27,6 @@ const rankDot: Record<string, string> = {
 const KINDS: WorkloadKind[] = ["Deployment", "StatefulSet", "DaemonSet"];
 const kindShort: Record<WorkloadKind, string> = { Deployment: "deploy", StatefulSet: "sts", DaemonSet: "daemonset" };
 const keyOf = (w: WorkloadDTO) => `${w.kind}/${w.namespace}/${w.name}`;
-function ago(s: number): string { return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`; }
 
 const tierColor: Record<string, string | undefined> = {
   none: undefined, neutral: "var(--color-text-success)", warn: "var(--color-text-warning)", danger: "var(--color-text-danger)",
@@ -62,7 +62,8 @@ function riskLabel(resource: "cpu" | "mem", cell: ResourceCellDTO): string {
 type PendingRestart = { kind: "restart"; w: WorkloadDTO };
 type PendingScale = { kind: "scale"; w: WorkloadDTO; replicas: number };
 type PendingScaleInput = { kind: "scale-input"; w: WorkloadDTO };
-type Pending = PendingRestart | PendingScale | PendingScaleInput;
+type PendingDeletePod = { kind: "delete-pod"; w: WorkloadDTO; pod: PodDTO };
+type Pending = PendingRestart | PendingScale | PendingScaleInput | PendingDeletePod;
 
 export function WorkloadsView({ cluster }: { cluster: string }) {
   const wl = useFleet((s) => s.workloads);
@@ -104,7 +105,23 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
   const gridCols = showMetrics
     ? "12px 90px 1fr 70px 64px 1.1fr 140px 140px 130px 28px"
     : "12px 90px 1fr 70px 64px 1.2fr 160px 28px";
-  const filtered = wl.items.filter((w) => wl.kindFilter[w.kind as WorkloadKind] && (!wl.needsAttention || w.rank !== "healthy"));
+  const query = wl.search.trim().toLowerCase();
+  const filtered = wl.items.filter((w) => {
+    if (!wl.kindFilter[w.kind as WorkloadKind]) return false;
+    if (wl.needsAttention && w.rank === "healthy") return false;
+    if (!query) return true;
+    const gitops = w.gitops ? `${w.gitops.kind} ${w.gitops.namespace} ${w.gitops.name}` : "";
+    const pods = w.pods.map((p) => `${p.name} ${p.node} ${p.reason}`).join(" ");
+    return [
+      w.kind,
+      w.namespace,
+      w.name,
+      w.reason,
+      w.rank,
+      gitops,
+      pods,
+    ].some((v) => v.toLowerCase().includes(query));
+  });
   const rows = showMetrics && wl.nearLimitSort ? nearLimitSort(filtered) : filtered;
 
   // Clamp selection when list changes.
@@ -157,146 +174,170 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
       return prev >= rows.length ? rows.length - 1 : prev;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wl.needsAttention, wl.kindFilter, wl.namespace, wl.nearLimitSort]);
+  }, [wl.search, wl.needsAttention, wl.kindFilter, wl.namespace, wl.nearLimitSort]);
+
+  const selectedWorkload = effectiveIdx >= 0 ? rows[effectiveIdx] : null;
+  const visibleKinds = KINDS.filter((k) => wl.kindFilter[k]).map((k) => kindShort[k]).join(", ");
+  const attentionCount = wl.items.filter((w) => w.rank !== "healthy").length;
+  const selectedExpanded = selectedWorkload ? wl.expanded.includes(keyOf(selectedWorkload)) : false;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box" }}>
-      {/* Scrollable list area — the logs dock pins below it. */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <select value={wl.namespace} onChange={(e) => onNamespace(e.target.value)}
-          style={{ fontSize: 12, padding: "3px 6px", background: "var(--color-background-primary)", color: "var(--color-text-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4 }}>
-          <option value="">all namespaces</option>
-          {wl.namespaces.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
-        </select>
-        {KINDS.map((k) => (
-          <Chip key={k} on={wl.kindFilter[k]} onClick={() => useFleet.getState().toggleWorkloadKind(k)}>{kindShort[k]}</Chip>
-        ))}
-        <Chip on={wl.needsAttention} onClick={() => useFleet.getState().toggleNeedsAttention()}>needs attention</Chip>
-        {showMetrics && (
-          <Chip on={wl.nearLimitSort} onClick={() => useFleet.getState().toggleNearLimitSort()}>near limit</Chip>
-        )}
-        {/* Search input — hidden visually but focusable via "/" key */}
-        <input
-          ref={searchRef}
-          aria-label="filter workloads"
-          placeholder="filter workloads"
-          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
-        />
-        <button onClick={onRefresh} style={btn}>refresh</button>
-        <LiveIndicator live={wl.live} />
-      </div>
-
-      {wl.loading && wl.items.length === 0 ? (
-        <SkeletonRows rows={8} label="loading workloads" />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          icon={<IconBox size={28} stroke={1.2} />}
-          title={`No workloads${wl.namespace ? ` in ${wl.namespace}` : ""}.`}
-          hint={wl.needsAttention ? "The needs-attention filter is on - everything here is healthy." : undefined}
-        />
-      ) : (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
-            <span /><span>kind</span><span>workload</span><span>ready</span><span>restarts</span><span>status</span>
-            {showMetrics && <span>cpu</span>}
-            {showMetrics && <span>mem</span>}
-            <span>gitops</span>
-            <span />
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box", background: "var(--color-background-primary)" }}>
+      {/* Workloads workspace - the logs dock pins below it. */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "grid", gridTemplateColumns: "minmax(620px, 1fr) minmax(320px, 380px)" }}>
+        <div style={{ minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", borderRight: "0.5px solid var(--color-border-tertiary)" }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "10px 12px",
+            borderBottom: "0.5px solid var(--color-border-tertiary)",
+            background: "var(--color-background-secondary)",
+            flexWrap: "wrap",
+            flexShrink: 0,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <select value={wl.namespace} onChange={(e) => onNamespace(e.target.value)}
+                style={{ fontSize: 12, padding: "3px 6px", background: "var(--color-background-primary)", color: "var(--color-text-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 3 }}>
+                <option value="">all namespaces</option>
+                {wl.namespaces.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
+              </select>
+              {KINDS.map((k) => (
+                <Chip key={k} on={wl.kindFilter[k]} onClick={() => useFleet.getState().toggleWorkloadKind(k)}>{kindShort[k]}</Chip>
+              ))}
+              <Chip on={wl.needsAttention} onClick={() => useFleet.getState().toggleNeedsAttention()}>needs attention</Chip>
+              {showMetrics && (
+                <Chip on={wl.nearLimitSort} onClick={() => useFleet.getState().toggleNearLimitSort()}>near limit</Chip>
+              )}
+              <WorkloadStatusTrail
+                shown={rows.length}
+                filtered={filtered.length}
+                attention={attentionCount}
+                kinds={visibleKinds || "none"}
+                live={wl.live}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <input
+                ref={searchRef}
+                value={wl.search}
+                onChange={(e) => useFleet.getState().setWorkloadsSearch(e.target.value)}
+                aria-label="filter workloads"
+                placeholder="filter workloads"
+                style={{ fontSize: 11, padding: "3px 8px", borderRadius: 3, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 180, fontFamily: "var(--font-mono)" }}
+              />
+              <button onClick={onRefresh} style={btn}>refresh</button>
+              <LiveIndicator live={wl.live} />
+            </div>
           </div>
-          {rows.map((w, i) => {
-            const expanded = wl.expanded.includes(keyOf(w));
-            const isKbSelected = i === effectiveIdx;
-            return (
-              <div key={keyOf(w)}>
-                <div
-                  data-wl-row={i}
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={expanded}
-                  aria-selected={isKbSelected}
-                  onClick={() => {
-                    setSelectedIdx(i);
-                    useFleet.getState().toggleWorkloadExpand(keyOf(w));
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedIdx(i);
-                      useFleet.getState().toggleWorkloadExpand(keyOf(w));
-                    }
-                  }}
-                  style={{
-                    display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
-                    padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
-                    cursor: "pointer",
-                    background: isKbSelected ? "var(--color-background-secondary)" : undefined,
-                    boxShadow: isKbSelected ? "inset 2px 0 0 var(--color-text-info)" : undefined,
-                    outline: "none",
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[w.rank] }} />
-                  <span style={{ color: "var(--color-text-tertiary)" }}>{kindShort[w.kind as WorkloadKind]}</span>
-                  <span><span style={{ color: "var(--color-text-tertiary)" }}>{w.namespace}</span> / <span style={{ fontWeight: 500 }}>{w.name}</span></span>
-                  <span style={{ color: w.ready < w.desired ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}>{w.ready} / {w.desired}</span>
-                  <span style={{ color: w.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>{w.restarts}</span>
-                  <span style={{ color: w.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>{w.reason}</span>
-                  {showMetrics && <ResourceCellView resource="cpu" cell={w.resources.cpu} hasPods={w.pods.length > 0} />}
-                  {showMetrics && <ResourceCellView resource="mem" cell={w.resources.mem} hasPods={w.pods.length > 0} />}
-                  <span style={{ color: "var(--color-text-tertiary)" }} title={w.gitops ? `Flux ownership label: ${w.gitops.kind} ${w.gitops.namespace}/${w.gitops.name}` : undefined}>
-                    {w.gitops ? `flux ${w.gitops.kind === "HelmRelease" ? "hr" : "ks"}/${w.gitops.name}` : "—"}
-                  </span>
-                  <LogsIconButton
-                    label={`aggregate logs for ${w.namespace}/${w.name}`}
-                    onClick={() => setLogsTarget({ namespace: w.namespace, name: w.name, kind: w.kind as WorkloadKind })}
-                  />
+
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+            {wl.loading && wl.items.length === 0 ? (
+              <div style={{ padding: "16px 20px" }}>
+                <SkeletonRows rows={8} label="loading workloads" />
+              </div>
+            ) : rows.length === 0 ? (
+              <div style={{ padding: "16px 20px" }}>
+                <EmptyState
+                  icon={<IconBox size={28} stroke={1.2} />}
+                  title={`No workloads${wl.namespace ? ` in ${wl.namespace}` : ""}.`}
+                  hint={wl.search ? "Adjust the filter text." : wl.needsAttention ? "The needs-attention filter is on - everything here is healthy." : undefined}
+                />
+              </div>
+            ) : (
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, minWidth: showMetrics ? 980 : 760 }}>
+                <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 10, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", position: "sticky", top: 0, zIndex: 1, background: "var(--color-background-primary)" }}>
+                  <span /><span>kind</span><span>workload</span><span>ready</span><span>restarts</span><span>status</span>
+                  {showMetrics && <span>cpu</span>}
+                  {showMetrics && <span>mem</span>}
+                  <span>gitops</span>
+                  <span />
                 </div>
-                {expanded && showMetrics && (
-                  <div style={{ display: "flex", gap: 28, fontSize: 11, padding: "6px 8px 6px 32px", background: "var(--color-background-secondary)", fontFamily: "var(--font-mono)" }}>
-                    <span><span style={{ color: "var(--color-text-tertiary)" }}>cpu</span> {w.pods.length === 0 ? "—" : `usage ${w.resources.cpu.usage == null ? "—" : fmtCpu(w.resources.cpu.usage)} · req ${w.resources.cpu.request == null ? "—" : fmtCpu(w.resources.cpu.request)} · ${w.resources.cpu.limit == null ? "no limit" : `lim ${fmtCpu(w.resources.cpu.limit)}`}`} <span style={{ color: tierColor[saturation("cpu", w.resources.cpu.usage, w.resources.cpu.limit).tier] }}>{riskLabel("cpu", w.resources.cpu)}</span></span>
-                    <span><span style={{ color: "var(--color-text-tertiary)" }}>mem</span> {w.pods.length === 0 ? "—" : `usage ${w.resources.mem.usage == null ? "—" : fmtMem(w.resources.mem.usage)} · req ${w.resources.mem.request == null ? "—" : fmtMem(w.resources.mem.request)} · ${w.resources.mem.limit == null ? "no limit" : `lim ${fmtMem(w.resources.mem.limit)}`}`} <span style={{ color: tierColor[saturation("mem", w.resources.mem.usage, w.resources.mem.limit).tier] }}>{riskLabel("mem", w.resources.mem)}</span></span>
-                  </div>
-                )}
-                {expanded && showMetrics && (
-                  <WorkloadSparkRow cluster={cluster} kind={w.kind} namespace={w.namespace} name={w.name} />
-                )}
-                {expanded && (
-                  <>
-                    <div style={{ padding: "6px 8px 4px 32px", background: "var(--color-background-secondary)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setPending({ kind: "restart", w }); }}
-                        style={btn}
-                      >restart</button>
-                      {(w.kind === "Deployment" || w.kind === "StatefulSet") && (
-                        pending?.kind === "scale-input" && pending.w === w ? (
-                          <ScalePopover
-                            initial={w.desired}
-                            onConfirm={(n) => {
-                              if (isProtected) {
-                                setPending({ kind: "scale", w, replicas: n });
-                              } else {
-                                setPending(null);
-                                void scaleWorkload(cluster, w.kind, w.namespace, w.name, n);
-                              }
-                            }}
-                            onCancel={() => setPending(null)}
-                          />
-                        ) : (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setPending({ kind: "scale-input", w }); }}
-                            style={btn}
-                          >scale</button>
-                        )
+                {rows.map((w, i) => {
+                  const expanded = wl.expanded.includes(keyOf(w));
+                  const isKbSelected = i === effectiveIdx;
+                  return (
+                    <div key={keyOf(w)}>
+                      <div
+                        data-wl-row={i}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={expanded}
+                        aria-selected={isKbSelected}
+                        onClick={() => {
+                          setSelectedIdx(i);
+                          useFleet.getState().toggleWorkloadExpand(keyOf(w));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedIdx(i);
+                            useFleet.getState().toggleWorkloadExpand(keyOf(w));
+                          }
+                        }}
+                        style={{
+                          display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+                          padding: isKbSelected ? "7px 8px 7px 6px" : "7px 8px",
+                          borderBottom: "0.5px solid var(--color-border-tertiary)",
+                          borderLeft: isKbSelected ? "2px solid var(--color-text-info)" : "2px solid transparent",
+                          cursor: "pointer",
+                          background: isKbSelected ? "var(--color-background-secondary)" : undefined,
+                          outline: "none",
+                        }}
+                      >
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: rankDot[w.rank] }} />
+                        <span style={{ color: "var(--color-text-tertiary)" }}>{kindShort[w.kind as WorkloadKind]}</span>
+                        <span style={ellipsis}><span style={{ color: "var(--color-text-tertiary)" }}>{w.namespace}</span> / <span style={{ fontWeight: 500 }}>{w.name}</span></span>
+                        <span style={{ color: w.ready < w.desired ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}>{w.ready} / {w.desired}</span>
+                        <span style={{ color: w.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>{w.restarts}</span>
+                        <span style={{ ...ellipsis, color: w.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }} title={w.reason}>{w.reason}</span>
+                        {showMetrics && <ResourceCellView resource="cpu" cell={w.resources.cpu} hasPods={w.pods.length > 0} />}
+                        {showMetrics && <ResourceCellView resource="mem" cell={w.resources.mem} hasPods={w.pods.length > 0} />}
+                        <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={w.gitops ? `Flux ownership label: ${w.gitops.kind} ${w.gitops.namespace}/${w.gitops.name}` : undefined}>
+                          {w.gitops ? `flux ${w.gitops.kind === "HelmRelease" ? "hr" : "ks"}/${w.gitops.name}` : "—"}
+                        </span>
+                        <LogsIconButton
+                          label={`aggregate logs for ${w.namespace}/${w.name}`}
+                          onClick={() => setLogsTarget({ namespace: w.namespace, name: w.name, kind: w.kind as WorkloadKind })}
+                        />
+                      </div>
+                      {expanded && showMetrics && (
+                        <div style={{ display: "flex", gap: 28, fontSize: 11, padding: "6px 8px 6px 32px", background: "var(--color-background-secondary)", fontFamily: "var(--font-mono)", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+                          <span><span style={{ color: "var(--color-text-tertiary)" }}>cpu</span> {w.pods.length === 0 ? "—" : `usage ${w.resources.cpu.usage == null ? "—" : fmtCpu(w.resources.cpu.usage)} · req ${w.resources.cpu.request == null ? "—" : fmtCpu(w.resources.cpu.request)} · ${w.resources.cpu.limit == null ? "no limit" : `lim ${fmtCpu(w.resources.cpu.limit)}`}`} <span style={{ color: tierColor[saturation("cpu", w.resources.cpu.usage, w.resources.cpu.limit).tier] }}>{riskLabel("cpu", w.resources.cpu)}</span></span>
+                          <span><span style={{ color: "var(--color-text-tertiary)" }}>mem</span> {w.pods.length === 0 ? "—" : `usage ${w.resources.mem.usage == null ? "—" : fmtMem(w.resources.mem.usage)} · req ${w.resources.mem.request == null ? "—" : fmtMem(w.resources.mem.request)} · ${w.resources.mem.limit == null ? "no limit" : `lim ${fmtMem(w.resources.mem.limit)}`}`} <span style={{ color: tierColor[saturation("mem", w.resources.mem.usage, w.resources.mem.limit).tier] }}>{riskLabel("mem", w.resources.mem)}</span></span>
+                        </div>
+                      )}
+                      {expanded && showMetrics && (
+                        <WorkloadSparkRow cluster={cluster} kind={w.kind} namespace={w.namespace} name={w.name} />
                       )}
                     </div>
-                    <PodTable pods={w.pods} />
-                  </>
-                )}
+                  );
+                })}
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
-      )}
+
+        <WorkloadContextPanel
+          workload={selectedWorkload}
+          expanded={selectedExpanded}
+          isProtected={isProtected}
+          pending={pending}
+          onLogs={(w) => setLogsTarget({ namespace: w.namespace, name: w.name, kind: w.kind as WorkloadKind })}
+          onRestart={(w) => setPending({ kind: "restart", w })}
+          onScale={(w) => setPending({ kind: "scale-input", w })}
+          onScaleConfirm={(w, replicas) => {
+            if (isProtected) {
+              setPending({ kind: "scale", w, replicas });
+            } else {
+              setPending(null);
+              void scaleWorkload(cluster, w.kind, w.namespace, w.name, replicas);
+            }
+          }}
+          onCancelScale={() => setPending(null)}
+          onDeletePod={(w, pod) => setPending({ kind: "delete-pod", w, pod })}
+        />
       </div>
 
       {/* Aggregate-logs dock — persists across row selection changes; close via ✕ only */}
@@ -344,7 +385,179 @@ export function WorkloadsView({ cluster }: { cluster: string }) {
           }}
         />
       )}
+      {pending?.kind === "delete-pod" && (
+        <ConfirmDialog
+          title="delete pod"
+          cluster={cluster}
+          detail={`pod ${pending.w.namespace}/${pending.pod.name}`}
+          protected={isProtected}
+          danger
+          confirmLabel="Delete"
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const { w, pod } = pending;
+            setPending(null);
+            void deletePod(cluster, w.namespace, pod.name).then(() => listWorkloads(cluster, wl.namespace));
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function WorkloadStatusTrail({
+  shown,
+  filtered,
+  attention,
+  kinds,
+  live,
+}: {
+  shown: number;
+  filtered: number;
+  attention: number;
+  kinds: string;
+  live: boolean;
+}) {
+  return (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      color: "var(--color-text-tertiary)",
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      marginLeft: 4,
+      whiteSpace: "nowrap",
+    }}>
+      <span>{shown}/{filtered}</span>
+      <span style={{ color: attention > 0 ? "var(--color-text-danger)" : "var(--color-text-success)" }}>{attention} attention</span>
+      <span>{kinds}</span>
+      <span style={{ color: live ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{live ? "watch-backed" : "manual refresh"}</span>
+    </span>
+  );
+}
+
+function WorkloadContextPanel({
+  workload,
+  expanded,
+  isProtected,
+  pending,
+  onLogs,
+  onRestart,
+  onScale,
+  onScaleConfirm,
+  onCancelScale,
+  onDeletePod,
+}: {
+  workload: WorkloadDTO | null;
+  expanded: boolean;
+  isProtected: boolean;
+  pending: Pending | null;
+  onLogs: (w: WorkloadDTO) => void;
+  onRestart: (w: WorkloadDTO) => void;
+  onScale: (w: WorkloadDTO) => void;
+  onScaleConfirm: (w: WorkloadDTO, replicas: number) => void;
+  onCancelScale: () => void;
+  onDeletePod: (w: WorkloadDTO, pod: PodDTO) => void;
+}) {
+  if (!workload) {
+    return (
+      <aside style={{ minWidth: 0, minHeight: 0, overflow: "hidden", background: "var(--color-background-secondary)", display: "grid", placeItems: "center", padding: 18 }}>
+        <div style={{ color: "var(--color-text-tertiary)", fontSize: 12, textAlign: "center" }}>
+          select a workload for ownership, freshness, and action context
+        </div>
+      </aside>
+    );
+  }
+
+  const badPods = workload.pods.filter((p) => !p.ready || p.restarts > 0).length;
+  const deleteTarget = workload.pods.find((p) => !p.ready || p.restarts > 0) ?? workload.pods[0] ?? null;
+  const owner = workload.gitops
+    ? `${workload.gitops.kind} ${workload.gitops.namespace}/${workload.gitops.name}`
+    : "—";
+
+  return (
+    <aside style={{ minWidth: 0, minHeight: 0, overflowY: "auto", background: "var(--color-background-secondary)", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: 14, borderBottom: "0.5px solid var(--color-border-tertiary)", display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{workload.kind} / {workload.namespace}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 500, overflowWrap: "anywhere" }}>{workload.name}</div>
+          </div>
+          {isProtected && (
+            <span style={{ border: "0.5px solid var(--color-border-warning)", background: "var(--color-background-warning)", color: "var(--color-text-warning)", fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", flexShrink: 0 }}>
+              prd lock
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={() => onLogs(workload)} style={{ ...btn, color: "var(--color-text-info)", borderColor: "var(--color-border-info)", background: "var(--color-background-info)" }}>tail logs</button>
+          <button onClick={() => onRestart(workload)} style={btn}>restart</button>
+          {(workload.kind === "Deployment" || workload.kind === "StatefulSet") && (
+            pending?.kind === "scale-input" && pending.w === workload ? (
+              <ScalePopover
+                initial={workload.desired}
+                onConfirm={(n) => onScaleConfirm(workload, n)}
+                onCancel={onCancelScale}
+              />
+            ) : (
+              <button onClick={() => onScale(workload)} style={btn}>scale</button>
+            )
+          )}
+          {deleteTarget && (
+            <button
+              onClick={() => onDeletePod(workload, deleteTarget)}
+              style={{ ...btn, color: "var(--color-text-danger)", borderColor: "var(--color-border-danger)", background: "var(--color-background-danger)" }}
+            >delete pod</button>
+          )}
+          <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>
+            {expanded ? "expanded" : "enter expands"}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", display: "grid", gap: 8 }}>
+        <div style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>status</div>
+        <div style={{ display: "grid", gridTemplateColumns: "88px 1fr", gap: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+          <span style={{ color: "var(--color-text-tertiary)" }}>ready</span><span style={{ color: workload.ready < workload.desired ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}>{workload.ready} / {workload.desired}</span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>restarts</span><span style={{ color: workload.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}>{workload.restarts}</span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>reason</span><span style={{ color: workload.rank === "unhealthy" ? "var(--color-text-danger)" : "var(--color-text-secondary)", overflowWrap: "anywhere" }}>{workload.reason}</span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>owner</span><span style={{ color: workload.gitops ? "var(--color-text-info)" : "var(--color-text-tertiary)", overflowWrap: "anywhere" }}>{owner}</span>
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 14px", borderBottom: "0.5px solid var(--color-border-tertiary)", display: "grid", gap: 8 }}>
+        <div style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>pods</div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: badPods > 0 ? "var(--color-text-warning)" : "var(--color-text-success)" }}>
+          {badPods > 0 ? `${badPods} affected / ${workload.pods.length} total` : `${workload.pods.length} healthy`}
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {workload.pods.slice(0, 6).map((p) => (
+            <div key={p.name} style={{ display: "grid", gridTemplateColumns: "8px minmax(0, 1fr) auto", gap: 8, alignItems: "center", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", padding: "7px 8px", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.ready ? "var(--color-text-success)" : "var(--color-text-danger)" }} />
+              <span style={ellipsis} title={p.name}>{p.name}</span>
+              <span style={{ color: p.ready ? "var(--color-text-secondary)" : "var(--color-text-danger)" }}>{p.ready ? "ready" : p.reason || "not ready"}</span>
+              <span />
+              <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
+              <span style={{ color: p.restarts > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>{p.restarts}</span>
+            </div>
+          ))}
+          {workload.pods.length > 6 && (
+            <div style={{ color: "var(--color-text-tertiary)", fontSize: 11, fontFamily: "var(--font-mono)" }}>+{workload.pods.length - 6} more pods</div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 14px", display: "grid", gap: 8 }}>
+        <div style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>resources</div>
+        <div style={{ display: "grid", gridTemplateColumns: "88px 1fr", gap: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+          <span style={{ color: "var(--color-text-tertiary)" }}>cpu</span>
+          <span><ResourceCellView resource="cpu" cell={workload.resources.cpu} hasPods={workload.pods.length > 0} /></span>
+          <span style={{ color: "var(--color-text-tertiary)" }}>mem</span>
+          <span><ResourceCellView resource="mem" cell={workload.resources.mem} hasPods={workload.pods.length > 0} /></span>
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -487,24 +700,6 @@ function WorkloadLogsDock({
           onContainerChange={setContainer}
         />
       </div>
-    </div>
-  );
-}
-
-function PodTable({ pods }: { pods: PodDTO[] }) {
-  if (pods.length === 0) return <div style={{ padding: "6px 8px 10px 32px", color: "var(--color-text-tertiary)", fontSize: 11 }}>no pods</div>;
-  return (
-    <div style={{ padding: "4px 8px 8px 32px", background: "var(--color-background-secondary)" }}>
-      {pods.map((p) => (
-        <div key={p.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) 64px 50px minmax(0,1.2fr) minmax(0,1.1fr) 48px", gap: 10, fontSize: 11, padding: "3px 0", color: "var(--color-text-secondary)" }}>
-          <span style={ellipsis} title={p.name}>{p.name}</span>
-          <span style={{ color: p.ready ? "var(--color-text-success)" : "var(--color-text-danger)" }}>{p.ready ? "ready" : "not ready"}</span>
-          <span>{p.restarts}</span>
-          <span style={{ ...ellipsis, color: p.reason ? "var(--color-text-danger)" : "var(--color-text-tertiary)" }} title={p.reason || undefined}>{p.reason || "—"}</span>
-          <span style={{ ...ellipsis, color: "var(--color-text-tertiary)" }} title={p.node}>{p.node}</span>
-          <span style={{ color: "var(--color-text-tertiary)", textAlign: "right" }}>{ago(p.ageSeconds)}</span>
-        </div>
-      ))}
     </div>
   );
 }

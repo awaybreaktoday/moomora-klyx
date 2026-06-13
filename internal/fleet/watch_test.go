@@ -215,3 +215,25 @@ func TestWatchDirty_LivenessAllUp(t *testing.T) {
 		t.Fatal("never reached all-up live(true)")
 	}
 }
+
+func TestLiveCounterTracksKindsIndependently(t *testing.T) {
+	var got []bool
+	live := newLiveCounter(2, func(up bool) { got = append(got, up) })
+
+	live.set(0, false) // a never-up watcher failing must not decrement another kind
+	live.set(1, true)
+	if len(got) != 0 {
+		t.Fatalf("should not report all-up after only one watcher is up: %v", got)
+	}
+
+	live.set(0, true)
+	if len(got) != 1 || !got[0] {
+		t.Fatalf("want one live(true) when both kinds are up, got %v", got)
+	}
+
+	live.set(0, false)
+	live.set(0, false) // duplicate down edge is ignored
+	if len(got) != 2 || got[1] {
+		t.Fatalf("want one live(false) on first down edge, got %v", got)
+	}
+}

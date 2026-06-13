@@ -5,30 +5,33 @@ import {
   GitOpsService,
   ArgoService,
   WorkloadsService,
+  GatewayService,
 } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
 type MetricsDTO = { available: boolean; cpuFraction: number | null; memFraction: number | null };
 type GitOpsSummaryDTO = { fluxPresent: boolean; total: number; notReady: number; suspended: number };
 type ArgoResultDTO = { available: boolean; apps: { broken: boolean }[] };
 type WorkloadsResultDTO = { workloads: { rank: string }[] };
+type GatewayListDTO = { gatewayAPIServed: boolean; gateways: { namespace: string; name: string; accepted: boolean; programmed: boolean }[] };
+type TopologyDTO = { routes?: { accepted: boolean; resolvedRefs: boolean }[]; error?: string };
 
 // fetchFleetBoard enriches each connected cluster's card with utilization,
-// GitOps state (Flux + Argo, each tool's own counts), and a broken-workloads
-// count. On-demand: once per fleet-view visit, all clusters in parallel, each
-// field independently null/absent on failure - the card states "—", never a
-// fabricated zero. Every backend read is cached or informer-backed.
+// workload health, GitOps state, and Gateway API counts. On-demand: once per
+// fleet-view visit, all clusters in parallel, each field independently
+// null/absent on failure - the card states unreadable, never a fabricated zero.
 export async function fetchFleetBoard(clusters: string[]): Promise<void> {
   await Promise.all(clusters.map(async (cluster) => {
-    const [metrics, gitops, argo, workloads] = await Promise.allSettled([
+    const [metrics, gitops, argo, workloads, gateway] = await Promise.allSettled([
       MetricsService.GetClusterMetrics(cluster, false),
       GitOpsService.GetGitOpsSummary(cluster),
       ArgoService.ListApplications(cluster),
       WorkloadsService.ListWorkloads(cluster, ""),
+      gatewaySummary(cluster),
     ]);
 
     const entry: FleetBoardEntry = {
       cpuFraction: null, memFraction: null,
-      broken: null, flux: null, argo: null,
+      workloadsTotal: null, broken: null, flux: null, argo: null, gateway: null,
     };
 
     if (metrics.status === "fulfilled" && metrics.value) {
@@ -48,9 +51,43 @@ export async function fetchFleetBoard(clusters: string[]): Promise<void> {
     }
     if (workloads.status === "fulfilled" && workloads.value) {
       const w = (workloads.value as WorkloadsResultDTO).workloads ?? [];
+      entry.workloadsTotal = w.length;
       entry.broken = w.filter((x) => x.rank === "unhealthy" || x.rank === "degraded").length;
     }
+    if (gateway.status === "fulfilled") entry.gateway = gateway.value;
 
     useFleet.getState().setFleetBoardEntry(cluster, entry);
   }));
+}
+
+async function gatewaySummary(cluster: string): Promise<NonNullable<FleetBoardEntry["gateway"]>> {
+  const list = (await GatewayService.ListGateways(cluster)) as GatewayListDTO;
+  if (!list?.gatewayAPIServed) {
+    return { served: false, gateways: 0, routes: null, brokenRoutes: null, unprogrammed: 0 };
+  }
+
+  const gateways = list.gateways ?? [];
+  const topologies = await Promise.allSettled(
+    gateways.map((g) => GatewayService.GetGatewayTopology(cluster, g.namespace, g.name)),
+  );
+  let routes = 0;
+  let brokenRoutes = 0;
+  let allRouteReadsSucceeded = true;
+  for (const t of topologies) {
+    if (t.status !== "fulfilled" || (t.value as TopologyDTO)?.error) {
+      allRouteReadsSucceeded = false;
+      continue;
+    }
+    const rs = ((t.value as TopologyDTO).routes ?? []);
+    routes += rs.length;
+    brokenRoutes += rs.filter((r) => !r.accepted || !r.resolvedRefs).length;
+  }
+
+  return {
+    served: true,
+    gateways: gateways.length,
+    routes: allRouteReadsSucceeded ? routes : null,
+    brokenRoutes: allRouteReadsSucceeded ? brokenRoutes : null,
+    unprogrammed: gateways.filter((g) => !g.accepted || !g.programmed).length,
+  };
 }

@@ -101,13 +101,14 @@ func (r *liveRegistry) open(
 	var mu sync.Mutex
 	dirty := true // immediate first compute
 	watchUp := false
+	computeOK := false
 	// lastLive is tri-state: -1 = never reported, 0 = false, 1 = true. The
 	// sentinel forces the FIRST report to emit an explicit edge (even false), so
 	// the frontend gets a definite initial liveness signal - e.g. a cold-start
 	// compute failure surfaces live(false) once, per the live-list contract.
 	lastLive := -1
 
-	report := func(computeOK bool) {
+	report := func() {
 		mu.Lock()
 		up := 0
 		if watchUp && computeOK {
@@ -130,13 +131,7 @@ func (r *liveRegistry) open(
 		mu.Lock()
 		watchUp = up
 		mu.Unlock()
-		// A watch-down edge must surface immediately as not-live; a watch-up edge
-		// only restores live once the next compute confirms data flows. Re-derive
-		// without asserting compute success here: down forces false, up defers to
-		// the next compute tick.
-		if !up {
-			report(false)
-		}
+		report()
 	}
 
 	stopWatch, err := watchStart(onDirty, onLive)
@@ -166,19 +161,25 @@ func (r *liveRegistry) open(
 	sub.stopWatch = stopWatch
 
 	// Immediate compute+emit so the UI paints without waiting a full interval.
-	mu.Lock()
-	watchUp = true
-	mu.Unlock()
+	// Liveness still waits for the watch's own onLive(true) edge; watchStart
+	// merely spawned the watch supervisors and is not itself proof that a watch
+	// was established.
 	if payload, ok := compute(); ok {
 		// Guard: if a replace arrived while compute ran, drop the stale emit.
 		select {
 		case <-sub.cancel:
 		default:
 			emit(payload)
-			report(true)
+			mu.Lock()
+			computeOK = true
+			mu.Unlock()
+			report()
 		}
 	} else {
-		report(false)
+		mu.Lock()
+		computeOK = false
+		mu.Unlock()
+		report()
 	}
 	mu.Lock()
 	dirty = false
@@ -210,9 +211,15 @@ func (r *liveRegistry) open(
 					default:
 					}
 					emit(payload)
-					report(true)
+					mu.Lock()
+					computeOK = true
+					mu.Unlock()
+					report()
 				} else {
-					report(false)
+					mu.Lock()
+					computeOK = false
+					mu.Unlock()
+					report()
 				}
 			}
 		}

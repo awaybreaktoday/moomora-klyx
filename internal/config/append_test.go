@@ -116,6 +116,40 @@ users: []
 	}
 }
 
+func TestKubeContextsPathListMergesFiles(t *testing.T) {
+	dir := t.TempDir()
+	one := filepath.Join(dir, "one")
+	two := filepath.Join(dir, "two")
+	if err := os.WriteFile(one, []byte(`apiVersion: v1
+kind: Config
+contexts:
+  - name: dev
+    context: {cluster: dev, user: dev}
+clusters: []
+users: []
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(two, []byte(`apiVersion: v1
+kind: Config
+contexts:
+  - name: prd
+    context: {cluster: prd, user: prd}
+clusters: []
+users: []
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := KubeContexts(strings.Join([]string{one, two}, string(os.PathListSeparator)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "dev" || got[1] != "prd" {
+		t.Fatalf("contexts: got %v, want [dev prd]", got)
+	}
+}
+
 func TestKubeContextsMissingFileIsEmptyNotError(t *testing.T) {
 	got, err := KubeContexts(filepath.Join(t.TempDir(), "nope"))
 	if err != nil || got != nil {

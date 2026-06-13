@@ -6,6 +6,7 @@ package cluster
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -16,15 +17,7 @@ import (
 // RESTConfig builds a *rest.Config for the cluster's kubeconfig context.
 func RESTConfig(cc config.ClusterConfig) (*rest.Config, error) {
 	kubeconfigPath := cc.Kubeconfig
-	if kubeconfigPath == "" {
-		kubeconfigPath = os.Getenv("KUBECONFIG")
-	}
-	if kubeconfigPath == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			kubeconfigPath = home + "/.kube/config"
-		}
-	}
-	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath}
+	loadingRules := kubeconfigLoadingRules(kubeconfigPath)
 	overrides := &clientcmd.ConfigOverrides{CurrentContext: cc.Context}
 	cc2 := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 	rc, err := cc2.ClientConfig()
@@ -43,4 +36,26 @@ func RESTConfig(cc config.ClusterConfig) (*rest.Config, error) {
 		rc.Burst = 100
 	}
 	return rc, nil
+}
+
+func kubeconfigLoadingRules(path string) *clientcmd.ClientConfigLoadingRules {
+	if path == "" {
+		return clientcmd.NewDefaultClientConfigLoadingRules()
+	}
+	parts := splitKubeconfigPathList(path)
+	if len(parts) > 1 {
+		return &clientcmd.ClientConfigLoadingRules{Precedence: parts}
+	}
+	return &clientcmd.ClientConfigLoadingRules{ExplicitPath: path}
+}
+
+func splitKubeconfigPathList(path string) []string {
+	raw := strings.Split(path, string(os.PathListSeparator))
+	out := make([]string, 0, len(raw))
+	for _, p := range raw {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

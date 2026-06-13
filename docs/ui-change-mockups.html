@@ -1,0 +1,1200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Klyx ui change mockups</title>
+  <style>
+    :root {
+      --color-background-primary: #262624;
+      --color-background-secondary: #2a2926;
+      --color-background-tertiary: #1a1918;
+      --color-background-info: rgba(24,95,165,0.22);
+      --color-background-danger: rgba(163,45,45,0.22);
+      --color-background-success: rgba(59,109,17,0.22);
+      --color-background-warning: rgba(133,79,11,0.25);
+      --color-text-primary: #f5f4ed;
+      --color-text-secondary: #b4b2a9;
+      --color-text-tertiary: #888780;
+      --color-text-info: #85b7eb;
+      --color-text-danger: #f09595;
+      --color-text-success: #97c459;
+      --color-text-warning: #ef9f27;
+      --color-border-tertiary: rgba(255,255,255,0.12);
+      --color-border-secondary: rgba(255,255,255,0.22);
+      --color-border-primary: rgba(255,255,255,0.32);
+      --color-border-info: rgba(133,183,235,0.4);
+      --color-border-danger: rgba(240,149,149,0.4);
+      --color-border-success: rgba(151,196,89,0.4);
+      --color-border-warning: rgba(239,159,39,0.4);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--color-background-tertiary);
+      color: var(--color-text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    body {
+      padding: 14px;
+    }
+
+    .page {
+      display: grid;
+      gap: 14px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+
+    .caption {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 20px;
+      color: var(--color-text-secondary);
+    }
+
+    .caption strong {
+      color: var(--color-text-primary);
+      font-weight: 500;
+    }
+
+    .caption code,
+    .mono {
+      font-family: var(--font-mono);
+    }
+
+    .app {
+      height: min(860px, calc(100vh - 74px));
+      min-height: 640px;
+      border: 0.5px solid var(--color-border-secondary);
+      background: var(--color-background-primary);
+      display: grid;
+      grid-template-rows: 38px 1fr;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 170px 1fr auto;
+      align-items: center;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-secondary);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      font-weight: 500;
+    }
+
+    .mark {
+      width: 17px;
+      height: 17px;
+      border: 0.5px solid var(--color-border-info);
+      background: var(--color-background-info);
+      display: grid;
+      place-items: center;
+      color: var(--color-text-info);
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .command {
+      justify-self: start;
+      width: min(500px, 42vw);
+      height: 25px;
+      border: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-primary);
+      color: var(--color-text-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .topmeta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 12px;
+      color: var(--color-text-tertiary);
+      font-size: 11px;
+    }
+
+    .shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 54px 184px 1fr;
+      overflow: hidden;
+    }
+
+    .spine {
+      border-right: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-tertiary);
+      display: grid;
+      align-content: start;
+      gap: 5px;
+      padding: 10px 7px;
+    }
+
+    .spine-item {
+      height: 34px;
+      border: 0.5px solid transparent;
+      display: grid;
+      place-items: center;
+      color: var(--color-text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      position: relative;
+    }
+
+    .spine-item.active {
+      color: var(--color-text-primary);
+      background: var(--color-background-secondary);
+      border-color: var(--color-border-secondary);
+    }
+
+    .spine-item.danger::after,
+    .spine-item.warn::after {
+      content: "";
+      position: absolute;
+      right: 5px;
+      top: 5px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-text-danger);
+    }
+
+    .spine-item.warn::after {
+      background: var(--color-text-warning);
+    }
+
+    .sidebar {
+      border-right: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-secondary);
+      padding: 10px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .side-section {
+      display: grid;
+      gap: 4px;
+    }
+
+    .side-label,
+    .table-head,
+    .section-label {
+      color: var(--color-text-tertiary);
+      font-size: 10px;
+      letter-spacing: 0;
+      font-weight: 400;
+    }
+
+    .side-row {
+      min-height: 28px;
+      display: grid;
+      grid-template-columns: 12px 1fr auto;
+      align-items: center;
+      gap: 7px;
+      padding: 0 7px;
+      border: 0.5px solid transparent;
+      color: var(--color-text-secondary);
+      font-size: 12px;
+    }
+
+    .side-row.active {
+      background: var(--color-background-primary);
+      border-color: var(--color-border-tertiary);
+      color: var(--color-text-primary);
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-text-tertiary);
+    }
+
+    .dot.success { background: var(--color-text-success); }
+    .dot.warning { background: var(--color-text-warning); }
+    .dot.danger { background: var(--color-text-danger); }
+    .dot.info { background: var(--color-text-info); }
+
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      background: var(--color-background-primary);
+      overflow: hidden;
+    }
+
+    .header {
+      min-height: 64px;
+      padding: 12px 16px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .crumb {
+      color: var(--color-text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .header-actions,
+    .filters,
+    .button-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .button,
+    .chip,
+    .search,
+    .select {
+      height: 26px;
+      border: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-primary);
+      color: var(--color-text-secondary);
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font: inherit;
+      font-size: 12px;
+    }
+
+    .button.icon {
+      width: 26px;
+      justify-content: center;
+      padding: 0;
+      font-family: var(--font-mono);
+    }
+
+    .button.primary {
+      border-color: var(--color-border-info);
+      color: var(--color-text-info);
+      background: var(--color-background-info);
+    }
+
+    .button.danger {
+      border-color: var(--color-border-danger);
+      color: var(--color-text-danger);
+      background: var(--color-background-danger);
+    }
+
+    .chip.on {
+      color: var(--color-text-primary);
+      background: var(--color-background-tertiary);
+      border-color: var(--color-border-secondary);
+    }
+
+    .chip.warn {
+      color: var(--color-text-warning);
+      background: var(--color-background-warning);
+      border-color: var(--color-border-warning);
+    }
+
+    .search {
+      width: 210px;
+      justify-content: space-between;
+      color: var(--color-text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .select {
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .tape {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-secondary);
+    }
+
+    .tape-cell {
+      min-height: 54px;
+      padding: 8px 10px;
+      border-right: 0.5px solid var(--color-border-tertiary);
+      display: grid;
+      gap: 2px;
+    }
+
+    .tape-cell:last-child {
+      border-right: 0;
+    }
+
+    .tape-value {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(620px, 1fr) 390px;
+      overflow: hidden;
+    }
+
+    .list-pane {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      border-right: 0.5px solid var(--color-border-tertiary);
+      overflow: hidden;
+    }
+
+    .filterbar {
+      padding: 10px 12px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .status-trail {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--color-text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      margin-left: 4px;
+      white-space: nowrap;
+    }
+
+    .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-secondary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .live.warning { color: var(--color-text-warning); }
+    .live.success { color: var(--color-text-success); }
+
+    .table {
+      min-height: 0;
+      min-width: 860px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+
+    .table-head,
+    .row {
+      display: grid;
+      grid-template-columns: 12px 82px minmax(210px, 1fr) 72px 78px 1.05fr 122px 122px 124px 32px;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+    }
+
+    .table-head {
+      height: 31px;
+      border-bottom: 0.5px solid var(--color-border-secondary);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--color-background-primary);
+    }
+
+    .row {
+      min-height: 39px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      color: var(--color-text-secondary);
+    }
+
+    .row.selected {
+      background: var(--color-background-secondary);
+      border-left: 2px solid var(--color-text-info);
+      padding-left: 8px;
+      color: var(--color-text-primary);
+    }
+
+    .name {
+      color: var(--color-text-primary);
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ns {
+      color: var(--color-text-tertiary);
+      font-weight: 400;
+    }
+
+    .danger-text { color: var(--color-text-danger); }
+    .warning-text { color: var(--color-text-warning); }
+    .success-text { color: var(--color-text-success); }
+    .info-text { color: var(--color-text-info); }
+    .muted { color: var(--color-text-tertiary); }
+
+    .meter {
+      width: 54px;
+      height: 5px;
+      border: 0.5px solid var(--color-border-tertiary);
+      display: inline-block;
+      vertical-align: 1px;
+      margin-left: 6px;
+      background: var(--color-background-tertiary);
+    }
+
+    .meter > span {
+      display: block;
+      height: 100%;
+      background: var(--color-text-success);
+    }
+
+    .meter.warn > span {
+      background: var(--color-text-warning);
+    }
+
+    .detail {
+      min-width: 0;
+      min-height: 0;
+      background: var(--color-background-secondary);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .detail-head {
+      padding: 14px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      display: grid;
+      gap: 10px;
+    }
+
+    .detail-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: 500;
+      font-family: var(--font-mono);
+      overflow-wrap: anywhere;
+    }
+
+    .protect {
+      border: 0.5px solid var(--color-border-warning);
+      color: var(--color-text-warning);
+      background: var(--color-background-warning);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      white-space: nowrap;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 4px 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .kv span:nth-child(odd) {
+      color: var(--color-text-tertiary);
+    }
+
+    .section {
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      padding: 12px 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .pod-row,
+    .event-row {
+      border: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-primary);
+      padding: 8px;
+      display: grid;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .pod-row {
+      grid-template-columns: 8px 1fr auto;
+      align-items: center;
+    }
+
+    .notes {
+      padding: 12px 14px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .note {
+      border-left: 2px solid var(--color-text-info);
+      padding-left: 8px;
+      color: var(--color-text-secondary);
+      font-size: 12px;
+    }
+
+    .board {
+      border: 0.5px solid var(--color-border-secondary);
+      background: var(--color-background-primary);
+      display: grid;
+      grid-template-rows: 46px auto;
+    }
+
+    .board-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-secondary);
+    }
+
+    .board-head h2 {
+      font-family: var(--font-sans);
+      font-size: 15px;
+    }
+
+    .fleet-board {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      min-height: 250px;
+    }
+
+    .cluster-card {
+      border-right: 0.5px solid var(--color-border-tertiary);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-width: 0;
+    }
+
+    .cluster-card:last-child {
+      border-right: 0;
+    }
+
+    .cluster-head {
+      padding: 12px 14px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .cluster-head h3 {
+      font-size: 14px;
+      font-weight: 500;
+      font-family: var(--font-mono);
+    }
+
+    .cluster-body {
+      padding: 12px 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .signal {
+      display: grid;
+      grid-template-columns: 120px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-secondary);
+    }
+
+    .rail {
+      height: 5px;
+      background: var(--color-background-tertiary);
+      border: 0.5px solid var(--color-border-tertiary);
+    }
+
+    .rail span {
+      display: block;
+      height: 100%;
+      background: var(--color-text-success);
+    }
+
+    .rail.warning span { background: var(--color-text-warning); }
+    .rail.danger span { background: var(--color-text-danger); }
+
+    .cluster-foot {
+      min-height: 38px;
+      border-top: 0.5px solid var(--color-border-tertiary);
+      padding: 8px 14px;
+      font-family: var(--font-mono);
+      color: var(--color-text-tertiary);
+      font-size: 11px;
+    }
+
+    @media (max-width: 1100px) {
+      body { padding: 8px; }
+      .shell { grid-template-columns: 48px 1fr; }
+      .sidebar { display: none; }
+      .workspace { grid-template-columns: 1fr; }
+      .detail { display: none; }
+      .fleet-board { grid-template-columns: 1fr; }
+      .cluster-card { border-right: 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="caption">
+      <div><strong>replacement mockup</strong> - denser, flatter, closer to the current Klyx shell</div>
+      <div class="mono">changes: kubeconfig path-list, live-state truth, workload search</div>
+    </div>
+
+    <section class="app" aria-label="workloads mockup">
+      <div class="topbar">
+        <div class="brand"><span class="mark">k</span><span>Klyx</span></div>
+        <div class="command"><span>jump to resource, namespace, action</span><span>cmd/ctrl+k</span></div>
+        <div class="topmeta"><span>dark</span><span class="live success"><span class="dot success"></span>6 clusters watched</span></div>
+      </div>
+
+      <div class="shell">
+        <nav class="spine" aria-label="cluster spine">
+          <div class="spine-item active danger">prd</div>
+          <div class="spine-item warn">stg</div>
+          <div class="spine-item">dev</div>
+          <div class="spine-item">lab</div>
+          <div class="spine-item">+</div>
+        </nav>
+
+        <aside class="sidebar">
+          <div class="side-section">
+            <div class="side-label">fleet</div>
+            <div class="side-row"><span class="dot danger"></span><span>overview</span><span>2</span></div>
+            <div class="side-row"><span class="dot info"></span><span>forwards</span><span>3</span></div>
+          </div>
+
+          <div class="side-section">
+            <div class="side-label">prd-we-aks-01</div>
+            <div class="side-row active"><span class="dot danger"></span><span>workloads</span><span>4</span></div>
+            <div class="side-row"><span class="dot success"></span><span>pods</span><span>211</span></div>
+            <div class="side-row"><span class="dot warning"></span><span>gitops</span><span>1</span></div>
+            <div class="side-row"><span class="dot success"></span><span>gateway</span><span>18</span></div>
+            <div class="side-row"><span class="dot"></span><span>nodes</span><span>9</span></div>
+          </div>
+
+          <div class="side-section">
+            <div class="side-label">capabilities</div>
+            <div class="side-row"><span class="dot success"></span><span>flux</span><span>ready</span></div>
+            <div class="side-row"><span class="dot success"></span><span>cilium</span><span>mesh</span></div>
+            <div class="side-row"><span class="dot success"></span><span>gateway api</span><span>v1</span></div>
+            <div class="side-row"><span class="dot info"></span><span>prometheus</span><span>lgtm</span></div>
+          </div>
+        </aside>
+
+        <section class="main">
+          <header class="header">
+            <div>
+              <div class="crumb">fleet / prd-we-aks-01 / workloads</div>
+              <h1>Workloads</h1>
+            </div>
+            <div class="header-actions">
+              <span class="protect">protected cluster</span>
+              <button class="button icon" aria-label="refresh">r</button>
+              <button class="button primary">open logs</button>
+            </div>
+          </header>
+
+          <div class="tape" aria-label="triage tape">
+            <div class="tape-cell">
+              <span class="side-label">workload health</span>
+              <span class="tape-value danger-text">4 need attention</span>
+            </div>
+            <div class="tape-cell">
+              <span class="side-label">gitops</span>
+              <span class="tape-value warning-text">1 drifted</span>
+            </div>
+            <div class="tape-cell">
+              <span class="side-label">gateway</span>
+              <span class="tape-value success-text">18 routes</span>
+            </div>
+            <div class="tape-cell">
+              <span class="side-label">mesh</span>
+              <span class="tape-value success-text">2 peers</span>
+            </div>
+            <div class="tape-cell">
+              <span class="side-label">freshness</span>
+              <span class="tape-value warning-text">workloads stale</span>
+            </div>
+          </div>
+
+          <div class="workspace">
+            <div class="list-pane">
+              <div class="filterbar">
+                <div class="filters">
+                  <span class="select">all namespaces</span>
+                  <span class="chip on">deploy</span>
+                  <span class="chip on">sts</span>
+                  <span class="chip on">daemonset</span>
+                  <span class="chip warn">needs attention</span>
+                  <span class="chip">near limit</span>
+                  <span class="status-trail"><span>4/4</span><span class="danger-text">4 attention</span><span>deploy, sts, daemonset</span><span class="warning-text">stale 28s</span></span>
+                </div>
+                <div class="filters">
+                  <span class="search"><span>/ ingress</span><span>esc</span></span>
+                  <span class="live warning"><span class="dot warning"></span>stale 28s</span>
+                </div>
+              </div>
+
+              <div class="table" aria-label="workloads table">
+                <div class="table-head">
+                  <span></span><span>kind</span><span>workload</span><span>ready</span><span>restarts</span><span>status</span><span>cpu</span><span>mem</span><span>gitops</span><span></span>
+                </div>
+                <div class="row selected">
+                  <span class="dot danger"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">platform</span> / <span class="name">ingress-api</span></span>
+                  <span class="warning-text">2 / 4</span>
+                  <span class="warning-text">11</span>
+                  <span class="danger-text">CrashLoopBackOff</span>
+                  <span>780m <span class="meter warn"><span style="width: 74%"></span></span></span>
+                  <span>1.9Gi <span class="meter warn"><span style="width: 82%"></span></span></span>
+                  <span class="warning-text">flux ks/api</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot warning"></span>
+                  <span>sts</span>
+                  <span><span class="ns">edge</span> / <span class="name">ingress-cache</span></span>
+                  <span class="warning-text">1 / 3</span>
+                  <span>0</span>
+                  <span class="warning-text">pods pending</span>
+                  <span>230m <span class="meter"><span style="width: 28%"></span></span></span>
+                  <span>890Mi <span class="meter"><span style="width: 36%"></span></span></span>
+                  <span>flux hr/cache</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>daemonset</span>
+                  <span><span class="ns">gateway</span> / <span class="name">ingress-proxy</span></span>
+                  <span>9 / 9</span>
+                  <span>0</span>
+                  <span class="success-text">healthy</span>
+                  <span>140m <span class="meter"><span style="width: 16%"></span></span></span>
+                  <span>420Mi <span class="meter"><span style="width: 21%"></span></span></span>
+                  <span>flux ks/gateway</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot danger"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">platform</span> / <span class="name">ingress-adapter</span></span>
+                  <span class="warning-text">0 / 2</span>
+                  <span class="warning-text">7</span>
+                  <span class="danger-text">ImagePullBackOff</span>
+                  <span>-</span>
+                  <span>-</span>
+                  <span class="warning-text">flux ks/api</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">argocd</span> / <span class="name">argocd-server</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>72m <span class="meter"><span style="width: 9%"></span></span></span>
+                  <span>312Mi <span class="meter"><span style="width: 31%"></span></span></span>
+                  <span>flux hr/argo-cd</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">cert-manager</span> / <span class="name">cert-manager</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>42m <span class="meter"><span style="width: 6%"></span></span></span>
+                  <span>128Mi <span class="meter"><span style="width: 18%"></span></span></span>
+                  <span>flux hr/cert-manager</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">external-secrets</span> / <span class="name">external-secrets</span></span>
+                  <span>2 / 2</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>96m <span class="meter"><span style="width: 14%"></span></span></span>
+                  <span>448Mi <span class="meter"><span style="width: 44%"></span></span></span>
+                  <span>flux hr/external-secrets</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>daemonset</span>
+                  <span><span class="ns">kube-system</span> / <span class="name">cilium</span></span>
+                  <span>9 / 9</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>820m <span class="meter"><span style="width: 24%"></span></span></span>
+                  <span>1.2Gi <span class="meter"><span style="width: 49%"></span></span></span>
+                  <span>flux ks/network</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">monitoring</span> / <span class="name">grafana-agent</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>260m <span class="meter"><span style="width: 21%"></span></span></span>
+                  <span>612Mi <span class="meter"><span style="width: 38%"></span></span></span>
+                  <span>flux ks/lgtm</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>sts</span>
+                  <span><span class="ns">storage</span> / <span class="name">postgres-cluster</span></span>
+                  <span>3 / 3</span>
+                  <span>0</span>
+                  <span>Ready</span>
+                  <span>1.1 <span class="meter"><span style="width: 22%"></span></span></span>
+                  <span>3.4Gi <span class="meter"><span style="width: 46%"></span></span></span>
+                  <span>flux hr/cloudnative-pg</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">flux-system</span> / <span class="name">helm-controller</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>88m <span class="meter"><span style="width: 7%"></span></span></span>
+                  <span>220Mi <span class="meter"><span style="width: 24%"></span></span></span>
+                  <span>-</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">flux-system</span> / <span class="name">source-controller</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>65m <span class="meter"><span style="width: 6%"></span></span></span>
+                  <span>184Mi <span class="meter"><span style="width: 19%"></span></span></span>
+                  <span>-</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">envoy-gateway-system</span> / <span class="name">envoy-gateway</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>340m <span class="meter"><span style="width: 18%"></span></span></span>
+                  <span>712Mi <span class="meter"><span style="width: 32%"></span></span></span>
+                  <span>flux hr/envoy-gateway</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">external-dns</span> / <span class="name">external-dns</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>36m <span class="meter"><span style="width: 4%"></span></span></span>
+                  <span>108Mi <span class="meter"><span style="width: 14%"></span></span></span>
+                  <span>flux hr/external-dns</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">reloader</span> / <span class="name">reloader</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>18m <span class="meter"><span style="width: 3%"></span></span></span>
+                  <span>96Mi <span class="meter"><span style="width: 11%"></span></span></span>
+                  <span>flux hr/reloader</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>sts</span>
+                  <span><span class="ns">argocd</span> / <span class="name">argocd-application-controller</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Ready</span>
+                  <span>110m <span class="meter"><span style="width: 11%"></span></span></span>
+                  <span>960Mi <span class="meter"><span style="width: 48%"></span></span></span>
+                  <span>flux hr/argo-cd</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">argocd</span> / <span class="name">argocd-applicationset-controller</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>64m <span class="meter"><span style="width: 8%"></span></span></span>
+                  <span>384Mi <span class="meter"><span style="width: 30%"></span></span></span>
+                  <span>flux hr/argo-cd</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">argocd</span> / <span class="name">argocd-notifications-controller</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>28m <span class="meter"><span style="width: 5%"></span></span></span>
+                  <span>144Mi <span class="meter"><span style="width: 13%"></span></span></span>
+                  <span>flux hr/argo-cd</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">argocd</span> / <span class="name">argocd-repo-server</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>88m <span class="meter"><span style="width: 12%"></span></span></span>
+                  <span>512Mi <span class="meter"><span style="width: 40%"></span></span></span>
+                  <span>flux hr/argo-cd</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">cert-manager</span> / <span class="name">cert-manager-cainjector</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>34m <span class="meter"><span style="width: 6%"></span></span></span>
+                  <span>176Mi <span class="meter"><span style="width: 16%"></span></span></span>
+                  <span>flux hr/cert-manager</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">cert-manager</span> / <span class="name">cert-manager-webhook</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>30m <span class="meter"><span style="width: 5%"></span></span></span>
+                  <span>160Mi <span class="meter"><span style="width: 15%"></span></span></span>
+                  <span>flux hr/cert-manager</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">monitoring</span> / <span class="name">prometheus-operator</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>210m <span class="meter"><span style="width: 19%"></span></span></span>
+                  <span>724Mi <span class="meter"><span style="width: 35%"></span></span></span>
+                  <span>flux ks/lgtm</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>sts</span>
+                  <span><span class="ns">monitoring</span> / <span class="name">loki</span></span>
+                  <span>3 / 3</span>
+                  <span>0</span>
+                  <span>Ready</span>
+                  <span>410m <span class="meter"><span style="width: 23%"></span></span></span>
+                  <span>2.8Gi <span class="meter"><span style="width: 52%"></span></span></span>
+                  <span>flux ks/lgtm</span>
+                  <span class="info-text">log</span>
+                </div>
+                <div class="row">
+                  <span class="dot success"></span>
+                  <span>deploy</span>
+                  <span><span class="ns">gateway</span> / <span class="name">backend-policy-controller</span></span>
+                  <span>1 / 1</span>
+                  <span>0</span>
+                  <span>Available</span>
+                  <span>46m <span class="meter"><span style="width: 7%"></span></span></span>
+                  <span>192Mi <span class="meter"><span style="width: 18%"></span></span></span>
+                  <span>flux ks/gateway</span>
+                  <span class="info-text">log</span>
+                </div>
+              </div>
+            </div>
+
+            <aside class="detail" aria-label="selected workload detail">
+              <div class="detail-head">
+                <div class="detail-title">
+                  <div>
+                    <div class="crumb">Deployment / platform</div>
+                    <h2>ingress-api</h2>
+                  </div>
+                  <span class="protect">prd lock</span>
+                </div>
+                <div class="button-row">
+                  <button class="button primary">tail logs</button>
+                  <button class="button">restart</button>
+                  <button class="button">scale</button>
+                  <button class="button danger">delete pod</button>
+                  <span class="muted">expanded</span>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-label">status</div>
+                <div class="kv">
+                  <span>owner</span><span>flux Kustomization <span class="info-text">platform/api</span></span>
+                  <span>ready</span><span class="warning-text">2 / 4 replicas</span>
+                  <span>reason</span><span class="danger-text">CrashLoopBackOff</span>
+                  <span>observed</span><span>28s ago via stale watch</span>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-label">pods</div>
+                <div class="pod-row"><span class="dot danger"></span><span>ingress-api-7d9c8cdd9f-vn4xq</span><span class="danger-text">crashloop</span></div>
+                <div class="pod-row"><span class="dot warning"></span><span>ingress-api-7d9c8cdd9f-mlr9w</span><span class="warning-text">restarting</span></div>
+                <div class="pod-row"><span class="dot success"></span><span>ingress-api-7d9c8cdd9f-s2h5p</span><span>ready</span></div>
+              </div>
+
+              <div class="section">
+                <div class="section-label">resources</div>
+                <div class="kv">
+                  <span>cpu</span><span>780m / 1.0</span>
+                  <span>mem</span><span class="warning-text">1.9Gi / 2.0Gi</span>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="board" aria-label="fleet board mockup">
+      <div class="board-head">
+        <h2>Fleet board</h2>
+        <div class="filters">
+          <span class="chip on">diagnostic order</span>
+          <span class="chip">six clusters</span>
+          <span class="live success"><span class="dot success"></span>all informer factories connected</span>
+        </div>
+      </div>
+      <div class="fleet-board">
+        <article class="cluster-card">
+          <div class="cluster-head">
+            <div>
+              <h3>prd-we-aks-01</h3>
+              <div class="muted mono">aks / west europe / protected</div>
+            </div>
+            <span class="protect">2 critical</span>
+          </div>
+          <div class="cluster-body">
+            <div class="signal"><span>workloads</span><span class="rail danger"><span style="width: 42%"></span></span><span class="danger-text">4 bad</span></div>
+            <div class="signal"><span>gitops</span><span class="rail warning"><span style="width: 68%"></span></span><span class="warning-text">1 drift</span></div>
+            <div class="signal"><span>gateway</span><span class="rail"><span style="width: 100%"></span></span><span>18 routes</span></div>
+            <div class="signal"><span>mesh</span><span class="rail"><span style="width: 100%"></span></span><span>n/e peer</span></div>
+            <div class="signal"><span>freshness</span><span class="rail warning"><span style="width: 72%"></span></span><span class="warning-text">workloads stale</span></div>
+          </div>
+          <div class="cluster-foot">first because production is both protected and degraded</div>
+        </article>
+
+        <article class="cluster-card">
+          <div class="cluster-head">
+            <div>
+              <h3>stg-ne-aks-01</h3>
+              <div class="muted mono">aks / north europe</div>
+            </div>
+            <span class="chip warn">watch retry</span>
+          </div>
+          <div class="cluster-body">
+            <div class="signal"><span>workloads</span><span class="rail warning"><span style="width: 76%"></span></span><span class="warning-text">1 pending</span></div>
+            <div class="signal"><span>gitops</span><span class="rail"><span style="width: 100%"></span></span><span>ready</span></div>
+            <div class="signal"><span>gateway</span><span class="rail"><span style="width: 100%"></span></span><span>12 routes</span></div>
+            <div class="signal"><span>mesh</span><span class="rail"><span style="width: 100%"></span></span><span>w/e peer</span></div>
+            <div class="signal"><span>freshness</span><span class="rail warning"><span style="width: 55%"></span></span><span class="warning-text">events manual</span></div>
+          </div>
+          <div class="cluster-foot">second because one watch is no longer reported as live</div>
+        </article>
+
+        <article class="cluster-card">
+          <div class="cluster-head">
+            <div>
+              <h3>dev-we-aks-01</h3>
+              <div class="muted mono">aks / west europe</div>
+            </div>
+            <span class="chip on">healthy</span>
+          </div>
+          <div class="cluster-body">
+            <div class="signal"><span>workloads</span><span class="rail"><span style="width: 100%"></span></span><span>142 ok</span></div>
+            <div class="signal"><span>gitops</span><span class="rail"><span style="width: 100%"></span></span><span>ready</span></div>
+            <div class="signal"><span>gateway</span><span class="rail"><span style="width: 100%"></span></span><span>9 routes</span></div>
+            <div class="signal"><span>mesh</span><span class="rail"><span style="width: 100%"></span></span><span>ready</span></div>
+            <div class="signal"><span>freshness</span><span class="rail"><span style="width: 100%"></span></span><span>live</span></div>
+          </div>
+          <div class="cluster-foot">healthy clusters stay visible without stealing attention</div>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { ClusterCard } from "./ClusterCard";
 import type { ClusterDTO } from "../store/fleet";
@@ -10,6 +10,10 @@ const base: ClusterDTO = {
   gitopsTier: "Healthy", gitopsReason: "", networkTier: "Healthy", networkReason: "",
   env: "prd", region: "we", provider: "aks", group: "prd-we", ageSeconds: 15,
 };
+
+beforeEach(() => {
+  useFleet.setState({ fleetBoard: {}, mesh: null, route: { name: "fleet" } });
+});
 
 describe("ClusterCard", () => {
   it("renders name, version and counts", () => {
@@ -56,8 +60,8 @@ it("shows the mesh row from the graph: peered / asymmetric / standalone / off-fl
   // a peered cluster shows its peer
   const blue = { name: "ctx-blue", state: "Ready", networkTier: "Healthy" } as any;
   const { getByText } = render(<ClusterCard c={blue} />);
-  expect(getByText(/mesh:/i)).toBeTruthy();
-  expect(getByText(/ctx-orange/)).toBeTruthy();
+  expect(getByText("mesh")).toBeTruthy();
+  expect(getByText(/ctx-orange peer/)).toBeTruthy();
 });
 
 it("shows 'mesh enabled, no peers' for an installed-but-peerless cluster", () => {
@@ -67,27 +71,27 @@ it("shows 'mesh enabled, no peers' for an installed-but-peerless cluster", () =>
   }});
   const nelli = { name: "ctx-nelli", state: "Ready", networkTier: "Healthy" } as any;
   const { getByText } = render(<ClusterCard c={nelli} />);
-  expect(getByText(/mesh enabled, no peers/i)).toBeTruthy();
+  expect(getByText("no peers")).toBeTruthy();
 });
 
 describe("ClusterCard fleet board", () => {
   // --- Fleet board enrichment ---
 
   it("renders the gitops line in each tool's vocabulary when board data exists", () => {
-    useFleet.setState({ fleetBoard: { [base.name]: { cpuFraction: 0.62, memFraction: 0.81, broken: 0, flux: { total: 47, notReady: 0 }, argo: { total: 6, broken: 1 } } } });
+    useFleet.setState({ fleetBoard: { [base.name]: { cpuFraction: 0.62, memFraction: 0.81, workloadsTotal: 142, broken: 0, flux: { total: 47, notReady: 0 }, argo: { total: 6, broken: 0 }, gateway: { served: true, gateways: 2, routes: 18, brokenRoutes: 0, unprogrammed: 0 } } } });
     const { getByText } = render(<ClusterCard c={base} />);
-    expect(getByText("quiet")).toBeTruthy();
-    expect(getByText("47 ready")).toBeTruthy();
-    expect(getByText("1 not synced")).toBeTruthy();
-    expect(getByText("62%")).toBeTruthy();
-    expect(getByText("81%")).toBeTruthy();
+    expect(getByText("142 ok")).toBeTruthy();
+    expect(getByText("flux 47 ready · argo 6 synced")).toBeTruthy();
+    expect(getByText("18 routes")).toBeTruthy();
+    expect(getByText("live")).toBeTruthy();
   });
 
   it("broken workloads show a count, never hidden", () => {
-    useFleet.setState({ fleetBoard: { [base.name]: { cpuFraction: null, memFraction: null, broken: 3, flux: null, argo: null } } });
+    useFleet.setState({ fleetBoard: { [base.name]: { cpuFraction: null, memFraction: null, workloadsTotal: 10, broken: 3, flux: null, argo: null, gateway: { served: false, gateways: 0, routes: null, brokenRoutes: null, unprogrammed: 0 } } } });
     const { getByText } = render(<ClusterCard c={base} />);
-    expect(getByText("3 broken")).toBeTruthy();
-    expect(getByText("gitops —")).toBeTruthy(); // no tools detected reads dash
+    expect(getByText("3 bad")).toBeTruthy();
+    expect(getByText("not detected")).toBeTruthy(); // no GitOps tools detected never implies healthy
+    expect(getByText(/raised because workloads/i)).toBeTruthy();
   });
 
   it("an unreachable cluster renders as a ghost stating reason and recovery", () => {

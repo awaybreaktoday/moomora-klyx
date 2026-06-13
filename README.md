@@ -34,9 +34,14 @@ klyx/
 │   ├── brainstorm-questions.md  # open architectural questions
 │   ├── example-prompts.md       # Claude Code prompts per phase
 │   └── mockups.html             # six UI mockups (open in browser)
-└── (source code to follow)
+├── cmd/klyx/                    # Wails desktop app and React frontend
+├── cmd/klyxctl/                 # CLI entry point
+└── internal/                    # fleet, capability, GitOps, Gateway, metrics, and bridge layers
 ```
 
 ## Status
 
-Pre-implementation. Design phase complete, mockups produced, ready for M1 build.
+Klyx is implemented beyond the initial foundation: fleet overview, Flux and
+Argo CD lenses, CRD/resource browsing, Gateway topology, inline metrics, and
+daily-driver Kubernetes operations are present. See `AGENTS.md` and the
+`docs/superpowers/plans/` history for the current milestone context.

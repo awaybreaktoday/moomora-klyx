@@ -12,6 +12,7 @@ vi.mock("../bridge/workloads", () => ({
 }));
 vi.mock("../bridge/workload-metrics", () => ({ getWorkloadMetrics: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../bridge/windows", () => ({ openWorkloadLogsWindow: vi.fn().mockResolvedValue(true) }));
+vi.mock("../bridge/pods", () => ({ deletePod: vi.fn().mockResolvedValue(undefined) }));
 import type { SparklinesDTO } from "../bridge/metrics";
 const mockGetWorkloadSparklines = vi.fn<(c: string, ns: string, kind: string, name: string) => Promise<SparklinesDTO>>(() =>
   Promise.resolve({ available: true, cpu: [{ t: 0, v: 0.1 }, { t: 60, v: 0.2 }], mem: [{ t: 0, v: 100 }, { t: 60, v: 120 }] }),
@@ -66,6 +67,14 @@ describe("WorkloadsView", () => {
     fireEvent.click(getByText(/needs attention/i));
     expect(getByText("ollama")).toBeTruthy();
     expect(queryByText("grafana")).toBeNull();
+  });
+
+  it("filter input narrows workload rows", () => {
+    seed([broken, healthy]);
+    const { getByPlaceholderText, queryByText } = render(<WorkloadsView cluster="homelab-nelli" />);
+    fireEvent.change(getByPlaceholderText("filter workloads"), { target: { value: "grafana" } });
+    expect(queryByText("grafana")).toBeTruthy();
+    expect(queryByText("ollama")).toBeNull();
   });
 
   it("hides cpu/mem columns and near-limit control when metrics unavailable", () => {

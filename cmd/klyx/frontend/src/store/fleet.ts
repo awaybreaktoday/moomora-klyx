@@ -45,14 +45,16 @@ export type ForwardDTO = {
   status: string; // "active" | "broken"
 };
 
-// FleetBoardEntry enriches one fleet card: utilization fractions, GitOps
-// counts per tool, and the broken-workloads count. null = not loaded/failed.
+// FleetBoardEntry enriches one fleet card with health-board rows. Fields stay
+// nullable so a failed read says unreadable instead of fabricating a zero.
 export type FleetBoardEntry = {
   cpuFraction: number | null;
   memFraction: number | null;
+  workloadsTotal?: number | null;
   broken: number | null;
   flux: { total: number; notReady: number } | null;
   argo: { total: number; broken: number } | null;
+  gateway?: { served: boolean; gateways: number; routes: number | null; brokenRoutes: number | null; unprogrammed: number } | null;
 };
 
 // LensCount is one triage-tape lens: a real count, "absent" (the tool is not
@@ -127,6 +129,7 @@ export type WorkloadsSlice = {
   loading: boolean;
   kindFilter: Record<WorkloadKind, boolean>;
   needsAttention: boolean;
+  search: string;
   expanded: string[];       // keys "<kind>/<namespace>/<name>"
   metricsAvailable: boolean;
   metricsStatus: WorkloadMetricsStatusDTO | null;
@@ -419,6 +422,7 @@ type FleetState = {
   toggleWorkloadKind: (k: WorkloadKind) => void;
   toggleNeedsAttention: () => void;
   setWorkloadsNeedsAttention: (v: boolean) => void;
+  setWorkloadsSearch: (s: string) => void;
   toggleWorkloadExpand: (key: string) => void;
   setWorkloadUsage: (cluster: string, namespace: string, result: WorkloadMetricsResultDTO) => void;
   toggleNearLimitSort: () => void;
@@ -591,7 +595,7 @@ export const useFleet = create<FleetState>((set) => ({
   setMetrics: (cluster, dto) => set({ metrics: { cluster, dto, loading: false } }),
   clearMetrics: () => set({ metrics: { cluster: null, dto: null, loading: false } }),
   workloads: { cluster: null, namespace: "", items: [], namespaces: [], fluxPresent: false, loading: false,
-    kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, needsAttention: false, expanded: [],
+    kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, needsAttention: false, search: "", expanded: [],
     metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false, live: false },
   setWorkloadsLoading: (cluster, namespace) => set((s) => ({ workloads: { ...s.workloads, cluster, namespace, loading: true } })),
   setWorkloads: (cluster, namespace, result) => set((s) => {
@@ -604,6 +608,7 @@ export const useFleet = create<FleetState>((set) => ({
   toggleWorkloadKind: (k) => set((s) => ({ workloads: { ...s.workloads, kindFilter: { ...s.workloads.kindFilter, [k]: !s.workloads.kindFilter[k] } } })),
   toggleNeedsAttention: () => set((s) => ({ workloads: { ...s.workloads, needsAttention: !s.workloads.needsAttention } })),
   setWorkloadsNeedsAttention: (v) => set((s) => ({ workloads: { ...s.workloads, needsAttention: v } })),
+  setWorkloadsSearch: (search) => set((s) => ({ workloads: { ...s.workloads, search } })),
   toggleWorkloadExpand: (key) => set((s) => ({ workloads: { ...s.workloads, expanded: s.workloads.expanded.includes(key) ? s.workloads.expanded.filter((k) => k !== key) : [...s.workloads.expanded, key] } })),
   setWorkloadUsage: (cluster, namespace, result) =>
     set((s) => {
@@ -628,7 +633,7 @@ export const useFleet = create<FleetState>((set) => ({
       if (s.workloads.cluster !== cluster || s.workloads.namespace !== namespace) return {};
       return { workloads: { ...s.workloads, live } };
     }),
-  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false, live: false } })),
+  clearWorkloads: () => set((s) => ({ workloads: { ...s.workloads, cluster: null, items: [], namespaces: [], expanded: [], needsAttention: false, search: "", namespace: "", kindFilter: { Deployment: true, StatefulSet: true, DaemonSet: true }, metricsAvailable: false, metricsStatus: null, metricsStale: false, nearLimitSort: false, live: false } })),
   pods: { cluster: null, namespace: "", items: [], namespaces: [], loading: false, needsAttention: false, search: "", selected: null, detail: null, detailLoading: false, live: false },
   setPodsLoading: (cluster, namespace) => set((s) => ({ pods: { ...s.pods, cluster, namespace, loading: true } })),
   setPods: (cluster, namespace, result) => set((s) => {

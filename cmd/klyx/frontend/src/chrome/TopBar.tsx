@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { IconCommand, IconHexagonLetterK } from "@tabler/icons-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useFleet } from "../store/fleet";
 import { stopAllForwards } from "../bridge/forwards";
@@ -11,11 +12,14 @@ const noDrag = { "--wails-draggable": "no-drag" } as React.CSSProperties;
 // padding clears them), the forwards indicator + theme toggle on its right, and
 // the empty middle drags the window. The breadcrumb lives in the content Header.
 export function TopBar() {
+  const clusters = useFleet((s) => s.clusters);
+  const liveClusters = clusters.filter((c) => c.state !== "Failed" && c.state !== "Unconnected").length;
   return (
     <div
       style={{
         ...drag,
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "180px minmax(220px, 1fr) auto",
         alignItems: "center",
         height: 40,
         flexShrink: 0,
@@ -25,8 +29,53 @@ export function TopBar() {
         borderBottom: "0.5px solid var(--color-border-tertiary)",
       }}
     >
-      <div style={{ flex: 1 }} />
-      <div style={{ ...noDrag, display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-text-primary)", fontWeight: 500, fontSize: 13 }}>
+        <span style={{
+          width: 20,
+          height: 20,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "0.5px solid var(--color-border-info)",
+          background: "var(--color-background-info)",
+          color: "var(--color-text-info)",
+        }}>
+          <IconHexagonLetterK size={13} stroke={1.5} />
+        </span>
+        Klyx
+      </div>
+      <div
+        title="open command palette with cmd+k or ctrl+k"
+        style={{
+          ...noDrag,
+          justifySelf: "start",
+          width: "min(500px, 42vw)",
+          height: 26,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "0 9px",
+          border: "0.5px solid var(--color-border-tertiary)",
+          background: "var(--color-background-primary)",
+          color: "var(--color-text-tertiary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          cursor: "default",
+        }}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <IconCommand size={13} stroke={1.5} />
+          jump to resource, namespace, action
+        </span>
+        <span>cmd/ctrl+k</span>
+      </div>
+      <div style={{ ...noDrag, display: "flex", alignItems: "center", gap: 8, justifySelf: "end" }}>
+        {clusters.length > 0 && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-tertiary)" }}>
+            {liveClusters}/{clusters.length} clusters watched
+          </span>
+        )}
         <ForwardsIndicator />
         <ThemeToggle />
       </div>
@@ -87,12 +136,12 @@ function ForwardsIndicator() {
             width: 280, maxHeight: 320, overflowY: "auto",
             background: "var(--color-background-primary)",
             border: "0.5px solid var(--color-border-tertiary)",
-            borderRadius: 6, boxShadow: "0 6px 24px rgba(0,0,0,0.28)",
+            borderRadius: 4,
             padding: 6,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", padding: "4px 6px 6px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
-            <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", flex: 1 }}>
+            <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", flex: 1 }}>
               port-forwards
             </span>
             <button

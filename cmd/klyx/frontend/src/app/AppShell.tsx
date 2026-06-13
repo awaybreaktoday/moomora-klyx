@@ -23,7 +23,7 @@ export function AppShell() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "var(--color-background-primary)" }}>
           <Header />
           {route.name === "cluster" && <TriageTape cluster={route.cluster} />}
-          <div style={{ flex: 1, overflow: "auto" }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: route.name === "cluster" ? "hidden" : "auto" }}>
             {route.name === "fleet" ? <FleetView /> : route.name === "forwards" ? <ForwardsView /> : route.name === "settings" ? <SettingsView /> : <ClusterDetail />}
           </div>
         </div>

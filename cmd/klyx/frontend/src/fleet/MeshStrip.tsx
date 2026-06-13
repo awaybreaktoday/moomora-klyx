@@ -1,8 +1,8 @@
 import type { MeshGraphDTO } from "../store/fleet";
 
 const node: React.CSSProperties = {
-  background: "var(--color-background-primary)", border: "1px solid var(--color-border-info)",
-  borderRadius: 6, padding: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11,
+  background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-info)",
+  borderRadius: 3, padding: "5px 10px", fontFamily: "var(--font-mono)", fontSize: 11,
 };
 
 export function MeshStrip({ graph }: { graph: MeshGraphDTO }) {
@@ -13,10 +13,10 @@ export function MeshStrip({ graph }: { graph: MeshGraphDTO }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>clustermesh</span>
+        <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>clustermesh</span>
         <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>configured peering (not live connectivity)</span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 8, padding: "12px 14px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 3, padding: "12px 14px" }}>
         {graph.nodes.map((n) => {
           const off = !n.present;
           // Any present cluster that isn't actively peered is "standalone" - muted with

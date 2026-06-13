@@ -1,13 +1,228 @@
+import type { ReactNode } from "react";
 import { IconLock } from "@tabler/icons-react";
-import type { ClusterDTO, FleetBoardEntry } from "../store/fleet";
-import { useFleet, MeshGraphDTO } from "../store/fleet";
+import type { ClusterDTO, FleetBoardEntry, MeshGraphDTO } from "../store/fleet";
+import { useFleet } from "../store/fleet";
 
-function meshRow(graph: MeshGraphDTO | null, cluster: string): string | null {
-  if (!graph) return null;
+type Tone = "success" | "warning" | "danger" | "info" | "muted";
+
+type Signal = {
+  label: string;
+  value: string;
+  tone: Tone;
+  fraction: number | null;
+  title?: string;
+};
+
+export function clusterDiagnosticScore(c: ClusterDTO, board: FleetBoardEntry | undefined): number {
+  if (c.state === "Failed" || c.state === "Unconnected") return 1000;
+  let score = 0;
+  if ((board?.broken ?? 0) > 0) score += 500 + Math.min(100, (board?.broken ?? 0) * 10);
+  if (c.state === "Stale") score += 420;
+  if (c.state === "Degraded") score += 360;
+  if ((board?.flux?.notReady ?? 0) > 0) score += 260;
+  if ((board?.argo?.broken ?? 0) > 0) score += 240;
+  if ((board?.gateway?.brokenRoutes ?? 0) > 0 || (board?.gateway?.unprogrammed ?? 0) > 0) score += 180;
+  if (c.nodesReady < c.nodesTotal) score += 140;
+  if (c.protected) score += 10;
+  return score;
+}
+
+// ClusterCard - one dense fleet-board ledger. The rows mirror the mockup:
+// workload health, GitOps, Gateway API, ClusterMesh, and freshness.
+export function ClusterCard({ c }: { c: ClusterDTO }) {
+  const openCluster = useFleet((s) => s.openCluster);
+  const mesh = useFleet((s) => s.mesh);
+  const board: FleetBoardEntry | undefined = useFleet((s) => s.fleetBoard[c.name]);
+  const unreachable = c.state === "Failed" || c.state === "Unconnected";
+
+  if (unreachable) {
+    return (
+      <div
+        data-testid={`cluster-card-${c.name}`}
+        onClick={() => openCluster(c.name)}
+        style={{
+          background: "var(--color-background-primary)",
+          border: "0.5px dashed var(--color-border-secondary)",
+          borderRadius: 3,
+          padding: "10px 12px",
+          cursor: "pointer",
+          color: "var(--color-text-tertiary)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 13, color: "var(--color-text-secondary)" }}>{c.name}</span>
+          <span style={{ fontSize: 10 }}>{c.state.toLowerCase()} · {ago(c.ageSeconds)}</span>
+          {c.protected && <span title="protected" style={{ marginLeft: "auto", display: "inline-flex" }}><IconLock size={13} stroke={1.5} /></span>}
+        </div>
+        <div style={{ fontSize: 10, marginTop: 6 }}>{c.reason || "no connection"}</div>
+        <div style={{ fontSize: 10, marginTop: 14 }}>reconnects automatically when reachable</div>
+      </div>
+    );
+  }
+
+  const signals = [
+    workloadSignal(board),
+    gitopsSignal(board),
+    gatewaySignal(c, board),
+    meshSignal(mesh, c.name),
+    freshnessSignal(c),
+  ];
+  const rail = cardRail(c, board, signals);
+  const badge = cardBadge(c, board, signals);
+
+  return (
+    <div
+      data-testid={`cluster-card-${c.name}`}
+      onClick={() => openCluster(c.name)}
+      style={{
+        background: "var(--color-background-primary)",
+        border: "0.5px solid var(--color-border-tertiary)",
+        borderLeft: `3px solid ${toneColor(rail)}`,
+        borderRadius: 3,
+        padding: 0,
+        cursor: "pointer",
+        display: "grid",
+        gridTemplateRows: "auto 1fr auto",
+        minHeight: 232,
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-border-secondary)"; e.currentTarget.style.borderLeftColor = toneColor(rail); }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.borderLeftColor = toneColor(rail); }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "11px 12px 10px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+          <div style={{ marginTop: 3, fontSize: 11, color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+            {clusterMeta(c)}
+          </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 14, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)" }}>
+            <span style={{ color: c.nodesReady < c.nodesTotal ? "var(--color-text-warning)" : undefined }}>{c.nodesReady}/{c.nodesTotal} nodes</span>
+            <span>{c.pods} pods</span>
+            {c.env && <span style={{ color: "var(--color-text-tertiary)" }}>{c.env}</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flexShrink: 0 }}>
+          {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
+          {c.protected && (
+            <span title="protected" style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              color: "var(--color-text-warning)",
+              border: "0.5px solid var(--color-border-warning)",
+              background: "var(--color-background-warning)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              padding: "2px 6px",
+            }}>
+              <IconLock size={12} stroke={1.5} /> lock
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: "11px 12px 12px", display: "grid", gap: 8 }}>
+        {signals.map((s) => <SignalRow key={s.label} signal={s} />)}
+      </div>
+
+      <div style={{ padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}>
+        {diagnosticReason(c, board, signals)}
+      </div>
+    </div>
+  );
+}
+
+function SignalRow({ signal }: { signal: Signal }) {
+  const width = `${Math.round((signal.fraction ?? 0) * 100)}%`;
+  return (
+    <div title={signal.title} style={{ display: "grid", gridTemplateColumns: "86px minmax(56px, 1fr) auto", alignItems: "center", gap: 10, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+      <span style={{ color: "var(--color-text-secondary)" }}>{signal.label}</span>
+      <span style={{ height: 5, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", overflow: "hidden" }}>
+        <span style={{ display: "block", width, maxWidth: "100%", height: "100%", background: toneColor(signal.tone), opacity: signal.fraction == null ? 0.25 : 1 }} />
+      </span>
+      <span style={{ color: toneColor(signal.tone), whiteSpace: "nowrap" }}>{signal.value}</span>
+    </div>
+  );
+}
+
+function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return (
+    <span style={{
+      color: toneColor(tone),
+      border: `0.5px solid ${toneBorder(tone)}`,
+      background: toneBackground(tone),
+      fontFamily: "var(--font-mono)",
+      fontSize: 10,
+      padding: "2px 7px",
+      whiteSpace: "nowrap",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function workloadSignal(board: FleetBoardEntry | undefined): Signal {
+  if (!board || board.broken == null) {
+    return { label: "workloads", value: "unreadable", tone: "muted", fraction: null };
+  }
+  const total = board.workloadsTotal ?? null;
+  if (board.broken > 0) {
+    return {
+      label: "workloads",
+      value: `${board.broken} bad`,
+      tone: "danger",
+      fraction: total && total > 0 ? Math.max(0.12, Math.min(1, board.broken / total)) : 0.42,
+      title: total ? `${board.broken} of ${total} workloads need attention` : undefined,
+    };
+  }
+  return {
+    label: "workloads",
+    value: total != null ? `${total} ok` : "quiet",
+    tone: "success",
+    fraction: 1,
+  };
+}
+
+function gitopsSignal(board: FleetBoardEntry | undefined): Signal {
+  if (!board) return { label: "gitops", value: "unreadable", tone: "muted", fraction: null };
+  const total = (board.flux?.total ?? 0) + (board.argo?.total ?? 0);
+  const bad = (board.flux?.notReady ?? 0) + (board.argo?.broken ?? 0);
+  if (!board.flux && !board.argo) return { label: "gitops", value: "not detected", tone: "muted", fraction: null };
+  if (bad > 0) {
+    const bits: string[] = [];
+    if ((board.flux?.notReady ?? 0) > 0) bits.push(`${board.flux?.notReady} flux`);
+    if ((board.argo?.broken ?? 0) > 0) bits.push(`${board.argo?.broken} argo`);
+    return { label: "gitops", value: `${bits.join(" / ")} bad`, tone: "warning", fraction: total > 0 ? Math.max(0.12, 1 - bad / total) : 0.55 };
+  }
+  const bits: string[] = [];
+  if (board.flux) bits.push(`flux ${board.flux.total} ready`);
+  if (board.argo) bits.push(`argo ${board.argo.total} synced`);
+  return { label: "gitops", value: bits.join(" · "), tone: "success", fraction: 1 };
+}
+
+function gatewaySignal(c: ClusterDTO, board: FleetBoardEntry | undefined): Signal {
+  const g = board?.gateway;
+  if (!g) {
+    if (c.networkTier === "Absent") return { label: "gateway", value: "not detected", tone: "muted", fraction: null };
+    if (c.networkTier && c.networkTier !== "Healthy") return { label: "gateway", value: c.networkTier.toLowerCase(), tone: "warning", fraction: 0.58, title: c.networkReason };
+    return { label: "gateway", value: "ready", tone: "success", fraction: 1 };
+  }
+  if (!g.served) return { label: "gateway", value: "not served", tone: "muted", fraction: null };
+  if (g.unprogrammed > 0) {
+    return { label: "gateway", value: `${g.unprogrammed} pending`, tone: "warning", fraction: 0.58 };
+  }
+  if ((g.brokenRoutes ?? 0) > 0) {
+    return { label: "gateway", value: `${g.brokenRoutes} bad routes`, tone: "warning", fraction: g.routes && g.routes > 0 ? Math.max(0.12, 1 - (g.brokenRoutes ?? 0) / g.routes) : 0.5 };
+  }
+  if (g.routes != null) return { label: "gateway", value: `${g.routes} routes`, tone: "success", fraction: 1 };
+  return { label: "gateway", value: `${g.gateways} gateways`, tone: "success", fraction: 1 };
+}
+
+function meshSignal(graph: MeshGraphDTO | null, cluster: string): Signal {
+  if (!graph) return { label: "mesh", value: "unreadable", tone: "muted", fraction: null };
   const node = graph.nodes.find((n) => n.cluster === cluster);
-  if (!node || node.state === "unavailable") return "⬡ no ClusterMesh";
-  if (node.state === "enabled") return "⬡ mesh enabled, no peers";
-  // peered: collect peers from edges touching this cluster.
+  if (!node || node.state === "unavailable") return { label: "mesh", value: "no ClusterMesh", tone: "muted", fraction: null };
+  if (node.state === "enabled") return { label: "mesh", value: "no peers", tone: "info", fraction: 0.35 };
+
   const peers: string[] = [];
   let asym = false;
   let offFleet = 0;
@@ -19,142 +234,81 @@ function meshRow(graph: MeshGraphDTO | null, cluster: string): string | null {
     peers.push(other);
     if (!e.mutual) asym = true;
   }
-  let row = `⇄ mesh: ${peers.join(", ") || "—"}`;
-  if (asym) row += " (asymmetric)";
-  if (offFleet > 0) row += ` (+${offFleet} off-fleet)`;
-  return row;
+  const suffix = peers.length === 1 ? "peer" : "peers";
+  return {
+    label: "mesh",
+    value: `${peers.join(", ") || "enabled"} ${suffix}${offFleet > 0 ? ` +${offFleet}` : ""}`,
+    tone: asym || offFleet > 0 ? "warning" : "success",
+    fraction: asym || offFleet > 0 ? 0.72 : 1,
+    title: asym ? "asymmetric peering detected" : undefined,
+  };
 }
 
-// ClusterCard — one fleet-board ledger. Severity is a 3px edge rail (broken
-// workloads or a degraded conn), utilization renders as thin bars when metrics
-// exist, and GitOps state is one line in each tool's own vocabulary. An
-// unreachable cluster becomes a dashed ghost stating what is known (last
-// state, reason) instead of pretending to be a quiet healthy card.
-export function ClusterCard({ c }: { c: ClusterDTO }) {
-  const openCluster = useFleet((s) => s.openCluster);
-  const mesh = useFleet((s) => s.mesh);
-  const board: FleetBoardEntry | undefined = useFleet((s) => s.fleetBoard[c.name]);
-  const row = meshRow(mesh, c.name);
-
-  const unreachable = c.state === "Failed" || c.state === "Unconnected";
-  const broken = (board?.broken ?? 0) > 0;
-  const rail = broken ? "var(--color-text-danger)" : c.state === "Degraded" ? "var(--color-text-warning)" : "transparent";
-
-  if (unreachable) {
-    return (
-      <div
-        data-testid={`cluster-card-${c.name}`}
-        onClick={() => openCluster(c.name)}
-        style={{
-          background: "var(--color-background-primary)",
-          border: "0.5px dashed var(--color-border-secondary)",
-          borderRadius: "var(--border-radius-md)",
-          padding: "10px 12px",
-          cursor: "pointer",
-          color: "var(--color-text-tertiary)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 12, color: "var(--color-text-secondary)" }}>{c.name}</span>
-          <span style={{ fontSize: 10 }}>{c.state.toLowerCase()} · {ago(c.ageSeconds)}</span>
-          {c.protected && <span title="protected" style={{ marginLeft: "auto", display: "inline-flex" }}><IconLock size={13} stroke={1.5} /></span>}
-        </div>
-        <div style={{ fontSize: 10, marginTop: 6 }}>{c.reason || "no connection"}</div>
-        <div style={{ fontSize: 10, marginTop: 14 }}>reconnects automatically when reachable</div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      data-testid={`cluster-card-${c.name}`}
-      onClick={() => openCluster(c.name)}
-      style={{
-        background: "var(--color-background-primary)",
-        border: "0.5px solid var(--color-border-tertiary)",
-        borderLeft: `3px solid ${rail}`,
-        borderRadius: 0,
-        padding: "10px 12px",
-        cursor: "pointer",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-border-secondary)"; e.currentTarget.style.borderLeftColor = rail === "transparent" ? "var(--color-border-secondary)" : rail; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.borderLeftColor = rail; }}
-    >
-      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
-        <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 13 }}>{c.name}</span>
-        {board?.broken != null && (
-          <span style={{ fontSize: 10, color: broken ? "var(--color-text-danger)" : "var(--color-text-success)" }}>
-            {broken ? `${board.broken} broken` : "quiet"}
-          </span>
-        )}
-        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-text-tertiary)" }}>
-          {[c.provider, c.version].filter(Boolean).join(" · ")}
-        </span>
-        {c.protected && <span title="protected" style={{ display: "inline-flex", color: "var(--color-text-warning)" }}><IconLock size={13} stroke={1.5} /></span>}
-      </div>
-
-      <div style={{ display: "flex", gap: 14, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 7 }}>
-        <span style={{ color: c.nodesReady < c.nodesTotal ? "var(--color-text-warning)" : undefined }}>{c.nodesReady}/{c.nodesTotal} nodes</span>
-        <span>{c.pods} pods</span>
-        {c.env && <span style={{ color: "var(--color-text-tertiary)" }}>{c.env}</span>}
-        {c.region && <span style={{ color: "var(--color-text-tertiary)" }}>{c.region}</span>}
-      </div>
-
-      {board && board.cpuFraction != null && <UtilBar label="cpu" frac={board.cpuFraction} />}
-      {board && board.memFraction != null && <UtilBar label="mem" frac={board.memFraction} />}
-
-      <div style={{ marginTop: 8, paddingTop: 7, borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}>
-        {gitopsLine(board)}
-      </div>
-      {row && <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>{row}</div>}
-      {c.state !== "Synced" && (
-        <div style={{ fontSize: 10, color: "var(--color-text-warning)", marginTop: 4 }}>
-          {c.state}{c.reason ? ` — ${c.reason}` : ""}
-        </div>
-      )}
-    </div>
-  );
+function freshnessSignal(c: ClusterDTO): Signal {
+  if (c.state === "Stale") return { label: "freshness", value: "watch stale", tone: "warning", fraction: 0.62, title: c.reason };
+  if (c.state === "Degraded") return { label: "freshness", value: "degraded", tone: "warning", fraction: 0.72, title: c.reason };
+  if (c.state === "Synced") return { label: "freshness", value: "live", tone: "success", fraction: 1 };
+  if (c.state === "Connecting") return { label: "freshness", value: "connecting", tone: "info", fraction: 0.34 };
+  return { label: "freshness", value: c.state.toLowerCase(), tone: "muted", fraction: null };
 }
 
-// gitopsLine speaks each tool's vocabulary: Flux is ready/not ready, Argo is
-// synced/not synced. No tool detected reads "—" rather than implying health.
-function gitopsLine(board: FleetBoardEntry | undefined): React.ReactNode {
-  if (!board) return "gitops —";
-  const parts: React.ReactNode[] = [];
-  if (board.flux) {
-    parts.push(
-      <span key="flux">flux{" "}
-        {board.flux.notReady > 0
-          ? <span style={{ color: "var(--color-text-warning)" }}>{board.flux.notReady} not ready</span>
-          : <span style={{ color: "var(--color-text-success)" }}>{board.flux.total} ready</span>}
-      </span>,
-    );
-  }
-  if (board.argo) {
-    parts.push(
-      <span key="argo">argo{" "}
-        {board.argo.broken > 0
-          ? <span style={{ color: "var(--color-text-warning)" }}>{board.argo.broken} not synced</span>
-          : <span style={{ color: "var(--color-text-success)" }}>{board.argo.total} synced</span>}
-      </span>,
-    );
-  }
-  if (parts.length === 0) return "gitops —";
-  return parts.flatMap((p, i) => (i > 0 ? [" · ", p] : [p]));
+function cardBadge(c: ClusterDTO, board: FleetBoardEntry | undefined, signals: Signal[]): { label: string; tone: Tone } | null {
+  if ((board?.broken ?? 0) > 0) return { label: `${board?.broken} critical`, tone: "danger" };
+  const warning = signals.find((s) => s.tone === "warning");
+  if (warning) return { label: warning.value, tone: "warning" };
+  if (c.state === "Synced") return { label: "healthy", tone: "success" };
+  return { label: c.state.toLowerCase(), tone: "info" };
 }
 
-function UtilBar({ label, frac }: { label: string; frac: number }) {
-  const pct = Math.min(100, Math.max(0, Math.round(frac * 100)));
-  const color = pct >= 90 ? "var(--color-text-danger)" : pct >= 75 ? "var(--color-text-warning)" : "var(--color-text-success)";
-  return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 10, color: "var(--color-text-tertiary)", marginTop: 4 }}>
-      <span style={{ width: 24 }}>{label}</span>
-      <span style={{ flex: 1, height: 4, background: "var(--color-background-secondary)", borderRadius: 2, overflow: "hidden" }}>
-        <span style={{ display: "block", width: `${pct}%`, height: "100%", background: color }} />
-      </span>
-      <span style={{ fontFamily: "var(--font-mono)", width: 30, textAlign: "right" }}>{pct}%</span>
-    </div>
-  );
+function cardRail(c: ClusterDTO, board: FleetBoardEntry | undefined, signals: Signal[]): Tone {
+  if ((board?.broken ?? 0) > 0) return "danger";
+  if (c.state === "Stale" || c.state === "Degraded" || signals.some((s) => s.tone === "warning")) return "warning";
+  return "success";
+}
+
+function diagnosticReason(c: ClusterDTO, board: FleetBoardEntry | undefined, signals: Signal[]): string {
+  if (c.protected && (board?.broken ?? 0) > 0) return "first because protected cluster has bad workloads";
+  if ((board?.broken ?? 0) > 0) return "raised because workloads need attention";
+  if (c.state === "Stale") return "raised because cluster watches are stale";
+  if (c.state === "Degraded") return c.reason || "raised because cluster capability health is degraded";
+  if ((board?.flux?.notReady ?? 0) > 0 || (board?.argo?.broken ?? 0) > 0) return "raised because GitOps needs attention";
+  if (signals.some((s) => s.label === "gateway" && s.tone === "warning")) return "raised because Gateway API needs attention";
+  if (c.nodesReady < c.nodesTotal) return "raised because node readiness is below target";
+  return "healthy clusters stay visible without stealing attention";
+}
+
+function clusterMeta(c: ClusterDTO): string {
+  return [c.provider, c.region, c.protected ? "protected" : "", c.version].filter(Boolean).join(" / ");
+}
+
+function toneColor(tone: Tone): string {
+  switch (tone) {
+    case "success": return "var(--color-text-success)";
+    case "warning": return "var(--color-text-warning)";
+    case "danger": return "var(--color-text-danger)";
+    case "info": return "var(--color-text-info)";
+    case "muted": return "var(--color-text-tertiary)";
+  }
+}
+
+function toneBorder(tone: Tone): string {
+  switch (tone) {
+    case "success": return "var(--color-border-success)";
+    case "warning": return "var(--color-border-warning)";
+    case "danger": return "var(--color-border-danger)";
+    case "info": return "var(--color-border-info)";
+    case "muted": return "var(--color-border-tertiary)";
+  }
+}
+
+function toneBackground(tone: Tone): string {
+  switch (tone) {
+    case "success": return "var(--color-background-success)";
+    case "warning": return "var(--color-background-warning)";
+    case "danger": return "var(--color-background-danger)";
+    case "info": return "var(--color-background-info)";
+    case "muted": return "var(--color-background-secondary)";
+  }
 }
 
 function ago(s: number): string {

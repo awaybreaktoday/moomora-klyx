@@ -58,6 +58,7 @@ type liveCounter struct {
 	mu     sync.Mutex
 	total  int
 	up     int
+	states []bool
 	last   bool // last reported aggregate (true = all up)
 	onLive func(bool)
 }
@@ -66,19 +67,20 @@ func newLiveCounter(total int, onLive func(bool)) *liveCounter {
 	// Start optimistic-false: no kind is up yet, so the aggregate is false. The
 	// first kind to establish does NOT flip us to true until all are up; the
 	// caller's initial state is "not yet live".
-	return &liveCounter{total: total, last: false, onLive: onLive}
+	return &liveCounter{total: total, states: make([]bool, total), last: false, onLive: onLive}
 }
 
-func (l *liveCounter) set(up bool) {
+func (l *liveCounter) set(idx int, up bool) {
 	l.mu.Lock()
+	if idx < 0 || idx >= l.total || l.states[idx] == up {
+		l.mu.Unlock()
+		return
+	}
+	l.states[idx] = up
 	if up {
-		if l.up < l.total {
-			l.up++
-		}
+		l.up++
 	} else {
-		if l.up > 0 {
-			l.up--
-		}
+		l.up--
 	}
 	agg := l.up == l.total
 	changed := agg != l.last
@@ -120,12 +122,12 @@ func (c *ClusterConn) WatchDirty(ctx context.Context, namespace string, kinds []
 	live := newLiveCounter(len(starters), onLive)
 
 	var wg sync.WaitGroup
-	for _, start := range starters {
+	for idx, start := range starters {
 		wg.Add(1)
-		go func(start func(context.Context, string) (watch.Interface, error)) {
+		go func(idx int, start func(context.Context, string) (watch.Interface, error)) {
 			defer wg.Done()
-			c.watchKindLoop(wctx, namespace, start, onDirty, live)
-		}(start)
+			c.watchKindLoop(wctx, namespace, idx, start, onDirty, live)
+		}(idx, start)
 	}
 
 	var once sync.Once
@@ -142,7 +144,7 @@ func (c *ClusterConn) WatchDirty(ctx context.Context, namespace string, kinds []
 // the watch, drains its result channel forwarding every event to onDirty, and on
 // channel close or establish error marks the kind down, backs off, and retries.
 // A successful re-establish resets the backoff and marks the kind up.
-func (c *ClusterConn) watchKindLoop(ctx context.Context, namespace string, start func(context.Context, string) (watch.Interface, error), onDirty func(), live *liveCounter) {
+func (c *ClusterConn) watchKindLoop(ctx context.Context, namespace string, idx int, start func(context.Context, string) (watch.Interface, error), onDirty func(), live *liveCounter) {
 	backoff := watchBackoffInitial
 	for {
 		if ctx.Err() != nil {
@@ -152,7 +154,7 @@ func (c *ClusterConn) watchKindLoop(ctx context.Context, namespace string, start
 		if err != nil {
 			// Establish failed: this kind is down. Back off and retry unless
 			// cancelled.
-			live.set(false)
+			live.set(idx, false)
 			if !sleepCtx(ctx, backoff) {
 				return
 			}
@@ -161,7 +163,7 @@ func (c *ClusterConn) watchKindLoop(ctx context.Context, namespace string, start
 		}
 
 		// Established: this kind is up; reset backoff for the next failure.
-		live.set(true)
+		live.set(idx, true)
 		backoff = watchBackoffInitial
 
 		// Drain until the channel closes (server-side close, watch timeout, or
@@ -188,7 +190,7 @@ func (c *ClusterConn) watchKindLoop(ctx context.Context, namespace string, start
 		// Channel closed: stop the spent watcher, mark down, and loop to
 		// re-establish after a short backoff.
 		w.Stop()
-		live.set(false)
+		live.set(idx, false)
 		if !sleepCtx(ctx, backoff) {
 			return
 		}

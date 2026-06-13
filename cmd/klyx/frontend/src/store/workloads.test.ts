@@ -30,13 +30,20 @@ describe("workloads slice", () => {
   it("clearWorkloads resets kindFilter, needsAttention, and live", () => {
     useFleet.getState().toggleWorkloadKind("Deployment");
     useFleet.getState().toggleNeedsAttention();
+    useFleet.getState().setWorkloadsSearch("api");
     expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(false);
     // Manually set live to true.
     useFleet.setState((s) => ({ workloads: { ...s.workloads, live: true } }));
     useFleet.getState().clearWorkloads();
     expect(useFleet.getState().workloads.kindFilter.Deployment).toBe(true);
     expect(useFleet.getState().workloads.needsAttention).toBe(false);
+    expect(useFleet.getState().workloads.search).toBe("");
     expect(useFleet.getState().workloads.live).toBe(false);
+  });
+
+  it("setWorkloadsSearch stores the search string", () => {
+    useFleet.getState().setWorkloadsSearch("grafana");
+    expect(useFleet.getState().workloads.search).toBe("grafana");
   });
 
   it("setWorkloadsLive updates live when cluster+namespace match", () => {
