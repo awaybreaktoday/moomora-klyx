@@ -73,6 +73,11 @@ jobs:
           cache: npm
           cache-dependency-path: cmd/klyx/frontend/package-lock.json
 
+      - name: Install Wails CLI
+        run: |
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
@@ -85,6 +90,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: cmd/klyx/frontend
         run: npm ci
+
+      - name: Generate Wails bindings
+        working-directory: cmd/klyx
+        run: wails3 generate bindings -clean=true -ts
 
       - name: Test frontend
         working-directory: cmd/klyx/frontend
