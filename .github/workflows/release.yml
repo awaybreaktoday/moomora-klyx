@@ -1,0 +1,334 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.2.0 or v0.2.0"
+        required: true
+        type: string
+      publish_release:
+        description: "Create or update the matching GitHub Release"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  WAILS_VERSION: "v3.0.0-alpha.98"
+
+jobs:
+  version:
+    name: resolve version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish_release: ${{ steps.version.outputs.publish_release }}
+    steps:
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            raw="${{ inputs.version }}"
+            publish="${{ inputs.publish_release }}"
+          else
+            raw="${GITHUB_REF_NAME}"
+            publish="true"
+          fi
+
+          version="${raw#v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be stable SemVer, for example 0.2.0 or v0.2.0" >&2
+            exit 2
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+          echo "publish_release=${publish}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    needs: version
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cmd/klyx/frontend/package-lock.json
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev
+
+      - name: Install frontend dependencies
+        working-directory: cmd/klyx/frontend
+        run: npm ci
+
+      - name: Test frontend
+        working-directory: cmd/klyx/frontend
+        run: npm test -- --run
+
+      - name: Build frontend for Go embed
+        working-directory: cmd/klyx/frontend
+        run: npm run build
+
+      - name: Test Go
+        run: go test ./...
+
+  build-macos:
+    name: build macOS universal
+    runs-on: macos-latest
+    needs: [version, test]
+    env:
+      KLYX_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cmd/klyx/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: |
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+
+      - name: Install frontend dependencies
+        working-directory: cmd/klyx/frontend
+        run: npm ci
+
+      - name: Apply build version
+        run: node scripts/set-build-version.mjs "${KLYX_VERSION}"
+
+      - name: Build unsigned macOS app bundle
+        working-directory: cmd/klyx
+        run: |
+          set -euo pipefail
+          wails3 task darwin:build:universal
+          mkdir -p bin/klyx.app/Contents/MacOS
+          mkdir -p bin/klyx.app/Contents/Resources
+          cp build/darwin/icons.icns bin/klyx.app/Contents/Resources
+          if [[ -f build/darwin/Assets.car ]]; then
+            cp build/darwin/Assets.car bin/klyx.app/Contents/Resources
+          fi
+          cp bin/klyx bin/klyx.app/Contents/MacOS/klyx
+          cp build/darwin/Info.plist bin/klyx.app/Contents/Info.plist
+
+      - name: Package macOS artifact
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            cmd/klyx/bin/klyx.app \
+            "artifacts/klyx-${KLYX_VERSION}-darwin-universal.zip"
+          shasum -a 256 artifacts/* > "artifacts/klyx-${KLYX_VERSION}-darwin-universal.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: klyx-${{ env.KLYX_VERSION }}-darwin-universal
+          path: artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+
+  build-linux:
+    name: build Linux amd64
+    runs-on: ubuntu-24.04
+    needs: [version, test]
+    env:
+      KLYX_VERSION: ${{ needs.version.outputs.version }}
+      GOARCH: amd64
+      GIT_COMMITTER_NAME: Moomora
+      GIT_COMMITTER_EMAIL: actions@github.com
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cmd/klyx/frontend/package-lock.json
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            rpm \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev
+
+      - name: Install Wails CLI
+        run: |
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+
+      - name: Install frontend dependencies
+        working-directory: cmd/klyx/frontend
+        run: npm ci
+
+      - name: Apply build version
+        run: node scripts/set-build-version.mjs "${KLYX_VERSION}"
+
+      - name: Build Linux binary and packages
+        working-directory: cmd/klyx
+        run: |
+          set -euo pipefail
+          wails3 task linux:build ARCH=amd64 OUTPUT=bin/klyx
+          wails3 task linux:generate:dotdesktop
+          wails3 task linux:generate:deb
+          wails3 task linux:generate:rpm
+
+      - name: Package Linux artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/linux/klyx
+          install -m 0755 cmd/klyx/bin/klyx artifacts/linux/klyx/klyx
+          install -m 0644 cmd/klyx/build/linux/klyx.desktop artifacts/linux/klyx/klyx.desktop
+          install -m 0644 cmd/klyx/build/appicon.png artifacts/linux/klyx/klyx.png
+          tar -C artifacts/linux -czf "artifacts/klyx-${KLYX_VERSION}-linux-amd64.tar.gz" klyx
+          cp cmd/klyx/bin/*.deb "artifacts/klyx-${KLYX_VERSION}-linux-amd64.deb"
+          cp cmd/klyx/bin/*.rpm "artifacts/klyx-${KLYX_VERSION}-linux-amd64.rpm"
+          rm -rf artifacts/linux
+          sha256sum artifacts/* > "artifacts/klyx-${KLYX_VERSION}-linux-amd64.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: klyx-${{ env.KLYX_VERSION }}-linux-amd64
+          path: artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+
+  build-windows:
+    name: build Windows ${{ matrix.arch }}
+    runs-on: windows-latest
+    needs: [version, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      KLYX_VERSION: ${{ needs.version.outputs.version }}
+      KLYX_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cmd/klyx/frontend/package-lock.json
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $goBin = "$(go env GOPATH)\bin"
+          Add-Content -Path $env:GITHUB_PATH -Value $goBin
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${env:WAILS_VERSION}
+
+      - name: Install frontend dependencies
+        working-directory: cmd/klyx/frontend
+        run: npm ci
+
+      - name: Apply build version
+        run: node scripts/set-build-version.mjs "${env:KLYX_VERSION}"
+        shell: pwsh
+
+      - name: Build Windows executable and installer
+        working-directory: cmd/klyx
+        shell: pwsh
+        run: |
+          wails3 task windows:create:nsis:installer ARCH=${env:KLYX_ARCH} INSTALL_SCOPE=user
+
+      - name: Package Windows artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item cmd/klyx/bin/klyx.exe "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.exe"
+          Copy-Item cmd/klyx/build/windows/nsis/klyx-installer.exe "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}-installer.exe"
+          Compress-Archive -Path "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.exe" -DestinationPath "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.zip"
+          Remove-Item "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.exe"
+          Get-ChildItem artifacts | Get-FileHash -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)"
+          } | Set-Content "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: klyx-${{ env.KLYX_VERSION }}-windows-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: publish GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [version, build-macos, build-linux, build-windows]
+    if: needs.version.outputs.publish_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: klyx-${{ needs.version.outputs.version }}-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -lah release-artifacts
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release-artifacts/* --clobber
+          else
+            gh release create "${TAG}" release-artifacts/* \
+              --target "${GITHUB_SHA}" \
+              --title "Klyx ${TAG}" \
+              --notes "Unsigned Klyx desktop builds for ${TAG}."
+          fi
