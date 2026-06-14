@@ -17,6 +17,8 @@ let _paletteOpen = false;
 export const getPaletteOpen = () => _paletteOpen;
 /** Exported for tests only — do not call from application code. */
 export const _setPaletteOpenForTest = (v: boolean) => { _paletteOpen = v; };
+const OPEN_EVENT = "klyx:open-command-palette";
+export const openCommandPalette = () => window.dispatchEvent(new Event(OPEN_EVENT));
 
 type Ranked = { cmd: Command; positions: number[] };
 
@@ -110,8 +112,13 @@ export function CommandPalette() {
         close();
       }
     };
+    const onOpen = () => openPalette();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(OPEN_EVENT, onOpen);
+    };
   }, [open, close, openPalette]);
 
   // Focus the input whenever the palette opens.

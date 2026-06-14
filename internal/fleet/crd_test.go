@@ -5,13 +5,19 @@ import (
 	"strings"
 	"testing"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	typedfake "k8s.io/client-go/kubernetes/fake"
 	metadatafake "k8s.io/client-go/metadata/fake"
@@ -157,6 +163,300 @@ func TestListInstances(t *testing.T) {
 	}
 	if next != "" {
 		t.Fatalf("fake should report no continue token, got %q", next)
+	}
+}
+
+func TestListServiceInstancesExposeNetworkFields(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "external-gateway", Namespace: "envoy-gateway-system"},
+		Spec: corev1.ServiceSpec{
+			Type:      corev1.ServiceTypeLoadBalancer,
+			ClusterIP: "10.43.12.9",
+			Ports: []corev1.ServicePort{{
+				Name: "https", Port: 443, Protocol: corev1.ProtocolTCP,
+				TargetPort: intstr.FromInt(8443), NodePort: 32443,
+			}},
+		},
+		Status: corev1.ServiceStatus{LoadBalancer: corev1.LoadBalancerStatus{Ingress: []corev1.LoadBalancerIngress{{IP: "192.0.2.10"}}}},
+	}
+	typed := typedfake.NewSimpleClientset(svc)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	items, _, err := c.ListInstances(context.Background(), "", "v1", "services", 100, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 service, got %d", len(items))
+	}
+	f := items[0].Fields
+	if f["type"] != "LoadBalancer" || f["clusterIP"] != "10.43.12.9" || f["externalIP"] != "192.0.2.10" {
+		t.Fatalf("service fields: %+v", f)
+	}
+	if !strings.Contains(f["ports"], "https 443/TCP->8443") || !strings.Contains(f["ports"], "node:32443") {
+		t.Fatalf("ports: %q", f["ports"])
+	}
+}
+
+func TestListEndpointSliceInstancesExposeEndpointFields(t *testing.T) {
+	ready := true
+	notReady := false
+	name := "http"
+	port := int32(8080)
+	proto := corev1.ProtocolTCP
+	slice := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-abc",
+			Namespace: "apps",
+			Labels:    map[string]string{"kubernetes.io/service-name": "api"},
+		},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints: []discoveryv1.Endpoint{
+			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}},
+			{Addresses: []string{"10.0.0.2"}, Conditions: discoveryv1.EndpointConditions{Ready: &notReady}},
+		},
+		Ports: []discoveryv1.EndpointPort{{Name: &name, Port: &port, Protocol: &proto}},
+	}
+	typed := typedfake.NewSimpleClientset(slice)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	items, _, err := c.ListInstances(context.Background(), "discovery.k8s.io", "v1", "endpointslices", 100, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 endpointslice, got %d", len(items))
+	}
+	f := items[0].Fields
+	if f["service"] != "api" || f["addressType"] != "IPv4" || f["endpoints"] != "1/2" {
+		t.Fatalf("endpoint fields: %+v", f)
+	}
+	if f["addresses"] != "10.0.0.1, 10.0.0.2" || f["ports"] != "http 8080/TCP" {
+		t.Fatalf("addresses/ports: %+v", f)
+	}
+}
+
+func TestListStorageInstancesExposeBindingFields(t *testing.T) {
+	class := "fast"
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "data-api-0", Namespace: "apps"},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			StorageClassName: &class,
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			VolumeName:       "pvc-123",
+			Resources:        corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("20Gi")}},
+		},
+		Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+	}
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc-123"},
+		Spec: corev1.PersistentVolumeSpec{
+			StorageClassName:              "fast",
+			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+			Capacity:                      corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("20Gi")},
+			ClaimRef:                      &corev1.ObjectReference{Namespace: "apps", Name: "data-api-0"},
+		},
+		Status: corev1.PersistentVolumeStatus{Phase: corev1.VolumeBound},
+	}
+	typed := typedfake.NewSimpleClientset(pvc, pv)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	pvcs, _, err := c.ListInstances(context.Background(), "", "v1", "persistentvolumeclaims", 100, "")
+	if err != nil {
+		t.Fatalf("pvc list: %v", err)
+	}
+	if f := pvcs[0].Fields; f["status"] != "Bound" || f["class"] != "fast" || f["size"] != "20Gi" || f["modes"] != "RWO" || f["volume"] != "pvc-123" {
+		t.Fatalf("pvc fields: %+v", f)
+	}
+
+	pvs, _, err := c.ListInstances(context.Background(), "", "v1", "persistentvolumes", 100, "")
+	if err != nil {
+		t.Fatalf("pv list: %v", err)
+	}
+	if f := pvs[0].Fields; f["status"] != "Bound" || f["claim"] != "apps/data-api-0" || f["reclaim"] != "Delete" {
+		t.Fatalf("pv fields: %+v", f)
+	}
+}
+
+func TestListIngressNetworkPolicyConfigAndSecretFields(t *testing.T) {
+	immutable := true
+	ingressClass := "external"
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "apps"},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClass,
+			TLS:              []networkingv1.IngressTLS{{SecretName: "api-tls", Hosts: []string{"api.example.com"}}},
+			Rules: []networkingv1.IngressRule{{
+				Host: "api.example.com",
+				IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{
+					Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{Name: "api", Port: networkingv1.ServiceBackendPort{Number: 8080}}},
+				}}}},
+			}},
+		},
+		Status: networkingv1.IngressStatus{LoadBalancer: networkingv1.IngressLoadBalancerStatus{Ingress: []networkingv1.IngressLoadBalancerIngress{{IP: "192.0.2.20"}}}},
+	}
+	np := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-allow", Namespace: "apps"},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
+			Ingress:     []networkingv1.NetworkPolicyIngressRule{{}},
+			Egress:      []networkingv1.NetworkPolicyEgressRule{{}},
+		},
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "api-secret", Namespace: "apps"}, Type: corev1.SecretTypeOpaque, Immutable: &immutable, Data: map[string][]byte{"password": []byte("hidden")}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "api-config", Namespace: "apps"}, Immutable: &immutable, Data: map[string]string{"config.yaml": "x"}, BinaryData: map[string][]byte{"blob": []byte("x")}}
+	typed := typedfake.NewSimpleClientset(ing, np, secret, cm)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	ings, _, err := c.ListInstances(context.Background(), "networking.k8s.io", "v1", "ingresses", 100, "")
+	if err != nil {
+		t.Fatalf("ingress list: %v", err)
+	}
+	if f := ings[0].Fields; f["class"] != "external" || f["hosts"] != "api.example.com" || f["address"] != "192.0.2.20" || f["tls"] != "api-tls" || f["backends"] != "api:8080" {
+		t.Fatalf("ingress fields: %+v", f)
+	}
+
+	nps, _, err := c.ListInstances(context.Background(), "networking.k8s.io", "v1", "networkpolicies", 100, "")
+	if err != nil {
+		t.Fatalf("networkpolicy list: %v", err)
+	}
+	if f := nps[0].Fields; f["selector"] != "app=api" || f["policyTypes"] != "Ingress,Egress" || f["ingress"] != "1" || f["egress"] != "1" {
+		t.Fatalf("network policy fields: %+v", f)
+	}
+
+	secrets, _, err := c.ListInstances(context.Background(), "", "v1", "secrets", 100, "")
+	if err != nil {
+		t.Fatalf("secret list: %v", err)
+	}
+	if f := secrets[0].Fields; f["type"] != "Opaque" || f["keys"] != "1" || f["immutable"] != "yes" {
+		t.Fatalf("secret fields: %+v", f)
+	}
+
+	configMaps, _, err := c.ListInstances(context.Background(), "", "v1", "configmaps", 100, "")
+	if err != nil {
+		t.Fatalf("configmap list: %v", err)
+	}
+	if f := configMaps[0].Fields; f["keys"] != "2" || f["immutable"] != "yes" {
+		t.Fatalf("configmap fields: %+v", f)
+	}
+}
+
+func TestListAutoscalingDisruptionAndBatchFields(t *testing.T) {
+	min := int32(2)
+	targetCPU := int32(80)
+	currentCPU := int32(42)
+	suspend := true
+	completions := int32(3)
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "apps"},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "Deployment", Name: "api"},
+			MinReplicas:    &min,
+			MaxReplicas:    5,
+			Metrics: []autoscalingv2.MetricSpec{{Type: autoscalingv2.ResourceMetricSourceType, Resource: &autoscalingv2.ResourceMetricSource{
+				Name:   corev1.ResourceCPU,
+				Target: autoscalingv2.MetricTarget{Type: autoscalingv2.UtilizationMetricType, AverageUtilization: &targetCPU},
+			}}},
+		},
+		Status: autoscalingv2.HorizontalPodAutoscalerStatus{
+			CurrentReplicas: 3,
+			DesiredReplicas: 4,
+			CurrentMetrics: []autoscalingv2.MetricStatus{{Type: autoscalingv2.ResourceMetricSourceType, Resource: &autoscalingv2.ResourceMetricStatus{
+				Name:    corev1.ResourceCPU,
+				Current: autoscalingv2.MetricValueStatus{AverageUtilization: &currentCPU},
+			}}},
+		},
+	}
+	pdb := &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "apps"}, Status: policyv1.PodDisruptionBudgetStatus{DisruptionsAllowed: 1, CurrentHealthy: 4, DesiredHealthy: 3, ExpectedPods: 5}}
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "migrate", Namespace: "apps"}, Spec: batchv1.JobSpec{Completions: &completions}, Status: batchv1.JobStatus{Active: 1, Succeeded: 2, Failed: 1}}
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "apps"}, Spec: batchv1.CronJobSpec{Schedule: "0 2 * * *", Suspend: &suspend}, Status: batchv1.CronJobStatus{Active: []corev1.ObjectReference{{Name: "backup-1"}}, LastScheduleTime: &metav1.Time{Time: metav1.Now().Time}}}
+	typed := typedfake.NewSimpleClientset(hpa, pdb, job, cj)
+	c := NewClusterConn("x", typed, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+
+	hpas, _, err := c.ListInstances(context.Background(), "autoscaling", "v2", "horizontalpodautoscalers", 100, "")
+	if err != nil {
+		t.Fatalf("hpa list: %v", err)
+	}
+	if f := hpas[0].Fields; f["target"] != "Deployment/api" || f["replicas"] != "2/3/4/5" || f["metrics"] != "cpu 42%/80%" {
+		t.Fatalf("hpa fields: %+v", f)
+	}
+
+	pdbs, _, err := c.ListInstances(context.Background(), "policy", "v1", "poddisruptionbudgets", 100, "")
+	if err != nil {
+		t.Fatalf("pdb list: %v", err)
+	}
+	if f := pdbs[0].Fields; f["allowed"] != "1" || f["healthy"] != "4/3" || f["expected"] != "5" {
+		t.Fatalf("pdb fields: %+v", f)
+	}
+
+	jobs, _, err := c.ListInstances(context.Background(), "batch", "v1", "jobs", 100, "")
+	if err != nil {
+		t.Fatalf("job list: %v", err)
+	}
+	if f := jobs[0].Fields; f["active"] != "1" || f["succeeded"] != "2" || f["failed"] != "1" || f["completions"] != "2/3" {
+		t.Fatalf("job fields: %+v", f)
+	}
+
+	cronJobs, _, err := c.ListInstances(context.Background(), "batch", "v1", "cronjobs", 100, "")
+	if err != nil {
+		t.Fatalf("cronjob list: %v", err)
+	}
+	if f := cronJobs[0].Fields; f["schedule"] != "0 2 * * *" || f["suspended"] != "yes" || f["active"] != "1" || f["lastSchedule"] == "-" {
+		t.Fatalf("cronjob fields: %+v", f)
+	}
+}
+
+func TestListUnstructuredOperatorInstancesExposeFields(t *testing.T) {
+	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
+	cnpGVR := schema.GroupVersionResource{Group: "cilium.io", Version: "v2", Resource: "ciliumnetworkpolicies"}
+	cert := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cert-manager.io/v1",
+		"kind":       "Certificate",
+		"metadata":   map[string]interface{}{"name": "api-tls", "namespace": "apps"},
+		"spec": map[string]interface{}{
+			"issuerRef":   map[string]interface{}{"kind": "ClusterIssuer", "name": "letsencrypt"},
+			"dnsNames":    []interface{}{"api.example.com", "api.internal"},
+			"renewBefore": "720h",
+		},
+		"status": map[string]interface{}{
+			"notAfter":    "2026-09-01T12:00:00Z",
+			"renewalTime": "2026-08-01T12:00:00Z",
+			"conditions":  []interface{}{map[string]interface{}{"type": "Ready", "status": "True"}},
+		},
+	}}
+	cnp := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cilium.io/v2",
+		"kind":       "CiliumNetworkPolicy",
+		"metadata":   map[string]interface{}{"name": "api-allow", "namespace": "apps"},
+		"spec": map[string]interface{}{
+			"endpointSelector": map[string]interface{}{"matchLabels": map[string]interface{}{"app": "api"}},
+			"ingress":          []interface{}{map[string]interface{}{}},
+			"ingressDeny":      []interface{}{map[string]interface{}{}},
+			"egress":           []interface{}{map[string]interface{}{}, map[string]interface{}{}},
+		},
+	}}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(dynScheme(), map[schema.GroupVersionResource]string{
+		certGVR: "CertificateList",
+		cnpGVR:  "CiliumNetworkPolicyList",
+	}, cert, cnp)
+	c := NewClusterConn("x", nil, nil, dyn, nil, clock.Real{}, config.MetricsConfig{})
+
+	certs, _, err := c.ListInstances(context.Background(), "cert-manager.io", "v1", "certificates", 100, "")
+	if err != nil {
+		t.Fatalf("cert list: %v", err)
+	}
+	if f := certs[0].Fields; f["ready"] != "ready" || f["issuer"] != "ClusterIssuer/letsencrypt" || f["expires"] != "2026-09-01" || f["renew"] != "2026-08-01" || !strings.Contains(f["dns"], "api.example.com") {
+		t.Fatalf("certificate fields: %+v", f)
+	}
+
+	cnps, _, err := c.ListInstances(context.Background(), "cilium.io", "v2", "ciliumnetworkpolicies", 100, "")
+	if err != nil {
+		t.Fatalf("cnp list: %v", err)
+	}
+	if f := cnps[0].Fields; f["selector"] != "app=api" || f["ingress"] != "1 +1 deny" || f["egress"] != "2" || f["scope"] != "namespace" {
+		t.Fatalf("cilium policy fields: %+v", f)
 	}
 }
 

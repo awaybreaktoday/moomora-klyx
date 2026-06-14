@@ -31,4 +31,27 @@ describe("NetworkView", () => {
     const r = useFleet.getState().route;
     expect(r.name === "cluster" && r.gateway).toEqual({ namespace: "infra", name: "eg" });
   });
+
+  it("shows gateway address and listeners in the first list", () => {
+    net({ served: true, gateways: [{
+      namespace: "infra",
+      name: "eg",
+      className: "envoy-gateway",
+      addresses: [{ type: "IPAddress", value: "192.0.2.10" }],
+      listeners: [{ name: "https", protocol: "HTTPS", hostname: "", port: 443 }],
+      accepted: true,
+      programmed: true,
+    }] });
+    const { getByText } = render(<NetworkView cluster="x" />);
+    expect(getByText("address")).toBeTruthy();
+    expect(getByText("listeners")).toBeTruthy();
+    expect(getByText("192.0.2.10")).toBeTruthy();
+    expect(getByText("https HTTPS:443")).toBeTruthy();
+  });
+
+  it("owns scrolling for the gateway list inside the hidden cluster shell", () => {
+    net({ served: true, gateways: [{ namespace: "infra", name: "eg", className: "envoy-gateway", accepted: true, programmed: true }] });
+    const { getByTestId } = render(<NetworkView cluster="x" />);
+    expect(getByTestId("gateway-list-scroll").style.overflowY).toBe("auto");
+  });
 });

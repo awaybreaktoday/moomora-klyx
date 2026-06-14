@@ -1,13 +1,41 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, within } from "@testing-library/react";
 import { useFleet } from "../store/fleet";
+import type { ClusterDTO } from "../store/fleet";
 import { Sidebar } from "./Sidebar";
+
+const cluster = (over: Partial<ClusterDTO> = {}): ClusterDTO => ({
+  name: "homelab-nelli",
+  state: "Synced",
+  reason: "",
+  nodesReady: 1,
+  nodesTotal: 1,
+  pods: 69,
+  version: "v1.36.1",
+  gitopsTier: "Healthy",
+  gitopsReason: "",
+  fluxPresent: true,
+  fluxHealthy: true,
+  networkTier: "Healthy",
+  networkReason: "",
+  gatewayAPIVersion: "v1",
+  ciliumPresent: true,
+  clusterMesh: true,
+  env: "local",
+  region: "",
+  provider: "",
+  group: "",
+  ageSeconds: 10,
+  ...over,
+});
 
 beforeEach(() => {
   localStorage.clear();
   useFleet.setState({
     clusters: [],
     route: { name: "fleet" },
+    fleetBoard: {},
+    metrics: { cluster: null, dto: null, loading: false },
     crd: { cluster: null, groups: [], loading: false, expanded: [], counts: {}, groupBy: "group", search: "", builtinCategory: null },
   });
 });
@@ -54,14 +82,14 @@ describe("Sidebar section order", () => {
     const labels = buttons
       .map((b) => b.textContent?.trim())
       .filter(Boolean);
-    // Fleet is first; then the 10 sections (grouped); then Terminal, Settings, collapse sidebar.
+    // Fleet is first; then the 11 sections (grouped); then Terminal, Settings, collapse sidebar.
     const expectedOrder = [
       "Fleet",
       "Forwards",
       "Overview",
-      "Workloads", "Pods", "Events",
+      "Workloads", "Pods", "Nodes", "Events",
       "Flux", "Argo CD", "Helm",
-      "Network", "Nodes",
+      "Network",
       "Resources", "CRDs",
       "Terminal", "Settings",
     ];
@@ -79,6 +107,85 @@ describe("Sidebar section order", () => {
     const { getAllByRole } = render(<Sidebar />);
     const dividers = getAllByRole("separator");
     expect(dividers).toHaveLength(4);
+  });
+});
+
+describe("Sidebar cluster capabilities", () => {
+  it("renders the expanded cluster capability strip from capability data", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.setState({
+      clusters: [cluster()],
+      route: { name: "cluster", cluster: "homelab-nelli", section: "overview" },
+      metrics: {
+        cluster: "homelab-nelli",
+        loading: false,
+        dto: { available: true, mode: "prometheus", source: "monitoring/kube-prometheus-stack", warning: "", reason: "", cpuFraction: null, memFraction: null },
+      },
+    });
+
+    const { getByLabelText } = render(<Sidebar />);
+    const block = getByLabelText("cluster capabilities");
+
+    expect(within(block).getByText("flux")).toBeTruthy();
+    expect(within(block).getByText("ready")).toBeTruthy();
+    expect(within(block).getByText("cilium")).toBeTruthy();
+    expect(within(block).getByText("mesh")).toBeTruthy();
+    expect(within(block).getByText("gateway api")).toBeTruthy();
+    expect(within(block).getByText("v1")).toBeTruthy();
+    expect(within(block).getByText("prometheus")).toBeTruthy();
+    expect(within(block).getByText("lgtm")).toBeTruthy();
+  });
+
+  it("uses live board and mesh data when static capability detection is stale", () => {
+    localStorage.setItem("klyx-sidebar-expanded", "1");
+    useFleet.setState({
+      clusters: [cluster({
+        name: "homelab-orange",
+        networkTier: "Absent",
+        gatewayAPIVersion: "",
+        ciliumPresent: false,
+        clusterMesh: false,
+      })],
+      route: { name: "cluster", cluster: "homelab-orange", section: "overview" },
+      fleetBoard: {
+        "homelab-orange": {
+          cpuFraction: null,
+          memFraction: null,
+          workloadsTotal: 32,
+          broken: 0,
+          flux: null,
+          argo: null,
+          gateway: { served: true, gateways: 1, routes: 2, brokenRoutes: 0, unprogrammed: 0 },
+        },
+      },
+      mesh: {
+        nodes: [{ cluster: "homelab-orange", name: "homelab-orange", clusterId: 3, state: "peered", present: true }],
+        edges: [{ a: "homelab-orange", b: "homelab-blue", mutual: true }],
+      },
+      metrics: {
+        cluster: "homelab-orange",
+        loading: false,
+        dto: { available: true, mode: "prometheus", source: "monitoring/kube-prometheus-stack", warning: "", reason: "", cpuFraction: null, memFraction: null },
+      },
+    });
+
+    const { getByLabelText } = render(<Sidebar />);
+    const block = getByLabelText("cluster capabilities");
+
+    expect(within(block).getByText("cilium")).toBeTruthy();
+    expect(within(block).getByText("mesh")).toBeTruthy();
+    expect(within(block).getByText("gateway api")).toBeTruthy();
+    expect(within(block).getByText("2 routes")).toBeTruthy();
+    expect(within(block).queryByText("absent")).toBeNull();
+  });
+
+  it("keeps cluster capabilities out of collapsed mode", () => {
+    useFleet.setState({
+      clusters: [cluster()],
+      route: { name: "cluster", cluster: "homelab-nelli", section: "overview" },
+    });
+    const { queryByLabelText } = render(<Sidebar />);
+    expect(queryByLabelText("cluster capabilities")).toBeNull();
   });
 });
 
@@ -142,15 +249,23 @@ describe("Sidebar category sub-nav", () => {
   it("expanded + resources active shows six category sub-items", () => {
     localStorage.setItem("klyx-sidebar-expanded", "1");
     useFleet.getState().openCluster("x");
-    useFleet.getState().setSection("resources");
-    const { getByLabelText } = render(<Sidebar />);
-    expect(getByLabelText("category Workloads")).toBeTruthy();
-    expect(getByLabelText("category Config")).toBeTruthy();
-    expect(getByLabelText("category Network")).toBeTruthy();
-    expect(getByLabelText("category Storage")).toBeTruthy();
-    expect(getByLabelText("category Cluster")).toBeTruthy();
-    expect(getByLabelText("category Access")).toBeTruthy();
-  });
+	    useFleet.getState().setSection("resources");
+	    const { getByLabelText } = render(<Sidebar />);
+	    expect(getByLabelText("category Workloads")).toBeTruthy();
+	    expect(getByLabelText("category Config & Secrets")).toBeTruthy();
+	    expect(getByLabelText("category Services & Network")).toBeTruthy();
+	    expect(getByLabelText("category Storage")).toBeTruthy();
+	    expect(getByLabelText("category Cluster & Scheduling")).toBeTruthy();
+	    expect(getByLabelText("category RBAC & Admission")).toBeTruthy();
+	  });
+
+	  it("keeps resource sub-items inside a scrollable sidebar nav area", () => {
+	    localStorage.setItem("klyx-sidebar-expanded", "1");
+	    useFleet.getState().openCluster("x");
+	    useFleet.getState().setSection("resources");
+	    const { getByTestId } = render(<Sidebar />);
+	    expect(getByTestId("sidebar-nav-scroll").style.overflowY).toBe("auto");
+	  });
 
   it("clicking a sub-item sets builtinCategory in the store", () => {
     localStorage.setItem("klyx-sidebar-expanded", "1");
@@ -158,43 +273,43 @@ describe("Sidebar category sub-nav", () => {
     useFleet.getState().setSection("resources");
     const setBuiltinCategory = vi.spyOn(useFleet.getState(), "setBuiltinCategory");
     const { getByLabelText } = render(<Sidebar />);
-    fireEvent.click(getByLabelText("category Config"));
-    expect(useFleet.getState().crd.builtinCategory).toBe("Config");
-    setBuiltinCategory.mockRestore();
-  });
+	    fireEvent.click(getByLabelText("category Config & Secrets"));
+	    expect(useFleet.getState().crd.builtinCategory).toBe("Config & Secrets");
+	    setBuiltinCategory.mockRestore();
+	  });
 
   it("collapsed mode does not show sub-items even when resources is active", () => {
     // Default is collapsed (no localStorage entry)
-    useFleet.getState().openCluster("x");
-    useFleet.getState().setSection("resources");
-    const { queryByLabelText } = render(<Sidebar />);
-    expect(queryByLabelText("category Config")).toBeNull();
-  });
+	    useFleet.getState().openCluster("x");
+	    useFleet.getState().setSection("resources");
+	    const { queryByLabelText } = render(<Sidebar />);
+	    expect(queryByLabelText("category Config & Secrets")).toBeNull();
+	  });
 
   it("expanded + non-resources section active does not show sub-items", () => {
     localStorage.setItem("klyx-sidebar-expanded", "1");
-    useFleet.getState().openCluster("x");
-    useFleet.getState().setSection("workloads");
-    const { queryByLabelText } = render(<Sidebar />);
-    expect(queryByLabelText("category Config")).toBeNull();
-  });
+	    useFleet.getState().openCluster("x");
+	    useFleet.getState().setSection("workloads");
+	    const { queryByLabelText } = render(<Sidebar />);
+	    expect(queryByLabelText("category Config & Secrets")).toBeNull();
+	  });
 
   it("active category sub-item gets active background when builtinCategory matches", () => {
-    localStorage.setItem("klyx-sidebar-expanded", "1");
-    useFleet.getState().openCluster("x");
-    useFleet.getState().setSection("resources");
-    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config" } });
-    const { getByLabelText } = render(<Sidebar />);
-    const btn = getByLabelText("category Config") as HTMLButtonElement;
-    expect(btn.style.background).toContain("--color-background-primary");
-  });
+	    localStorage.setItem("klyx-sidebar-expanded", "1");
+	    useFleet.getState().openCluster("x");
+	    useFleet.getState().setSection("resources");
+	    useFleet.setState({ crd: { ...useFleet.getState().crd, builtinCategory: "Config & Secrets" } });
+	    const { getByLabelText } = render(<Sidebar />);
+	    const btn = getByLabelText("category Config & Secrets") as HTMLButtonElement;
+	    expect(btn.style.background).toContain("--color-background-primary");
+	  });
 
   it("no sub-item highlighted when builtinCategory is null", () => {
-    localStorage.setItem("klyx-sidebar-expanded", "1");
-    useFleet.getState().openCluster("x");
-    useFleet.getState().setSection("resources");
-    const { getByLabelText } = render(<Sidebar />);
-    const btn = getByLabelText("category Config") as HTMLButtonElement;
+	    localStorage.setItem("klyx-sidebar-expanded", "1");
+	    useFleet.getState().openCluster("x");
+	    useFleet.getState().setSection("resources");
+	    const { getByLabelText } = render(<Sidebar />);
+	    const btn = getByLabelText("category Config & Secrets") as HTMLButtonElement;
     // background should be transparent (not the active color)
     expect(btn.style.background).toBe("transparent");
   });

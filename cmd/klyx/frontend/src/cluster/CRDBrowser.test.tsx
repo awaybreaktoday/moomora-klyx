@@ -24,12 +24,17 @@ beforeEach(() => useFleet.setState({
 }));
 
 describe("CRDBrowser - CRD groups", () => {
-  it("renders groups with category badges", () => {
-    const { getByText } = render(<CRDBrowser cluster="x" />);
-    expect(getByText("cilium.io")).toBeTruthy();
-    expect(getByText("CNI")).toBeTruthy();
-    expect(getByText("cert-manager.io")).toBeTruthy();
-  });
+	  it("renders groups with category badges", () => {
+	    const { getByText } = render(<CRDBrowser cluster="x" />);
+	    expect(getByText("cilium.io")).toBeTruthy();
+	    expect(getByText("CNI")).toBeTruthy();
+	    expect(getByText("cert-manager.io")).toBeTruthy();
+	  });
+
+	  it("owns scrolling for long CRD catalogs", () => {
+	    const { getByTestId } = render(<CRDBrowser cluster="x" />);
+	    expect(getByTestId("crd-resource-scroll").style.overflowY).toBe("auto");
+	  });
 
   it("expands a group, shows kinds, and fires countKind", () => {
     const { getByText } = render(<CRDBrowser cluster="x" />);

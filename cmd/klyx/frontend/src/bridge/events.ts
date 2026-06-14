@@ -3,10 +3,15 @@ import { useFleet, EventsResultDTO } from "../store/fleet";
 import { EventsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 import { liveOpenRetryMs } from "./pods";
 
+export async function fetchEventsSnapshot(cluster: string, namespace: string): Promise<EventsResultDTO> {
+  const r = (await EventsService.ListEvents(cluster, namespace)) as EventsResultDTO;
+  return r ?? { namespaces: [], events: [] };
+}
+
 export async function listEvents(cluster: string, namespace: string): Promise<void> {
   useFleet.getState().setEventsLoading(cluster, namespace);
   try {
-    const r = (await EventsService.ListEvents(cluster, namespace)) as EventsResultDTO;
+    const r = await fetchEventsSnapshot(cluster, namespace);
     // Drop a stale response if the user changed cluster OR namespace while in flight.
     const cur = useFleet.getState().events;
     if (cur.cluster !== cluster || cur.namespace !== namespace) return;

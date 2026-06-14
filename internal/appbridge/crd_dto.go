@@ -31,9 +31,10 @@ type CRDCountDTO struct {
 
 // InstanceDTO is the metadata-only view of one instance.
 type InstanceDTO struct {
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
-	Created   string `json:"created"` // RFC3339; "" when unset
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Created   string            `json:"created"` // RFC3339; "" when unset
+	Fields    map[string]string `json:"fields,omitempty"`
 }
 
 // InstancePageDTO is one page of instances plus the next continue token.
@@ -58,6 +59,18 @@ type SecretKeyDTO struct {
 	Bytes int    `json:"bytes"`
 }
 
+// RelatedRefDTO is a navigable relationship from one resource detail to another.
+type RelatedRefDTO struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Group     string `json:"group"`
+	Version   string `json:"version"`
+	Plural    string `json:"plural"`
+	Scope     string `json:"scope"`
+	Relation  string `json:"relation"`
+}
+
 // InstanceDetailDTO is the full per-instance detail.
 type InstanceDetailDTO struct {
 	Kind       string            `json:"kind"`
@@ -75,6 +88,8 @@ type InstanceDetailDTO struct {
 	ServiceBacking *ServiceBackingDTO `json:"serviceBacking,omitempty"`
 	// HPAScaling is non-nil only for autoscaling HPAs; omitted for everything else.
 	HPAScaling *HPAScalingDTO `json:"hpaScaling,omitempty"`
+	// Related is populated for objects with useful direct relationships.
+	Related []RelatedRefDTO `json:"related,omitempty"`
 }
 
 // RevealResultDTO is returned by RevealSecretKey. On success Value is the

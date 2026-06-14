@@ -13,6 +13,8 @@ import { stopAllForwards } from "../bridge/forwards";
 
 // ThemeToggle touches matchMedia; stub it.
 vi.mock("./ThemeToggle", () => ({ ThemeToggle: () => null }));
+vi.mock("./CommandPalette", () => ({ openCommandPalette: vi.fn() }));
+import { openCommandPalette } from "./CommandPalette";
 
 const active: ForwardDTO = {
   id: "c/team/api#1",
@@ -36,6 +38,12 @@ describe("TopBar forwards indicator", () => {
   it("renders nothing when there are no forwards", () => {
     const { queryByTestId } = render(<TopBar />);
     expect(queryByTestId("forwards-chip")).toBeNull();
+  });
+
+  it("opens the command palette when the command bar is clicked", () => {
+    const { getByTestId } = render(<TopBar />);
+    fireEvent.click(getByTestId("command-bar"));
+    expect(openCommandPalette).toHaveBeenCalled();
   });
 
   it("renders the chip with the forward count", () => {

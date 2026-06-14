@@ -7,7 +7,7 @@ vi.mock("../bridge/gateway", () => ({ getGatewayTopology: vi.fn(async () => {}),
 
 const gateway: GatewayRef = { namespace: "infra", name: "eg" };
 const topo: TopologyDTO = {
-  gateway: { namespace: "infra", name: "eg", className: "envoy-gateway", accepted: true, programmed: true, listeners: [{ name: "https", protocol: "HTTPS", hostname: "", port: 443 }], policies: [] },
+  gateway: { namespace: "infra", name: "eg", className: "envoy-gateway", accepted: true, programmed: true, addresses: [{ type: "IPAddress", value: "192.0.2.10" }], listeners: [{ name: "https", protocol: "HTTPS", hostname: "", port: 443 }], policies: [] },
   routes: [
     { namespace: "apps", name: "share", hostnames: ["share.example.com"], matches: [{ pathType: "PathPrefix", pathValue: "/api/share", method: "GET" }], accepted: true, resolvedRefs: true, backends: [{ kind: "Service", name: "share-api", namespace: "apps", port: 8080, weight: 100 }], services: [{ namespace: "apps", name: "share-api", type: "ClusterIP", port: 8080, resolved: true, global: false, meshClusters: [], meshUnconfirmed: false, policies: [], cnps: [] }], pods: { ready: 3, total: 3, unknown: false }, policies: [] },
   ],
@@ -33,8 +33,9 @@ beforeEach(() => { vi.clearAllMocks(); seed(topo); });
 
 describe("NetworkTopology", () => {
   it("renders the route + service(+pods) + traffic lane (gateway lives in the header)", () => {
-    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    const { getByText, getAllByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
     expect(getByText("eg")).toBeTruthy(); // header
+    expect(getAllByText("192.0.2.10").length).toBeGreaterThanOrEqual(1);
     expect(getByText("share")).toBeTruthy();
     expect(getByText("share-api")).toBeTruthy();
     expect(getByText(/pods 3\/3/)).toBeTruthy(); // folded into the service box
@@ -51,6 +52,17 @@ describe("NetworkTopology", () => {
     fireEvent.click(getByText("share"));
     expect(useFleet.getState().network.selectedRoute).toBe("apps/share");
     expect(getByText(/PathPrefix/)).toBeTruthy();
+  });
+
+  it("keeps route lanes and the inspector as independent scroll owners", () => {
+    const { getByTestId } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByTestId("gateway-route-scroll").style.overflowY).toBe("auto");
+    expect(getByTestId("gateway-route-inspector-scroll").style.overflowY).toBe("auto");
+  });
+
+  it("shows a persistent empty route inspector before selection", () => {
+    const { getByText } = render(<NetworkTopology cluster="x" gateway={gateway} />);
+    expect(getByText(/Select a route to inspect/i)).toBeTruthy();
   });
 
   it("shows the error block when topology.error is set", () => {

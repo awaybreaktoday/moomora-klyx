@@ -15,6 +15,7 @@ type Topology struct {
 type GatewayNode struct {
 	Namespace, Name, ClassName string
 	Listeners                  []Listener
+	Addresses                  []GatewayAddress
 	Accepted, Programmed       bool
 	Policies                   []PolicyRef // M5-b; empty in M5-a
 }
@@ -44,6 +45,7 @@ type Listener struct {
 	Name, Protocol, Hostname string
 	Port                     int32
 }
+type GatewayAddress struct{ Type, Value string }
 type Match struct{ PathType, PathValue, Method string }
 type Backend struct {
 	Kind, Name, Namespace string
@@ -90,4 +92,6 @@ type TargetRef struct{ Group, Kind, Namespace, Name, SectionName string }
 type GatewayRef struct {
 	Namespace, Name, ClassName string
 	Accepted, Programmed       bool
+	Addresses                  []GatewayAddress
+	Listeners                  []Listener
 }

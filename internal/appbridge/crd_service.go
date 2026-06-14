@@ -137,6 +137,14 @@ func (s *CRDService) GetInstanceDetail(cluster, group, version, plural, namespac
 			Metrics:         mets,
 		}
 	}
+	related := make([]RelatedRefDTO, 0, len(d.Related))
+	for _, r := range d.Related {
+		related = append(related, RelatedRefDTO{
+			Kind: r.Kind, Namespace: r.Namespace, Name: r.Name,
+			Group: r.Group, Version: r.Version, Plural: r.Plural,
+			Scope: r.Scope, Relation: r.Relation,
+		})
+	}
 	return InstanceDetailDTO{
 		Kind: d.Kind, Namespace: d.Namespace, Name: d.Name,
 		Created: rfc3339(d.Created), Labels: labels,
@@ -144,6 +152,7 @@ func (s *CRDService) GetInstanceDetail(cluster, group, version, plural, namespac
 		SecretKeys:     secretKeys,
 		ServiceBacking: serviceBacking,
 		HPAScaling:     hpaScaling,
+		Related:        related,
 	}
 }
 
@@ -183,7 +192,7 @@ func (s *CRDService) ListInstances(cluster, group, version, plural, continueToke
 		if !m.Created.IsZero() {
 			created = m.Created.Format(time.RFC3339)
 		}
-		dtos = append(dtos, InstanceDTO{Namespace: m.Namespace, Name: m.Name, Created: created})
+		dtos = append(dtos, InstanceDTO{Namespace: m.Namespace, Name: m.Name, Created: created, Fields: m.Fields})
 	}
 	return InstancePageDTO{Items: dtos, NextToken: next}
 }

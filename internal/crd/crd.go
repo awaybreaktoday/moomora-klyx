@@ -35,6 +35,7 @@ type InstanceMeta struct {
 	Namespace string
 	Name      string
 	Created   time.Time
+	Fields    map[string]string
 }
 
 // ParseCRD maps a CRD unstructured to Info. ok=false when group/kind/plural are

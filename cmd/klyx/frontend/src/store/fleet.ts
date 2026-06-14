@@ -10,8 +10,13 @@ export type ClusterDTO = {
   version: string;
   gitopsTier: string;
   gitopsReason: string;
+  fluxPresent?: boolean;
+  fluxHealthy?: boolean;
   networkTier: string;
   networkReason: string;
+  gatewayAPIVersion?: string;
+  ciliumPresent?: boolean;
+  clusterMesh?: boolean;
   env: string;
   region: string;
   provider: string;
@@ -174,8 +179,8 @@ export type EventsSlice = {
 };
 
 export type ResourceRef = { group: string; version: string; plural: string; kind: string; scope: string };
-export type InstanceDTO = { namespace: string; name: string; created: string };
-export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nextToken: string; loading: boolean; filter: string };
+export type InstanceDTO = { namespace: string; name: string; created: string; fields?: Record<string, string> };
+export type InstancesSlice = { ref: ResourceRef | null; rows: InstanceDTO[]; nextToken: string; loading: boolean; filter: string; riskOnly: boolean };
 
 export type InstanceRef = { namespace: string; name: string };
 export type EventDTO = { type: string; reason: string; message: string; count: number; lastSeen: string };
@@ -185,7 +190,8 @@ export type EndpointAddrDTO = { ip: string; ready: boolean; targetKind: string; 
 export type ServiceBackingDTO = { ports: ServicePortDTO[]; ready: number; notReady: number; addresses: EndpointAddrDTO[]; selector: Record<string, string> };
 export type HPAMetricDTO = { name: string; type: string; target: string; current: string };
 export type HPAScalingDTO = { minReplicas: number; maxReplicas: number; currentReplicas: number; desiredReplicas: number; targetKind: string; targetName: string; lastScaleUnix: number; metrics: HPAMetricDTO[] };
-export type InstanceDetailDTO = { kind: string; namespace: string; name: string; created: string; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; secretKeys?: SecretKeyDTO[]; serviceBacking?: ServiceBackingDTO | null; hpaScaling?: HPAScalingDTO | null };
+export type RelatedRefDTO = { kind: string; namespace: string; name: string; group: string; version: string; plural: string; scope: string; relation: string };
+export type InstanceDetailDTO = { kind: string; namespace: string; name: string; created: string; labels: Record<string, string>; conditions: ConditionDTO[]; events: EventDTO[]; yaml: string; secretKeys?: SecretKeyDTO[]; serviceBacking?: ServiceBackingDTO | null; hpaScaling?: HPAScalingDTO | null; related?: RelatedRefDTO[] };
 export type InstanceDetailSlice = { ref: InstanceRef | null; detail: InstanceDetailDTO | null; loading: boolean };
 
 export type Route =
@@ -229,7 +235,8 @@ export type CRDSlice = {
 
 export const crdCountKey = (group: string, version: string, plural: string) => `${group}/${version}/${plural}`;
 
-export type GatewayRefDTO = { namespace: string; name: string; className: string; accepted: boolean; programmed: boolean };
+export type GatewayAddressDTO = { type: string; value: string };
+export type GatewayRefDTO = { namespace: string; name: string; className: string; addresses?: GatewayAddressDTO[]; listeners?: ListenerDTO[]; accepted: boolean; programmed: boolean };
 export type GatewayListDTO = { gatewayAPIServed: boolean; gateways: GatewayRefDTO[] };
 export type PolicyDetailDTO = { key: string; value: string };
 export type PolicyRefDTO = { kind: string; namespace: string; name: string; targetKind: string; targetNamespace: string; targetName: string; targetSectionName: string; summary: string; details: PolicyDetailDTO[]; inferred: boolean; match: string };
@@ -238,7 +245,7 @@ export type MatchDTO = { pathType: string; pathValue: string; method: string };
 export type BackendDTO = { kind: string; name: string; namespace: string; port: number; weight: number };
 export type PodCountDTO = { ready: number; total: number; unknown: boolean };
 export type ServiceNodeDTO = { namespace: string; name: string; type: string; port: number; resolved: boolean; global: boolean; meshClusters: string[]; meshUnconfirmed: boolean; policies: PolicyRefDTO[]; cnps: PolicyRefDTO[] };
-export type GatewayNodeDTO = { namespace: string; name: string; className: string; listeners: ListenerDTO[]; accepted: boolean; programmed: boolean; policies: PolicyRefDTO[] };
+export type GatewayNodeDTO = { namespace: string; name: string; className: string; listeners: ListenerDTO[]; addresses?: GatewayAddressDTO[]; accepted: boolean; programmed: boolean; policies: PolicyRefDTO[] };
 export type RouteNodeDTO = { namespace: string; name: string; hostnames: string[]; matches: MatchDTO[]; accepted: boolean; resolvedRefs: boolean; backends: BackendDTO[]; services: ServiceNodeDTO[]; pods: PodCountDTO; policies: PolicyRefDTO[] };
 export type TopologyDTO = { gateway: GatewayNodeDTO; routes: RouteNodeDTO[]; clusterPolicies?: PolicyRefDTO[]; warnings?: string[]; error?: string };
 export type GatewayRef = { namespace: string; name: string };
@@ -372,6 +379,8 @@ type FleetState = {
   setInstancePage: (items: InstanceDTO[], nextToken: string) => void;
   addInstancePage: (items: InstanceDTO[], nextToken: string) => void;
   setInstanceFilter: (s: string) => void;
+  setInstanceRiskOnly: (v: boolean) => void;
+  toggleInstanceRiskOnly: () => void;
   clearInstances: () => void;
   openInstance: (namespace: string, name: string) => void;
   closeInstance: () => void;
@@ -499,7 +508,7 @@ export const useFleet = create<FleetState>((set) => ({
       const section: ClusterSection = (s.route.section === "crds" || s.route.section === "resources") ? s.route.section : "resources";
       return {
         route: { name: "cluster", cluster: s.route.cluster, section, resource },
-        instances: { ref: resource, rows: [], nextToken: "", loading: true, filter: "" },
+        instances: { ref: resource, rows: [], nextToken: "", loading: true, filter: "", riskOnly: false },
       };
     }),
   closeResource: () =>
@@ -508,12 +517,17 @@ export const useFleet = create<FleetState>((set) => ({
       const section: ClusterSection = (s.route.section === "crds" || s.route.section === "resources") ? s.route.section : "resources";
       return { route: { name: "cluster", cluster: s.route.cluster, section } };
     }),
-  instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" },
-  setInstancesLoading: (ref) => set({ instances: { ref, rows: [], nextToken: "", loading: true, filter: "" } }),
+  instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "", riskOnly: false },
+  setInstancesLoading: (ref) => set((s) => {
+    const sameRef = s.instances.ref?.group === ref.group && s.instances.ref?.version === ref.version && s.instances.ref?.plural === ref.plural;
+    return { instances: { ref, rows: [], nextToken: "", loading: true, filter: sameRef ? s.instances.filter : "", riskOnly: sameRef ? s.instances.riskOnly : false } };
+  }),
   setInstancePage: (items, nextToken) => set((s) => ({ instances: { ...s.instances, rows: items, nextToken, loading: false } })),
   addInstancePage: (items, nextToken) => set((s) => ({ instances: { ...s.instances, rows: [...s.instances.rows, ...items], nextToken, loading: false } })),
   setInstanceFilter: (filter) => set((s) => ({ instances: { ...s.instances, filter } })),
-  clearInstances: () => set({ instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "" } }),
+  setInstanceRiskOnly: (riskOnly) => set((s) => ({ instances: { ...s.instances, riskOnly } })),
+  toggleInstanceRiskOnly: () => set((s) => ({ instances: { ...s.instances, riskOnly: !s.instances.riskOnly } })),
+  clearInstances: () => set({ instances: { ref: null, rows: [], nextToken: "", loading: false, filter: "", riskOnly: false } }),
   openInstance: (namespace, name) =>
     set((s) => {
       if (s.route.name !== "cluster" || !s.route.resource) return {};

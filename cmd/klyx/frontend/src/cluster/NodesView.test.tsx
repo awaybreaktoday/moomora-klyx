@@ -146,8 +146,8 @@ describe("NodesView", () => {
 
   it("shows cordoned text for unschedulable node", () => {
     seed([cordoned]);
-    const { getByText } = render(<NodesView cluster="homelab" />);
-    expect(getByText("cordoned")).toBeTruthy();
+    const { getAllByText } = render(<NodesView cluster="homelab" />);
+    expect(getAllByText("cordoned").length).toBeGreaterThan(0);
   });
 
   it("shows '-' roles for node with empty roles", () => {
@@ -162,6 +162,26 @@ describe("NodesView", () => {
     const { getByText } = render(<NodesView cluster="homelab" />);
     fireEvent.click(getByText("node-healthy"));
     expect(openNodeDetail).toHaveBeenCalledWith("homelab", "node-healthy");
+  });
+
+  it("owns scrolling for the node list inside the hidden cluster shell", () => {
+    seed([notReady, healthy, cordoned]);
+    const { getByTestId } = render(<NodesView cluster="homelab" />);
+    expect(getByTestId("nodes-list-scroll").style.overflowY).toBe("auto");
+  });
+
+  it("keeps node summary allocation values compact", () => {
+    seed([healthy, cordoned]);
+    const { getByText } = render(<NodesView cluster="homelab" />);
+    expect(getByText("11.8/12.0")).toBeTruthy();
+    expect(getByText("22.0Gi/24.0Gi")).toBeTruthy();
+  });
+
+  it("sorts nodes with problems above quiet nodes", () => {
+    seed([healthy, cordoned, notReady]);
+    const { getAllByText } = render(<NodesView cluster="homelab" />);
+    const names = getAllByText(/a-notready|b-cordoned|node-healthy/).map((el) => el.textContent);
+    expect(names[0]).toBe("a-notready");
   });
 
   it("detail panel renders summary, conditions, taints, events", () => {
@@ -184,6 +204,13 @@ describe("NodesView", () => {
     expect(getByText("NoSchedule")).toBeTruthy();
     // Events
     expect(getByText("Starting")).toBeTruthy();
+  });
+
+  it("renders healthy False pressure conditions as healthy", () => {
+    seedWithDetail(healthy, fakeDetail);
+    const { getByText } = render(<NodesView cluster="homelab" />);
+    const row = getByText("MemoryPressure").parentElement!;
+    expect(row.querySelector("span")?.style.background).toBe("var(--color-text-success)");
   });
 
   it("detail panel shows pods-on-node list", () => {

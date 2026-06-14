@@ -114,7 +114,7 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
               fontSize: 10,
               padding: "2px 6px",
             }}>
-              <IconLock size={12} stroke={1.5} /> lock
+              <IconLock size={12} stroke={1.5} /> prd lock
             </span>
           )}
         </div>

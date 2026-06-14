@@ -26,17 +26,27 @@ func (f *fakeGatewayConn) RouteMetrics(context.Context, []string) (map[string]ro
 }
 
 func TestListGatewaysDTO(t *testing.T) {
-	conn := &fakeGatewayConn{served: true, refs: []gwapi.GatewayRef{{Namespace: "infra", Name: "eg", ClassName: "envoy-gateway", Accepted: true, Programmed: true}}}
+	conn := &fakeGatewayConn{served: true, refs: []gwapi.GatewayRef{{
+		Namespace: "infra", Name: "eg", ClassName: "envoy-gateway", Accepted: true, Programmed: true,
+		Addresses: []gwapi.GatewayAddress{{Type: "IPAddress", Value: "192.0.2.10"}},
+		Listeners: []gwapi.Listener{{Name: "https", Protocol: "HTTPS", Port: 443}},
+	}}}
 	svc := NewGatewayService(func(string) (GatewayConn, bool) { return conn, true })
 	out := svc.ListGateways("x")
 	if !out.GatewayAPIServed || len(out.Gateways) != 1 || out.Gateways[0].Name != "eg" {
 		t.Fatalf("list: %+v", out)
 	}
+	if len(out.Gateways[0].Addresses) != 1 || out.Gateways[0].Addresses[0].Value != "192.0.2.10" {
+		t.Fatalf("addresses: %+v", out.Gateways[0].Addresses)
+	}
+	if len(out.Gateways[0].Listeners) != 1 || out.Gateways[0].Listeners[0].Port != 443 {
+		t.Fatalf("listeners: %+v", out.Gateways[0].Listeners)
+	}
 }
 
 func TestGetGatewayTopologyDTO(t *testing.T) {
 	conn := &fakeGatewayConn{topo: gwapi.Topology{
-		Gateway:  gwapi.GatewayNode{Namespace: "infra", Name: "eg", ClassName: "envoy-gateway", Programmed: true, Listeners: []gwapi.Listener{{Name: "http", Protocol: "HTTP", Port: 80}}},
+		Gateway:  gwapi.GatewayNode{Namespace: "infra", Name: "eg", ClassName: "envoy-gateway", Programmed: true, Listeners: []gwapi.Listener{{Name: "http", Protocol: "HTTP", Port: 80}}, Addresses: []gwapi.GatewayAddress{{Type: "IPAddress", Value: "192.0.2.10"}}},
 		Routes:   []gwapi.RouteNode{{Namespace: "apps", Name: "share", Accepted: true, Matches: []gwapi.Match{{PathType: "PathPrefix", PathValue: "/x"}}, Services: []gwapi.ServiceNode{{Name: "share-api", Resolved: true, Type: "ClusterIP", Port: 80}}, Pods: gwapi.PodCount{Ready: 2, Total: 2}}},
 		Warnings: []string{"heads up"},
 	}}
@@ -44,6 +54,9 @@ func TestGetGatewayTopologyDTO(t *testing.T) {
 	d := svc.GetGatewayTopology("x", "infra", "eg")
 	if d.Gateway.Name != "eg" || !d.Gateway.Programmed || len(d.Routes) != 1 {
 		t.Fatalf("topology: %+v", d)
+	}
+	if len(d.Gateway.Addresses) != 1 || d.Gateway.Addresses[0].Value != "192.0.2.10" {
+		t.Fatalf("gateway addresses: %+v", d.Gateway.Addresses)
 	}
 	if d.Routes[0].Services[0].Name != "share-api" || d.Routes[0].Pods.Ready != 2 {
 		t.Fatalf("route: %+v", d.Routes[0])

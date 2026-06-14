@@ -19,6 +19,7 @@ describe("ConfirmDialog", () => {
     const { getByText, getByPlaceholderText } = render(
       <ConfirmDialog title="Suspend" cluster="prd-we" detail="Kustomization flux-system/app" protected={true} onConfirm={onConfirm} onCancel={() => {}} />,
     );
+    expect(getByText("prd lock")).toBeTruthy();
     const btn = getByText("Confirm") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.change(getByPlaceholderText("prd-we"), { target: { value: "prd-we" } });

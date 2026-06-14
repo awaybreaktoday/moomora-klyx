@@ -53,6 +53,16 @@ describe("GitOps view", () => {
     expect(getByText(/install failed/i)).toBeTruthy();
   });
 
+  it("owns scrolling inside the hidden cluster page shell", () => {
+    useFleet.setState({ gitops: { cluster: "x", resources: [
+      res({ name: "flux-system", ready: "Ready" }),
+      res({ kind: "HelmRelease", name: "cilium", ready: "Failed", message: "install failed" }),
+    ], loading: false, expandedKey: null, detail: null } });
+    const { getByTestId } = render(<GitOps cluster="x" />);
+    expect(getByTestId("flux-resource-scroll").style.overflowY).toBe("auto");
+    expect(getByTestId("flux-inspector-scroll").style.overflowY).toBe("auto");
+  });
+
   it("shows the no-Flux empty state when gitopsTier is Absent", () => {
     useFleet.setState({ clusters: [cluster("Absent")] });
     const { getByText } = render(<GitOps cluster="x" />);

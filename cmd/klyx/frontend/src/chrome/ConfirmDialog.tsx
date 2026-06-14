@@ -39,7 +39,8 @@ export function ConfirmDialog({
         {isProtected && (
           <div style={{ marginBottom: 14 }}>
             <div style={{ color: "var(--color-text-warning)", fontSize: 12, marginBottom: 6 }}>
-              Protected cluster. Type <b>{cluster}</b> to confirm.
+              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>prd lock</span>
+              {" "}active. Type <b>{cluster}</b> to confirm.
             </div>
             <input
               autoFocus

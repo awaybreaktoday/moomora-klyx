@@ -1,7 +1,7 @@
-import { useEffect, useCallback, useState, useRef, useLayoutEffect } from "react";
+import { useEffect, useCallback, useMemo, useState, useRef, useLayoutEffect } from "react";
 import { Events } from "@wailsio/runtime";
 import { useFleet } from "../store/fleet";
-import type { NodeDetailDTO, NodeSummaryDTO, PodOnNodeDTO } from "../store/fleet";
+import type { ConditionDTO, NodeDetailDTO, NodeSummaryDTO, PodOnNodeDTO } from "../store/fleet";
 import { listNodes, openNodeDetail, cordonNode, startDrain, cancelDrain } from "../bridge/nodes";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { fmtMem } from "./saturation";
@@ -20,12 +20,74 @@ function nodeDotColor(n: NodeSummaryDTO): string {
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const btn: React.CSSProperties = { fontSize: 11, padding: "3px 10px", borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-secondary)" };
+const frame: React.CSSProperties = { border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)" };
 
-// columns: dot | name | roles | problems | version | cpu alloc/cap | mem alloc/cap | taints | age
-const gridCols = "12px minmax(0,1.5fr) 80px minmax(0,1fr) 80px 100px 120px 40px 40px";
+// columns: dot | name | roles | status | version | cpu alloc/cap | mem alloc/cap | taints | age
+const gridCols = "12px minmax(170px,1.5fr) 86px minmax(120px,1fr) 82px 112px 132px 48px 44px";
+type NodeFilter = "all" | "attention" | "cordoned" | "tainted";
 
-const condColor = (status: string) =>
-  status === "True" ? "var(--color-text-success)" : status === "False" ? "var(--color-text-danger)" : "var(--color-text-info)";
+function conditionIsProblem(c: ConditionDTO): boolean {
+  if (c.type === "Ready") return c.status !== "True";
+  if (c.type === "MemoryPressure" || c.type === "DiskPressure" || c.type === "PIDPressure" || c.type === "NetworkUnavailable") {
+    return c.status === "True" || c.status === "Unknown";
+  }
+  return c.status === "False" || c.status === "Unknown";
+}
+
+const condColor = (c: ConditionDTO) =>
+  conditionIsProblem(c)
+    ? "var(--color-text-danger)"
+    : c.status === "Unknown"
+      ? "var(--color-text-info)"
+      : "var(--color-text-success)";
+
+function nodeNeedsAttention(n: NodeSummaryDTO): boolean {
+  return !n.ready || n.problems.length > 0;
+}
+
+function nodeRank(n: NodeSummaryDTO): number {
+  if (!n.ready || n.problems.some((p) => p === "NotReady")) return 0;
+  if (n.problems.length > 0) return 1;
+  if (n.unschedulable) return 2;
+  if (n.taintCount > 0) return 3;
+  return 4;
+}
+
+function nodeStatusText(n: NodeSummaryDTO): string {
+  if (n.problems.length > 0) return n.problems.join(", ");
+  if (!n.ready) return "NotReady";
+  if (n.unschedulable) return "cordoned";
+  if (n.taintCount > 0) return `${n.taintCount} taints`;
+  return "ready";
+}
+
+function nodeStatusColor(n: NodeSummaryDTO): string {
+  if (!n.ready || n.problems.length > 0) return "var(--color-text-danger)";
+  if (n.unschedulable || n.taintCount > 0) return "var(--color-text-warning)";
+  return "var(--color-text-success)";
+}
+
+function nodeMatchesFilter(n: NodeSummaryDTO, filter: NodeFilter): boolean {
+  if (filter === "attention") return nodeNeedsAttention(n);
+  if (filter === "cordoned") return n.unschedulable;
+  if (filter === "tainted") return n.taintCount > 0;
+  return true;
+}
+
+function nodeMatchesQuery(n: NodeSummaryDTO, query: string, role: string | null): boolean {
+  if (role && !n.roles.includes(role)) return false;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [
+    n.name,
+    n.version,
+    n.os,
+    n.arch,
+    n.roles.join(" "),
+    n.problems.join(" "),
+    n.unschedulable ? "cordoned" : "",
+  ].some((v) => v.toLowerCase().includes(q));
+}
 
 // --- Drain modal -----------------------------------------------------------------
 
@@ -215,6 +277,9 @@ export function NodesView({ cluster }: { cluster: string }) {
   const [drainNode, setDrainNode] = useState<string | null>(null);
   const [cordonPending, setCordonPending] = useState<{ node: string; cordon: boolean } | null>(null);
   const [drainPending, setDrainPending] = useState<string | null>(null);
+  const [filter, setFilter] = useState<NodeFilter>("all");
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     void listNodes(cluster);
@@ -222,79 +287,125 @@ export function NodesView({ cluster }: { cluster: string }) {
   }, [cluster]);
 
   const onRefresh = () => { void listNodes(cluster); };
+  const orderedNodes = useMemo(
+    () => [...nodes.items].sort((a, b) => nodeRank(a) - nodeRank(b) || a.name.localeCompare(b.name)),
+    [nodes.items],
+  );
+  const visibleNodes = useMemo(
+    () => orderedNodes.filter((n) => nodeMatchesFilter(n, filter) && nodeMatchesQuery(n, query, roleFilter)),
+    [orderedNodes, filter, query, roleFilter],
+  );
+  const roles = useMemo(
+    () => [...new Set(nodes.items.flatMap((n) => n.roles))].sort(),
+    [nodes.items],
+  );
+  const ready = nodes.items.filter((n) => n.ready).length;
+  const attention = nodes.items.filter(nodeNeedsAttention).length;
+  const cordonedCount = nodes.items.filter((n) => n.unschedulable).length;
+  const taintedCount = nodes.items.filter((n) => n.taintCount > 0).length;
+  const pressureCount = nodes.items.filter((n) => n.problems.some((p) => p !== "NotReady")).length;
+  const versionCount = new Set(nodes.items.map((n) => n.version).filter(Boolean)).size;
+  const cpuAlloc = nodes.items.reduce((sum, n) => sum + n.cpuAllocatable, 0);
+  const cpuCap = nodes.items.reduce((sum, n) => sum + n.cpuCapacity, 0);
+  const memAlloc = nodes.items.reduce((sum, n) => sum + n.memAllocatable, 0);
+  const memCap = nodes.items.reduce((sum, n) => sum + n.memCapacity, 0);
+  const podCap = nodes.items.reduce((sum, n) => sum + n.podCapacity, 0);
 
   return (
-    <div style={{ padding: "16px 20px", display: "flex", gap: 0, height: "100%", boxSizing: "border-box", position: "relative" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Controls row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+    <div style={{ padding: "14px 16px", display: "flex", gap: 12, height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box", position: "relative" }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 3 }}>Nodes</div>
+            <div style={{ fontSize: 18, fontWeight: 600 }}>Node board</div>
+          </div>
           <button onClick={onRefresh} style={btn}>refresh</button>
         </div>
 
-        {/* Table */}
+        <div style={{ ...frame, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", overflow: "hidden", flexShrink: 0 }}>
+          <SummaryCell label="ready" value={`${ready}/${nodes.items.length}`} tone={attention > 0 ? "warning" : "success"} />
+          <SummaryCell label="attention" value={String(attention)} tone={attention > 0 ? "danger" : "muted"} />
+          <SummaryCell label="cordoned" value={String(cordonedCount)} tone={cordonedCount > 0 ? "warning" : "muted"} />
+          <SummaryCell label="tainted" value={String(taintedCount)} tone={taintedCount > 0 ? "warning" : "muted"} />
+          <SummaryCell label="pressure" value={String(pressureCount)} tone={pressureCount > 0 ? "danger" : "muted"} />
+          <SummaryCell label="versions" value={String(versionCount)} />
+          <SummaryCell label="cpu alloc" value={`${cpuAlloc.toFixed(1)}/${cpuCap.toFixed(1)}`} />
+          <SummaryCell label="mem alloc" value={`${fmtMem(memAlloc)}/${fmtMem(memCap)}`} />
+          <SummaryCell label="pod cap" value={String(podCap)} />
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          <FilterButton label="all" count={nodes.items.length} active={filter === "all"} onClick={() => setFilter("all")} />
+          <FilterButton label="needs attention" count={attention} active={filter === "attention"} onClick={() => setFilter("attention")} />
+          <FilterButton label="cordoned" count={cordonedCount} active={filter === "cordoned"} onClick={() => setFilter("cordoned")} />
+          <FilterButton label="tainted" count={taintedCount} active={filter === "tainted"} onClick={() => setFilter("tainted")} />
+          {roles.length > 0 && (
+            <>
+              <span style={{ fontSize: 9, color: "var(--color-text-tertiary)", marginLeft: 4 }}>role</span>
+              <FilterButton label="all roles" count={nodes.items.length} active={roleFilter === null} onClick={() => setRoleFilter(null)} />
+              {roles.slice(0, 5).map((role) => (
+                <FilterButton key={role} label={role} count={nodes.items.filter((n) => n.roles.includes(role)).length} active={roleFilter === role} onClick={() => setRoleFilter(role)} />
+              ))}
+            </>
+          )}
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="filter nodes"
+            aria-label="filter nodes"
+            style={{ marginLeft: "auto", fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 170 }}
+          />
+          {visibleNodes.length !== nodes.items.length && <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleNodes.length} of {nodes.items.length}</span>}
+        </div>
+
         {nodes.loading && nodes.items.length === 0 ? (
           <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading nodes…</div>
         ) : nodes.items.length === 0 ? (
           <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No nodes found.</div>
         ) : (
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
-            {/* Header */}
-            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "0 8px 6px", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)" }}>
-              <span /><span>node</span><span>roles</span><span>problems</span><span>version</span><span>cpu alloc/cap</span><span>mem alloc/cap</span><span>taints</span><span>age</span>
+          <div style={{ ...frame, overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 10, padding: "5px 8px", fontSize: 9, color: "var(--color-text-tertiary)", borderBottom: "0.5px solid var(--color-border-secondary)", flexShrink: 0 }}>
+              <span /><span>node</span><span>roles</span><span>status</span><span>version</span><span>cpu alloc/cap</span><span>mem alloc/cap</span><span>taints</span><span>age</span>
             </div>
-            {/* Rows */}
-            {nodes.items.map((n) => {
-              const isSelected = nodes.selected?.name === n.name;
-              const dotColor = nodeDotColor(n);
-              const problemText = n.problems.length > 0
-                ? n.problems.join(", ")
-                : n.unschedulable
-                ? "cordoned"
-                : "";
-              const problemColor = !n.ready || n.problems.length > 0
-                ? "var(--color-text-danger)"
-                : n.unschedulable
-                ? "var(--color-text-warning)"
-                : undefined;
-              return (
-                <div
-                  key={n.name}
-                  onClick={() => void openNodeDetail(cluster, n.name)}
-                  style={{
-                    display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
-                    padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
-                    cursor: "pointer",
-                    background: isSelected ? "var(--color-background-secondary)" : undefined,
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
-                  <span style={{ fontWeight: 500, ...ellipsis }} title={n.name}>{n.name}</span>
-                  <span style={{ color: "var(--color-text-tertiary)", ...ellipsis }}>
-                    {n.roles.length > 0 ? n.roles.join(", ") : "-"}
-                  </span>
-                  <span style={{ color: problemColor, ...ellipsis }}>{problemText}</span>
-                  <span style={{ color: "var(--color-text-tertiary)", ...ellipsis }}>{n.version}</span>
-                  <span style={{ color: "var(--color-text-secondary)" }}>
-                    {n.cpuAllocatable.toFixed(1)}
-                    <span style={{ color: "var(--color-text-tertiary)" }}> / {n.cpuCapacity.toFixed(1)}</span>
-                  </span>
-                  <span style={{ color: "var(--color-text-secondary)" }}>
-                    {fmtMem(n.memAllocatable)}
-                    <span style={{ color: "var(--color-text-tertiary)" }}> / {fmtMem(n.memCapacity)}</span>
-                  </span>
-                  <span style={{ color: n.taintCount > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
-                    {n.taintCount > 0 ? n.taintCount : "-"}
-                  </span>
-                  <span style={{ color: "var(--color-text-tertiary)" }}>{ago(n.ageSeconds)}</span>
-                </div>
-              );
-            })}
+            <div data-testid="nodes-list-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {visibleNodes.length === 0 ? (
+                <div style={{ padding: 14, color: "var(--color-text-secondary)", fontSize: 13 }}>No nodes match the current filter.</div>
+              ) : visibleNodes.map((n) => {
+                const isSelected = nodes.selected?.name === n.name;
+                const dotColor = nodeDotColor(n);
+                return (
+                  <div
+                    key={n.name}
+                    onClick={() => void openNodeDetail(cluster, n.name)}
+                    style={{
+                      display: "grid", gridTemplateColumns: gridCols, gap: 10, alignItems: "center",
+                      padding: "7px 8px", borderBottom: "0.5px solid var(--color-border-tertiary)",
+                      cursor: "pointer",
+                      background: isSelected ? "var(--color-background-secondary)" : undefined,
+                    }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
+                    <span style={{ fontWeight: 500, ...ellipsis }} title={n.name}>{n.name}</span>
+                    <span style={{ color: "var(--color-text-tertiary)", ...ellipsis }}>
+                      {n.roles.length > 0 ? n.roles.join(", ") : "-"}
+                    </span>
+                    <span style={{ color: nodeStatusColor(n), ...ellipsis }}>{nodeStatusText(n)}</span>
+                    <span style={{ color: "var(--color-text-tertiary)", ...ellipsis }}>{n.version}</span>
+                    <CapacityCell value={n.cpuAllocatable} total={n.cpuCapacity} format={(v) => v.toFixed(1)} />
+                    <CapacityCell value={n.memAllocatable} total={n.memCapacity} format={fmtMem} />
+                    <span style={{ color: n.taintCount > 0 ? "var(--color-text-warning)" : "var(--color-text-tertiary)" }}>
+                      {n.taintCount > 0 ? n.taintCount : "-"}
+                    </span>
+                    <span style={{ color: "var(--color-text-tertiary)" }}>{ago(n.ageSeconds)}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Detail panel */}
-      {nodes.selected && (
+      {nodes.selected ? (
         <NodeDetailPanel
           cluster={cluster}
           name={nodes.selected.name}
@@ -305,6 +416,8 @@ export function NodesView({ cluster }: { cluster: string }) {
           onDrain={(node) => setDrainPending(node)}
           onClose={() => useFleet.getState().selectNode(null)}
         />
+      ) : (
+        <EmptyNodeInspector nodeCount={visibleNodes.length} attention={attention} />
       )}
 
       {/* Cordon/uncordon confirm dialog */}
@@ -358,6 +471,77 @@ export function NodesView({ cluster }: { cluster: string }) {
   );
 }
 
+function SummaryCell({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warning" | "danger" | "muted" }) {
+  const color = tone === "success"
+    ? "var(--color-text-success)"
+    : tone === "warning"
+      ? "var(--color-text-warning)"
+      : tone === "danger"
+        ? "var(--color-text-danger)"
+        : tone === "muted"
+          ? "var(--color-text-tertiary)"
+          : "var(--color-text-primary)";
+  return (
+    <div style={{ padding: "8px 10px", borderRight: "0.5px solid var(--color-border-tertiary)", minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 2 }}>{label}</div>
+      <div title={value} style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 13, lineHeight: 1.2, color, ...ellipsis }}>{value}</div>
+    </div>
+  );
+}
+
+function FilterButton({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "3px 9px",
+        fontSize: 11,
+        borderRadius: 4,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        border: active ? "0.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
+        background: active ? "var(--color-background-info)" : "var(--color-background-primary)",
+        color: active ? "var(--color-text-info)" : "var(--color-text-secondary)",
+      }}
+    >
+      {label}
+      <span style={{ fontSize: 9, opacity: 0.72 }}>{count}</span>
+    </button>
+  );
+}
+
+function CapacityCell({ value, total, format }: { value: number; total: number; format: (v: number) => string }) {
+  const pct = total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
+  return (
+    <span style={{ color: "var(--color-text-secondary)", display: "inline-flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+      <span style={{ ...ellipsis }}>
+        {format(value)}
+        <span style={{ color: "var(--color-text-tertiary)" }}> / {format(total)}</span>
+      </span>
+      <span style={{ height: 4, background: "var(--color-background-secondary)", borderRadius: 2, overflow: "hidden" }}>
+        <span style={{ display: "block", height: "100%", width: `${pct}%`, background: pct < 80 ? "var(--color-text-success)" : "var(--color-text-warning)" }} />
+      </span>
+    </span>
+  );
+}
+
+function EmptyNodeInspector({ nodeCount, attention }: { nodeCount: number; attention: number }) {
+  return (
+    <aside style={{ width: 360, flexShrink: 0, borderLeft: "0.5px solid var(--color-border-tertiary)", paddingLeft: 16, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--color-text-secondary)" }}>
+      <div style={{ position: "sticky", top: 0, background: "var(--color-background-primary)", paddingTop: 2, paddingBottom: 6, borderBottom: "0.5px solid var(--color-border-tertiary)", marginBottom: 12 }}>
+        <div style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>selected node</div>
+        <div style={{ color: attention > 0 ? "var(--color-text-warning)" : "var(--color-text-success)", fontWeight: 600, marginTop: 2 }}>
+          {attention > 0 ? `${attention} need attention` : "all nodes quiet"}
+        </div>
+      </div>
+      <div>{nodeCount === 0 ? "No nodes are visible with the current filters." : "Select a node to inspect conditions, taints, pods, events, and day-2 actions."}</div>
+    </aside>
+  );
+}
+
 function NodeDetailPanel({
   cluster, name, detail, loading, isProtected, onCordon, onDrain, onClose,
 }: {
@@ -387,13 +571,12 @@ function NodeDetailPanel({
 
   return (
     <div style={{
-      width, flexShrink: 0, position: "relative",
+      width, flexShrink: 0, position: "relative", minHeight: 0,
       borderLeft: "0.5px solid var(--color-border-tertiary)",
       overflowY: "auto",
       fontFamily: "var(--font-mono)",
       fontSize: 12,
       paddingLeft: 16,
-      marginLeft: 16,
     }}>
       {/* Resize handle — drag left edge */}
       <div {...handleProps} />
@@ -523,13 +706,16 @@ function InfoTab({ detail, cluster, labelsExpanded, onToggleLabels, onCordon, on
       {/* Conditions */}
       {detail.conditions.length > 0 && (
         <NodeSection title="Conditions">
-          {detail.conditions.map((c) => (
-            <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 11 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status), display: "inline-block", flexShrink: 0 }} />
-              <span style={{ fontWeight: 500, width: 100, flexShrink: 0 }}>{c.type}</span>
-              <span style={{ color: "var(--color-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.message}>{c.message || c.reason || "-"}</span>
-            </div>
-          ))}
+          {[...detail.conditions].sort((a, b) => Number(conditionIsProblem(b)) - Number(conditionIsProblem(a)) || a.type.localeCompare(b.type)).map((c) => {
+            const conditionMessage = c.message || c.reason || "-";
+            return (
+              <div key={c.type} style={{ display: "grid", gridTemplateColumns: "7px minmax(130px, 0.46fr) minmax(0, 1fr)", gap: 8, alignItems: "baseline", fontSize: 11 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c), display: "inline-block" }} />
+                <span style={{ fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.type}>{c.type}</span>
+                <span style={{ color: "var(--color-text-secondary)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={conditionMessage}>{conditionMessage}</span>
+              </div>
+            );
+          })}
         </NodeSection>
       )}
 
@@ -575,11 +761,11 @@ function InfoTab({ detail, cluster, labelsExpanded, onToggleLabels, onCordon, on
             <div
               key={`${p.namespace}/${p.name}`}
               onClick={() => handlePodClick(p)}
-              style={{ display: "flex", gap: 8, fontSize: 11, cursor: "pointer", padding: "2px 0", alignItems: "baseline" }}
+              style={{ display: "grid", gridTemplateColumns: "82px minmax(0, 1fr) 72px", gap: 8, fontSize: 11, cursor: "pointer", padding: "2px 0", alignItems: "baseline" }}
             >
-              <span style={{ color: "var(--color-text-tertiary)", flexShrink: 0 }}>{p.namespace}</span>
-              <span style={{ fontWeight: 500 }}>{p.name}</span>
-              <span style={{ color: p.phase === "Running" ? "var(--color-text-success)" : p.phase === "Failed" ? "var(--color-text-danger)" : "var(--color-text-tertiary)", marginLeft: "auto", flexShrink: 0 }}>{p.phase}</span>
+              <span style={{ color: "var(--color-text-tertiary)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.namespace}>{p.namespace}</span>
+              <span style={{ fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.name}>{p.name}</span>
+              <span style={{ color: p.phase === "Running" ? "var(--color-text-success)" : p.phase === "Failed" ? "var(--color-text-danger)" : "var(--color-text-tertiary)", textAlign: "right" }}>{p.phase}</span>
             </div>
           ))
         )}

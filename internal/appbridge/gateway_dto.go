@@ -8,6 +8,10 @@ type ListenerDTO struct {
 	Hostname string `json:"hostname"`
 	Port     int32  `json:"port"`
 }
+type GatewayAddressDTO struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
 type PolicyDetailDTO struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -26,13 +30,14 @@ type PolicyRefDTO struct {
 	Match             string            `json:"match"`
 }
 type GatewayNodeDTO struct {
-	Namespace  string         `json:"namespace"`
-	Name       string         `json:"name"`
-	ClassName  string         `json:"className"`
-	Listeners  []ListenerDTO  `json:"listeners"`
-	Accepted   bool           `json:"accepted"`
-	Programmed bool           `json:"programmed"`
-	Policies   []PolicyRefDTO `json:"policies"`
+	Namespace  string              `json:"namespace"`
+	Name       string              `json:"name"`
+	ClassName  string              `json:"className"`
+	Listeners  []ListenerDTO       `json:"listeners"`
+	Addresses  []GatewayAddressDTO `json:"addresses"`
+	Accepted   bool                `json:"accepted"`
+	Programmed bool                `json:"programmed"`
+	Policies   []PolicyRefDTO      `json:"policies"`
 }
 type MatchDTO struct {
 	PathType  string `json:"pathType"`
@@ -83,11 +88,13 @@ type TopologyDTO struct {
 	Error           string         `json:"error,omitempty"`
 }
 type GatewayRefDTO struct {
-	Namespace  string `json:"namespace"`
-	Name       string `json:"name"`
-	ClassName  string `json:"className"`
-	Accepted   bool   `json:"accepted"`
-	Programmed bool   `json:"programmed"`
+	Namespace  string              `json:"namespace"`
+	Name       string              `json:"name"`
+	ClassName  string              `json:"className"`
+	Addresses  []GatewayAddressDTO `json:"addresses"`
+	Listeners  []ListenerDTO       `json:"listeners"`
+	Accepted   bool                `json:"accepted"`
+	Programmed bool                `json:"programmed"`
 }
 type GatewayListDTO struct {
 	GatewayAPIServed bool            `json:"gatewayAPIServed"`
@@ -135,6 +142,9 @@ func toTopologyDTO(t gwapi.Topology) TopologyDTO {
 	gd := GatewayNodeDTO{Namespace: g.Namespace, Name: g.Name, ClassName: g.ClassName, Accepted: g.Accepted, Programmed: g.Programmed, Policies: policyDTOs(g.Policies)}
 	for _, l := range g.Listeners {
 		gd.Listeners = append(gd.Listeners, ListenerDTO{Name: l.Name, Protocol: l.Protocol, Hostname: l.Hostname, Port: l.Port})
+	}
+	for _, a := range g.Addresses {
+		gd.Addresses = append(gd.Addresses, GatewayAddressDTO{Type: a.Type, Value: a.Value})
 	}
 	out := TopologyDTO{Gateway: gd, Warnings: t.Warnings, ClusterPolicies: policyDTOs(t.ClusterPolicies)}
 	for _, r := range t.Routes {

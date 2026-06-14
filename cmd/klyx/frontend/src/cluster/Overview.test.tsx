@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { Overview } from "./Overview";
 import { useFleet } from "../store/fleet";
 import type { ClusterDTO, MetricsDTO, OverviewSummary } from "../store/fleet";
@@ -14,6 +14,9 @@ vi.mock("../bridge/metrics", () => ({
   getClusterSparklines: (cluster: string) => mockGetClusterSparklines(cluster),
 }));
 vi.mock("../bridge/overview", () => ({ fetchOverviewSummary: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../bridge/fleetboard", () => ({ fetchFleetBoard: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../bridge/events", () => ({ fetchEventsSnapshot: vi.fn() }));
+import { fetchEventsSnapshot } from "../bridge/events";
 
 const dto: ClusterDTO = {
   name: "homelab-nelli", state: "Synced", reason: "", nodesReady: 1, nodesTotal: 1, pods: 58,
@@ -45,6 +48,10 @@ function seedSummary(cluster: string, partial: Partial<OverviewSummary> = {}) {
   });
 }
 
+beforeEach(() => {
+  vi.mocked(fetchEventsSnapshot).mockResolvedValue({ namespaces: [], events: [] });
+});
+
 describe("Overview", () => {
   beforeEach(() => {
     useFleet.setState({ metrics: { cluster: null, dto: null, loading: false } });
@@ -62,6 +69,38 @@ describe("Overview", () => {
   it("shows the reason for a failed cluster", () => {
     const { getByText } = render(<Overview c={{ ...dto, state: "Failed", reason: "connect timed out" }} />);
     expect(getByText(/connect timed out/i)).toBeTruthy();
+  });
+});
+
+describe("Overview critical events", () => {
+  beforeEach(() => {
+    useFleet.setState({ metrics: { cluster: null, dto: null, loading: false } });
+    useFleet.getState().clearOverviewSummary();
+  });
+
+  it("shows warning events and opens the filtered Events page", async () => {
+    vi.mocked(fetchEventsSnapshot).mockResolvedValueOnce({
+      namespaces: ["apps"],
+      events: [{
+        type: "Warning",
+        reason: "BackOff",
+        message: "Back-off restarting failed container",
+        count: 3,
+        namespace: "apps",
+        kind: "Pod",
+        name: "api-1",
+        lastSeenUnix: 100,
+        firstSeenUnix: 10,
+      }],
+    });
+    useFleet.getState().openCluster("homelab-nelli");
+    const { getByText } = render(<Overview c={dto} />);
+    await waitFor(() => expect(getByText("BackOff")).toBeTruthy());
+    fireEvent.click(getByText("BackOff"));
+    const state = useFleet.getState();
+    expect(state.route).toMatchObject({ name: "cluster", section: "events" });
+    expect(state.events.warningsOnly).toBe(true);
+    expect(state.events.search).toBe("api-1");
   });
 });
 

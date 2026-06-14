@@ -33,6 +33,20 @@ type SecretKeyInfo struct {
 	Bytes int
 }
 
+// RelatedRef is a navigable object relation discovered from a detail object's
+// spec/status. It intentionally carries the GVR because Kind alone is not
+// enough for generic resource drill-in.
+type RelatedRef struct {
+	Kind      string
+	Namespace string
+	Name      string
+	Group     string
+	Version   string
+	Plural    string
+	Scope     string
+	Relation  string
+}
+
 // InstanceDetail is the full per-instance detail: header, conditions, events, YAML.
 type InstanceDetail struct {
 	Kind       string
@@ -52,6 +66,8 @@ type InstanceDetail struct {
 	// HPAScaling is populated only for autoscaling HorizontalPodAutoscalers
 	// (any version; v2 is what we list). Nil for all other kinds.
 	HPAScaling *HPAScaling
+	// Related contains direct object relationships for drill-in tabs.
+	Related []RelatedRef
 }
 
 // ParseConditions maps status.conditions[] (a near-universal convention). Empty

@@ -1,20 +1,68 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { useFleet } from "../store/fleet";
+import type { GatewayRefDTO } from "../store/fleet";
 import { listGateways } from "../bridge/gateway";
 import { NetworkTopology } from "./NetworkTopology";
 
-const empty: React.CSSProperties = { padding: 24, color: "var(--color-text-secondary)", fontSize: 13 };
+const empty: CSSProperties = { padding: 24, color: "var(--color-text-secondary)", fontSize: 13 };
+const frame: CSSProperties = { border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", background: "var(--color-background-primary)" };
+const ellipsis: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+
+type GatewayMode = "all" | "pending" | "programmed";
+
+function isPending(g: GatewayRefDTO): boolean {
+  return !g.accepted || !g.programmed;
+}
+
+function gatewayStatus(g: GatewayRefDTO): string {
+  if (!g.accepted) return "not accepted";
+  if (!g.programmed) return "pending";
+  return "programmed";
+}
+
+function gatewayAddress(g: GatewayRefDTO): string {
+  const values = (g.addresses ?? []).map((a) => a.value).filter(Boolean);
+  return values.length > 0 ? values.join(", ") : "—";
+}
+
+function gatewayListeners(g: GatewayRefDTO): string {
+  const listeners = g.listeners ?? [];
+  if (listeners.length === 0) return "—";
+  return listeners.map((l) => {
+    const proto = l.protocol || "listener";
+    const port = l.port > 0 ? `:${l.port}` : "";
+    return `${l.name ? `${l.name} ` : ""}${proto}${port}`;
+  }).join(", ");
+}
 
 export function NetworkView({ cluster }: { cluster: string }) {
   const route = useFleet((s) => s.route);
   const net = useFleet((s) => s.network);
   const openGateway = useFleet((s) => s.openGateway);
+  const [mode, setMode] = useState<GatewayMode>("all");
+  const [query, setQuery] = useState("");
 
   const gateway = route.name === "cluster" ? route.gateway : undefined;
 
   useEffect(() => {
     if (!gateway) listGateways(cluster).catch((e) => console.error("listGateways", e));
   }, [cluster, gateway]);
+
+  const orderedGateways = useMemo(
+    () => [...net.gateways].sort((a, b) => Number(isPending(b)) - Number(isPending(a)) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name)),
+    [net.gateways],
+  );
+  const q = query.trim().toLowerCase();
+  const visibleGateways = orderedGateways.filter((g) => {
+    if (mode === "pending" && !isPending(g)) return false;
+    if (mode === "programmed" && isPending(g)) return false;
+    if (!q) return true;
+    return [g.namespace, g.name, g.className, gatewayStatus(g), gatewayAddress(g), gatewayListeners(g)].some((v) => v.toLowerCase().includes(q));
+  });
+  const pending = net.gateways.filter(isPending).length;
+  const programmed = net.gateways.length - pending;
+  const classes = new Set(net.gateways.map((g) => g.className).filter(Boolean)).size;
 
   if (gateway) return <NetworkTopology cluster={cluster} gateway={gateway} />;
 
@@ -23,24 +71,128 @@ export function NetworkView({ cluster }: { cluster: string }) {
   if (net.gateways.length === 0) return <div style={empty}>No Gateways found.</div>;
 
   return (
-    <div style={{ padding: "14px 16px" }}>
-      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 12 }}>
-        <b style={{ color: "var(--color-text-primary)" }}>{net.gateways.length}</b> gateways
+    <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 3 }}>Gateway API</div>
+          <div style={{ fontSize: 18, fontWeight: 600 }}>Network</div>
+        </div>
+        <span style={{ fontFamily: "var(--font-mono)", color: pending > 0 ? "var(--color-text-warning)" : "var(--color-text-success)", fontSize: 12 }}>
+          {pending > 0 ? `${pending} pending` : "all programmed"}
+        </span>
       </div>
-      <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
-        {net.gateways.map((g) => (
-          <div key={`${g.namespace}/${g.name}`} onClick={() => openGateway(g.namespace, g.name)}
-            style={{ display: "grid", gridTemplateColumns: "16px 1fr 130px 90px", gap: 10, alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 12, cursor: "pointer" }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: g.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }} />
-            <span style={{ fontFamily: "var(--font-mono)" }}>
-              <span style={{ color: "var(--color-text-tertiary)" }}>{g.namespace}/</span>
-              <span>{g.name}</span>
-            </span>
-            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>{g.className}</span>
-            <span style={{ fontSize: 11, color: g.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{g.programmed ? "programmed" : "pending"}</span>
-          </div>
-        ))}
+
+      <div style={{ ...frame, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", overflow: "hidden" }}>
+        <SummaryCell label="gateways" value={String(net.gateways.length)} />
+        <SummaryCell label="programmed" value={String(programmed)} tone="success" />
+        <SummaryCell label="pending" value={String(pending)} tone={pending > 0 ? "warning" : "muted"} />
+        <SummaryCell label="classes" value={String(classes)} />
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        <ModeButton label="all" count={net.gateways.length} active={mode === "all"} onClick={() => setMode("all")} />
+        <ModeButton label="pending" count={pending} active={mode === "pending"} onClick={() => setMode("pending")} />
+        <ModeButton label="programmed" count={programmed} active={mode === "programmed"} onClick={() => setMode("programmed")} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="filter gateways"
+          aria-label="filter gateways"
+          style={{ marginLeft: "auto", fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 180 }}
+        />
+        {visibleGateways.length !== net.gateways.length && <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleGateways.length} of {net.gateways.length}</span>}
+      </div>
+
+      <div style={{ ...frame, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column", flex: 1 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "3px minmax(160px,1fr) 150px minmax(140px,0.8fr) minmax(120px,0.7fr) 100px 100px", gap: 10, alignItems: "center", padding: "5px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", fontSize: 10, color: "var(--color-text-tertiary)", flexShrink: 0 }}>
+          <span />
+          <span>gateway</span>
+          <span>class</span>
+          <span>address</span>
+          <span>listeners</span>
+          <span>accepted</span>
+          <span>programmed</span>
+        </div>
+        <div data-testid="gateway-list-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {visibleGateways.length === 0 ? (
+            <div style={{ padding: 14, color: "var(--color-text-secondary)", fontSize: 13 }}>No Gateways match the current filter.</div>
+          ) : visibleGateways.map((g) => {
+            const pendingGateway = isPending(g);
+            return (
+              <button
+                key={`${g.namespace}/${g.name}`}
+                onClick={() => openGateway(g.namespace, g.name)}
+                style={{
+                  width: "100%",
+                  display: "grid",
+                  gridTemplateColumns: "3px minmax(160px,1fr) 150px minmax(140px,0.8fr) minmax(120px,0.7fr) 100px 100px",
+                  gap: 10,
+                  alignItems: "center",
+                  padding: "8px 12px",
+                  border: 0,
+                  borderTop: "0.5px solid var(--color-border-tertiary)",
+                  background: "transparent",
+                  color: "var(--color-text-primary)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ alignSelf: "stretch", background: pendingGateway ? "var(--color-text-warning)" : "transparent" }} />
+                <span style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>
+                  <span style={{ color: "var(--color-text-tertiary)" }}>{g.namespace}/</span>
+                  <span>{g.name}</span>
+                </span>
+                <span style={{ color: "var(--color-text-secondary)", fontSize: 11, ...ellipsis }} title={g.className}>{g.className || "—"}</span>
+                <span style={{ color: gatewayAddress(g) === "—" ? "var(--color-text-tertiary)" : "var(--color-text-primary)", fontFamily: "var(--font-mono)", fontSize: 11, ...ellipsis }} title={gatewayAddress(g)}>{gatewayAddress(g)}</span>
+                <span style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)", fontSize: 11, ...ellipsis }} title={gatewayListeners(g)}>{gatewayListeners(g)}</span>
+                <span style={{ fontSize: 11, color: g.accepted ? "var(--color-text-success)" : "var(--color-text-danger)" }}>{g.accepted ? "accepted" : "not accepted"}</span>
+                <span style={{ fontSize: 11, color: g.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{g.programmed ? "programmed" : "pending"}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
+  );
+}
+
+function SummaryCell({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warning" | "muted" }) {
+  const color = tone === "success"
+    ? "var(--color-text-success)"
+    : tone === "warning"
+      ? "var(--color-text-warning)"
+      : tone === "muted"
+        ? "var(--color-text-tertiary)"
+        : "var(--color-text-primary)";
+  return (
+    <div style={{ padding: "9px 12px", borderRight: "0.5px solid var(--color-border-tertiary)", minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 3 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-mono)", color, fontWeight: 600, ...ellipsis }}>{value}</div>
+    </div>
+  );
+}
+
+function ModeButton({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "3px 9px",
+        fontSize: 11,
+        borderRadius: 4,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        border: active ? "0.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
+        background: active ? "var(--color-background-info)" : "var(--color-background-primary)",
+        color: active ? "var(--color-text-info)" : "var(--color-text-secondary)",
+      }}
+    >
+      {label}
+      <span style={{ fontSize: 9, opacity: 0.72 }}>{count}</span>
+    </button>
   );
 }

@@ -66,8 +66,8 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
   }
 
   return (
-    <div style={{ padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+    <div style={{ padding: "14px 16px", height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexShrink: 0 }}>
         <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
           <b style={{ color: "var(--color-text-primary)" }}>{groups.length}</b> groups · <b style={{ color: "var(--color-text-primary)" }}>{totalKinds}</b> kinds
         </div>
@@ -80,7 +80,7 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
         />
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, fontSize: 11, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, fontSize: 11, alignItems: "center", flexShrink: 0 }}>
         <span style={{ color: "var(--color-text-tertiary)" }}>group by:</span>
         {GROUP_BYS.map((g) => (
           <button
@@ -98,7 +98,7 @@ export function CRDBrowser({ cluster }: { cluster: string }) {
         ))}
       </div>
 
-      <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
+      <div data-testid="crd-resource-scroll" style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflowY: "auto", overflowX: "hidden", flex: 1, minHeight: 0 }}>
         {sections.map((sec) => (
           <Section key={sec.label} cluster={cluster} label={sec.label} category={sec.category} kinds={sec.kinds} grouped={crd.groupBy === "group"} />
         ))}

@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useFleet } from "../store/fleet";
+import type { FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
@@ -9,11 +11,25 @@ const readyColor: Record<string, string> = {
   Failed: "var(--color-text-danger)",
   Unknown: "var(--color-text-tertiary)",
 };
-const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-const actionBtn: React.CSSProperties = {
-  padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-  border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)",
+const ellipsis: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+const actionBtn: CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 11,
+  borderRadius: 4,
+  cursor: "pointer",
+  border: "0.5px solid var(--color-border-tertiary)",
+  background: "var(--color-background-primary)",
+  color: "var(--color-text-primary)",
 };
+const frame: CSSProperties = {
+  border: "0.5px solid var(--color-border-tertiary)",
+  borderRadius: "var(--border-radius-md)",
+  background: "var(--color-background-primary)",
+};
+
+type FluxFilter = "all" | "attention" | "suspended" | "kustomizations" | "helmreleases";
+
+const keyOf = (r: { kind: string; namespace: string; name: string }) => `${r.kind}/${r.namespace}/${r.name}`;
 
 function shortRev(rev: string): string {
   if (!rev) return "";
@@ -24,13 +40,55 @@ function shortRev(rev: string): string {
   const sha = s.slice(at + 1).replace(/^sha1:/, "").replace(/^sha256:/, "");
   return `${branch}@${sha.slice(0, 7)}`;
 }
+
 function ago(sec: number): string {
   if (sec <= 0) return "";
   if (sec < 60) return `${sec}s ago`;
   if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
   return `${Math.floor(sec / 3600)}h ago`;
 }
-const keyOf = (r: { kind: string; namespace: string; name: string }) => `${r.kind}/${r.namespace}/${r.name}`;
+
+function needsAttention(r: FluxResourceDTO): boolean {
+  return r.ready !== "Ready" || r.suspended;
+}
+
+function rank(r: FluxResourceDTO): number {
+  if (r.ready === "Failed") return 0;
+  if (r.ready === "Reconciling") return 1;
+  if (r.suspended) return 2;
+  if (r.ready !== "Ready") return 3;
+  return 4;
+}
+
+function statusText(r: FluxResourceDTO): string {
+  return r.suspended ? "suspended" : r.ready.toLowerCase();
+}
+
+function sourceText(r: FluxResourceDTO): string {
+  return [r.sourceKind, r.sourceName].filter(Boolean).join(" ");
+}
+
+function matchesFilter(r: FluxResourceDTO, filter: FluxFilter): boolean {
+  if (filter === "attention") return needsAttention(r);
+  if (filter === "suspended") return r.suspended;
+  if (filter === "kustomizations") return r.kind === "Kustomization";
+  if (filter === "helmreleases") return r.kind === "HelmRelease";
+  return true;
+}
+
+function matchesQuery(r: FluxResourceDTO, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [
+    r.kind,
+    r.namespace,
+    r.name,
+    r.message,
+    r.revision,
+    r.sourceKind,
+    r.sourceName,
+  ].some((v) => v.toLowerCase().includes(q));
+}
 
 export function GitOps({ cluster }: { cluster: string }) {
   const tier = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.gitopsTier ?? "Unknown");
@@ -39,6 +97,8 @@ export function GitOps({ cluster }: { cluster: string }) {
   const collapse = useFleet((s) => s.collapse);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
   const [pending, setPending] = useState<null | { verb: "reconcile" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
+  const [filter, setFilter] = useState<FluxFilter>("all");
+  const [query, setQuery] = useState("");
   const absent = tier === "Absent";
 
   useEffect(() => {
@@ -51,29 +111,71 @@ export function GitOps({ cluster }: { cluster: string }) {
     };
   }, [cluster, absent]);
 
+  const rows = gitops.cluster === cluster ? gitops.resources : [];
+  const orderedRows = useMemo(
+    () => [...rows].sort((a, b) => rank(a) - rank(b) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name)),
+    [rows],
+  );
+  const visibleRows = useMemo(
+    () => orderedRows.filter((r) => matchesFilter(r, filter) && matchesQuery(r, query)),
+    [orderedRows, filter, query],
+  );
+
   useEffect(() => {
     if (!gitops.expandedKey) return;
-    const r = gitops.resources.find((x) => keyOf(x) === gitops.expandedKey);
+    const r = rows.find((x) => keyOf(x) === gitops.expandedKey);
     if (r) void getResourceDetail(cluster, r.kind, r.namespace, r.name);
-  }, [cluster, gitops.expandedKey, gitops.resources]);
+  }, [cluster, gitops.expandedKey, rows]);
 
   if (absent) {
     return <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux or Argo installed on this cluster.</div>;
   }
 
-  const rows = gitops.cluster === cluster ? gitops.resources : [];
   const ks = rows.filter((r) => r.kind === "Kustomization").length;
   const hr = rows.filter((r) => r.kind === "HelmRelease").length;
-  const ready = rows.filter((r) => r.ready === "Ready").length;
-  const notReady = rows.length - ready;
+  const ready = rows.filter((r) => r.ready === "Ready" && !r.suspended).length;
+  const attention = rows.filter(needsAttention).length;
+  const suspended = rows.filter((r) => r.suspended).length;
+  const reconciling = rows.filter((r) => r.ready === "Reconciling").length;
+  const selectedResource = visibleRows.find((r) => keyOf(r) === gitops.expandedKey) ?? null;
+  const selectedDetail = selectedResource && gitops.detail && keyOf(gitops.detail) === keyOf(selectedResource) ? gitops.detail : null;
 
   return (
-    <div style={{ padding: "14px 16px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12, fontSize: 12, color: "var(--color-text-secondary)" }}>
-        <span>kustomizations <b style={{ color: "var(--color-text-primary)" }}>{ks}</b></span>
-        <span>helmreleases <b style={{ color: "var(--color-text-primary)" }}>{hr}</b></span>
-        <span>ready <b style={{ color: "var(--color-text-success)" }}>{ready}</b></span>
-        <span>not ready <b style={{ color: notReady ? "var(--color-text-warning)" : "var(--color-text-primary)" }}>{notReady}</b></span>
+    <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 3 }}>Flux</div>
+          <div style={{ fontSize: 18, fontWeight: 600 }}>Reconciliation</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {isProtected && <Badge tone="warning">prd lock</Badge>}
+          <Badge tone={attention > 0 ? "warning" : "success"}>{attention > 0 ? `${attention} need attention` : "ready"}</Badge>
+        </div>
+      </div>
+
+      <div style={{ ...frame, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", overflow: "hidden" }}>
+        <SummaryCell label="health" value={attention > 0 ? `${attention} attention` : "ready"} tone={attention > 0 ? "warning" : "success"} />
+        <SummaryCell label="kustomizations" value={String(ks)} />
+        <SummaryCell label="helmreleases" value={String(hr)} />
+        <SummaryCell label="reconciling" value={String(reconciling)} tone={reconciling > 0 ? "info" : "muted"} />
+        <SummaryCell label="suspended" value={String(suspended)} tone={suspended > 0 ? "warning" : "muted"} />
+        <SummaryCell label="ready" value={String(ready)} tone="success" />
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        <FilterButton label="all" active={filter === "all"} count={rows.length} onClick={() => setFilter("all")} />
+        <FilterButton label="needs attention" active={filter === "attention"} count={attention} onClick={() => setFilter("attention")} />
+        <FilterButton label="suspended" active={filter === "suspended"} count={suspended} onClick={() => setFilter("suspended")} />
+        <FilterButton label="ks" active={filter === "kustomizations"} count={ks} onClick={() => setFilter("kustomizations")} />
+        <FilterButton label="hr" active={filter === "helmreleases"} count={hr} onClick={() => setFilter("helmreleases")} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="filter flux"
+          aria-label="filter flux"
+          style={{ marginLeft: "auto", fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 170 }}
+        />
+        {visibleRows.length !== rows.length && <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleRows.length} of {rows.length}</span>}
       </div>
 
       {gitops.loading && rows.length === 0 ? (
@@ -81,25 +183,47 @@ export function GitOps({ cluster }: { cluster: string }) {
       ) : rows.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux resources found.</div>
       ) : (
-        <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
-          {rows.map((r) => {
-            const k = keyOf(r);
-            const open = gitops.expandedKey === k;
-            return (
-              <div key={k}>
-                <RowSummary r={r} open={open} onClick={() => (open ? collapse() : expand(k))} />
-                {open && (
-                  <DetailPanel
-                    resource={r}
-                    detail={gitops.detail && keyOf(gitops.detail) === k ? gitops.detail : null}
-                    onReconcile={() => setPending({ verb: "reconcile", r })}
-                    onToggleSuspend={(suspended) => setPending({ verb: suspended ? "resume" : "suspend", r })}
-                    onViewGit={() => void resolveGitLink(cluster, r.kind, r.namespace, r.name)}
+        <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "minmax(440px, 1.25fr) minmax(320px, 0.75fr)", gap: 12, alignItems: "stretch", overflow: "hidden" }}>
+          <div style={{ ...frame, overflow: "hidden", minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "3px minmax(180px,1.2fr) 120px minmax(110px,0.9fr) 84px 92px", gap: 10, alignItems: "center", padding: "5px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", fontSize: 10, color: "var(--color-text-tertiary)", flexShrink: 0 }}>
+              <span />
+              <span>resource</span>
+              <span>source</span>
+              <span>revision</span>
+              <span>applied</span>
+              <span>status</span>
+            </div>
+            <div data-testid="flux-resource-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {visibleRows.length === 0 ? (
+                <div style={{ padding: 14, color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux resources match the current filter.</div>
+              ) : visibleRows.map((r) => {
+                const k = keyOf(r);
+                const open = gitops.expandedKey === k;
+                return (
+                  <RowSummary
+                    key={k}
+                    r={r}
+                    open={open}
+                    onClick={() => (open ? collapse() : expand(k))}
                   />
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          </div>
+
+          <div data-testid="flux-inspector-scroll" style={{ minHeight: 0, overflowY: "auto" }}>
+            {selectedResource ? (
+              <DetailPanel
+                resource={selectedResource}
+                detail={selectedDetail}
+                onReconcile={() => setPending({ verb: "reconcile", r: selectedResource })}
+                onToggleSuspend={(isSuspended) => setPending({ verb: isSuspended ? "resume" : "suspend", r: selectedResource })}
+                onViewGit={() => void resolveGitLink(cluster, selectedResource.kind, selectedResource.namespace, selectedResource.name)}
+              />
+            ) : (
+              <EmptyInspector attention={attention} />
+            )}
+          </div>
         </div>
       )}
 
@@ -125,23 +249,41 @@ export function GitOps({ cluster }: { cluster: string }) {
 }
 
 function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; onClick: () => void }) {
+  const isBad = r.ready === "Failed";
+  const isReconciling = r.ready === "Reconciling";
+  const color = r.suspended ? "var(--color-text-warning)" : (readyColor[r.ready] ?? "var(--color-text-tertiary)");
   return (
-    <div onClick={onClick} style={{ display: "grid", gridTemplateColumns: "16px minmax(0,1fr) 130px 130px 72px 84px", gap: 10, alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 12, cursor: "pointer", background: open ? "var(--color-background-secondary)" : "transparent" }}>
-      <span style={{ color: "var(--color-text-tertiary)" }}>{open ? "▾" : "▸"}</span>
+    <button
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "grid",
+        gridTemplateColumns: "3px minmax(180px,1.2fr) 120px minmax(110px,0.9fr) 84px 92px",
+        gap: 10,
+        alignItems: "center",
+        padding: "8px 12px",
+        border: 0,
+        borderTop: "0.5px solid var(--color-border-tertiary)",
+        fontSize: 12,
+        cursor: "pointer",
+        textAlign: "left",
+        color: "var(--color-text-primary)",
+        background: open ? "var(--color-background-secondary)" : "transparent",
+      }}
+    >
+      <span style={{ alignSelf: "stretch", background: isBad ? "var(--color-text-danger)" : isReconciling ? "var(--color-text-info)" : r.suspended ? "var(--color-text-warning)" : "transparent" }} />
       <div style={{ minWidth: 0 }}>
         <span style={{ fontFamily: "var(--font-mono)" }}>{r.namespace}/{r.name}</span>{" "}
         <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>{r.kind === "Kustomization" ? "ks" : "hr"}</span>
-        {r.message && r.ready === "Failed" && (
-          <div style={{ color: "var(--color-text-danger)", fontSize: 11, marginTop: 2, ...ellipsis }}>{r.message}</div>
+        {r.message && needsAttention(r) && (
+          <div style={{ color: isBad ? "var(--color-text-danger)" : "var(--color-text-warning)", fontSize: 11, marginTop: 2, ...ellipsis }} title={r.message}>{r.message}</div>
         )}
       </div>
-      <div style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={r.sourceName}>{r.sourceName}</div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", ...ellipsis }} title={r.revision}>{shortRev(r.revision)}</div>
-      <div style={{ color: "var(--color-text-tertiary)", fontSize: 11, ...ellipsis }}>{ago(r.lastAppliedAgeSeconds)}</div>
-      <div style={{ ...ellipsis, color: r.suspended ? "var(--color-text-warning)" : (readyColor[r.ready] ?? "var(--color-text-tertiary)") }}>
-        {r.suspended ? "suspended" : r.ready.toLowerCase()}
-      </div>
-    </div>
+      <div style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={sourceText(r)}>{sourceText(r) || "—"}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", ...ellipsis }} title={r.revision}>{shortRev(r.revision) || "—"}</div>
+      <div style={{ color: "var(--color-text-tertiary)", fontSize: 11, ...ellipsis }}>{ago(r.lastAppliedAgeSeconds) || "—"}</div>
+      <div style={{ ...ellipsis, color }}>{statusText(r)}</div>
+    </button>
   );
 }
 
@@ -152,13 +294,20 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
   onToggleSuspend: (suspended: boolean) => void;
   onViewGit: () => void;
 }) {
+  const headerColor = resource.suspended ? "var(--color-text-warning)" : (readyColor[resource.ready] ?? "var(--color-text-tertiary)");
   if (!detail) {
-    return <div style={{ padding: "6px 12px 12px 38px", fontSize: 12, color: "var(--color-text-secondary)" }}>Loading detail…</div>;
+    return (
+      <div style={{ ...frame, padding: "10px 12px", fontSize: 12, color: "var(--color-text-secondary)" }}>
+        <InspectorHeader resource={resource} color={headerColor} />
+        <div style={{ marginTop: 12 }}>Loading detail…</div>
+      </div>
+    );
   }
   const condColor = (c: { status: string }) => (c.status === "True" ? "var(--color-text-success)" : c.status === "False" ? "var(--color-text-danger)" : "var(--color-text-info)");
   return (
-    <div style={{ padding: "6px 12px 14px 38px", background: "var(--color-background-secondary)", fontSize: 12 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+    <div style={{ ...frame, padding: "10px 12px", fontSize: 12 }}>
+      <InspectorHeader resource={resource} color={headerColor} />
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, marginBottom: 8, flexWrap: "wrap" }}>
         <button onClick={onReconcile} style={actionBtn}>Reconcile</button>
         <button onClick={() => onToggleSuspend(detail.suspended ?? false)} style={actionBtn}>
           {detail.suspended ? "Resume" : "Suspend"}
@@ -175,9 +324,9 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
       )}
       <Section title="Conditions">
         {detail.conditions.length === 0 ? <Muted>none reported</Muted> : detail.conditions.map((c) => (
-          <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+          <div key={c.type} style={{ display: "grid", gridTemplateColumns: "9px 76px minmax(0, 1fr)", gap: 8, alignItems: "baseline" }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c), display: "inline-block" }} />
-            <span style={{ fontWeight: 500, width: 70 }}>{c.type}</span>
+            <span style={{ fontWeight: 500 }}>{c.type}</span>
             <span style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={c.message}>{c.message || c.reason}</span>
           </div>
         ))}
@@ -197,14 +346,91 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function InspectorHeader({ resource, color }: { resource: FluxResourceDTO; color: string }) {
   return (
-    <div style={{ marginTop: 8 }}>
-      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)", marginBottom: 4 }}>{title}</div>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>{resource.kind} / {resource.namespace}</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, marginTop: 2 }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 600, ...ellipsis }}>{resource.name}</span>
+        <span style={{ color, fontSize: 11 }}>{statusText(resource)}</span>
+      </div>
+      {resource.message && needsAttention(resource) && (
+        <div style={{ color: resource.ready === "Failed" ? "var(--color-text-danger)" : "var(--color-text-warning)", marginTop: 6, ...ellipsis }} title={resource.message}>{resource.message}</div>
+      )}
+    </div>
+  );
+}
+
+function EmptyInspector({ attention }: { attention: number }) {
+  return (
+    <div style={{ ...frame, padding: "10px 12px", fontSize: 12, color: "var(--color-text-secondary)" }}>
+      <div style={{ color: attention > 0 ? "var(--color-text-warning)" : "var(--color-text-success)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+        {attention > 0 ? `${attention} resources need attention` : "all reconciliations ready"}
+      </div>
+      <div style={{ marginTop: 8 }}>Select a Flux resource to inspect conditions, inventory, and day-2 actions.</div>
+    </div>
+  );
+}
+
+function SummaryCell({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warning" | "info" | "muted" }) {
+  const color = tone === "success"
+    ? "var(--color-text-success)"
+    : tone === "warning"
+      ? "var(--color-text-warning)"
+      : tone === "info"
+        ? "var(--color-text-info)"
+        : tone === "muted"
+          ? "var(--color-text-tertiary)"
+          : "var(--color-text-primary)";
+  return (
+    <div style={{ padding: "9px 12px", borderRight: "0.5px solid var(--color-border-tertiary)", minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 3 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-mono)", color, fontWeight: 600, ...ellipsis }}>{value}</div>
+    </div>
+  );
+}
+
+function FilterButton({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "3px 9px",
+        fontSize: 11,
+        borderRadius: 4,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        border: active ? "0.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
+        background: active ? "var(--color-background-info)" : "var(--color-background-primary)",
+        color: active ? "var(--color-text-info)" : "var(--color-text-secondary)",
+      }}
+    >
+      {label}
+      <span style={{ fontSize: 9, opacity: 0.72 }}>{count}</span>
+    </button>
+  );
+}
+
+function Badge({ children, tone }: { children: ReactNode; tone: "success" | "warning" }) {
+  return (
+    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 3, border: `0.5px solid ${tone === "success" ? "var(--color-border-success)" : "var(--color-border-warning)"}`, color: tone === "success" ? "var(--color-text-success)" : "var(--color-text-warning)", background: tone === "success" ? "var(--color-background-success)" : "var(--color-background-warning)" }}>
+      {children}
+    </span>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 5 }}>{title}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>{children}</div>
     </div>
   );
 }
-function Muted({ children }: { children: React.ReactNode }) {
+
+function Muted({ children }: { children: ReactNode }) {
   return <span style={{ color: "var(--color-text-tertiary)" }}>{children}</span>;
 }

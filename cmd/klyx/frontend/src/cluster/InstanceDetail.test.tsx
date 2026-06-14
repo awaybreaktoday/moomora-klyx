@@ -61,13 +61,16 @@ describe("InstanceDetail", () => {
     expect(getByText("Certificate")).toBeTruthy();
     expect(getByText("Ready")).toBeTruthy();
     expect(getByText(/Certificate is up to date/)).toBeTruthy();
+    fireEvent.click(getByText(/events 1/));
     expect(getByText(/order failed/)).toBeTruthy();
+    fireEvent.click(getByText("yaml"));
     expect(getByText(/kind: Certificate/)).toBeTruthy();
   });
 
   it("copy calls the bridge with the YAML", () => {
     const { getByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
-    fireEvent.click(getByText(/copy/i));
+    fireEvent.click(getByText("yaml"));
+    fireEvent.click(getByText("Copy"));
     expect(copyText).toHaveBeenCalledWith(detail.yaml);
   });
 
@@ -80,6 +83,7 @@ describe("InstanceDetail", () => {
   it("shows a no-events note when there are none", () => {
     seed({ detail: { ...detail, events: [] } });
     const { getByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
+    fireEvent.click(getByText(/events 0/));
     expect(getByText(/no events/i)).toBeTruthy();
   });
 
@@ -87,6 +91,40 @@ describe("InstanceDetail", () => {
     seed({ detail: null, loading: true });
     const { getByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
     expect(getByText(/Loading/i)).toBeTruthy();
+  });
+
+  it("breadcrumb back returns to the resource instance list", () => {
+    useFleet.setState({ route: { name: "cluster", cluster: "x", section: "resources", resource, instance } });
+    const { getByLabelText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
+    fireEvent.click(getByLabelText("back to resource list"));
+    const r = useFleet.getState().route;
+    expect(r.name === "cluster" && r.instance).toBeUndefined();
+    expect(r.name === "cluster" && r.resource).toEqual(resource);
+  });
+
+  it("renders related objects and opens generic resource detail", () => {
+    const relatedDetail: InstanceDetailDTO = {
+      ...detail,
+      related: [{
+        kind: "Secret",
+        namespace: "default",
+        name: "web-tls-secret",
+        group: "",
+        version: "v1",
+        plural: "secrets",
+        scope: "Namespaced",
+        relation: "certificate secret",
+      }],
+    };
+    useFleet.getState().openCluster("x");
+    useFleet.getState().openResource(resource);
+    useFleet.setState({ instanceDetail: { ref: instance, detail: relatedDetail, loading: false } });
+    const { getByText } = render(<InstanceDetail cluster="x" resource={resource} instance={instance} />);
+    fireEvent.click(getByText(/related 1/));
+    fireEvent.click(getByText("default/web-tls-secret"));
+    const r = useFleet.getState().route;
+    expect(r.name === "cluster" && r.resource?.kind).toBe("Secret");
+    expect(r.name === "cluster" && r.instance).toEqual({ namespace: "default", name: "web-tls-secret" });
   });
 });
 
@@ -138,6 +176,7 @@ describe("InstanceDetail — secrets", () => {
 
   it("yaml section still shows <masked> placeholder", () => {
     const { getByText } = render(<InstanceDetail cluster="x" resource={secretResource} instance={secretInstance} />);
+    fireEvent.click(getByText("yaml"));
     expect(getByText(/<masked>/)).toBeTruthy();
   });
 

@@ -32,8 +32,9 @@ describe("ClusterCard", () => {
   });
 
   it("shows a lock affordance for a protected cluster", () => {
-    const { queryByTitle } = render(<ClusterCard c={{ ...base, protected: true }} />);
+    const { queryByTitle, getByText } = render(<ClusterCard c={{ ...base, protected: true }} />);
     expect(queryByTitle("protected")).toBeTruthy();
+    expect(getByText(/prd lock/)).toBeTruthy();
   });
 
   it("has no lock for an unprotected cluster", () => {

@@ -10,16 +10,37 @@ const nm: React.CSSProperties = { fontSize: 11, fontWeight: 600, fontFamily: "va
 const chev: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-tertiary)" };
 
 const routeKey = (r: { namespace: string; name: string }) => `${r.namespace}/${r.name}`;
+type RouteMode = "all" | "issues" | "global" | "policies";
 
 // laneRank orders lanes for the topology: 0 = broken (rejected, unresolved
 // refs, or no backend at all), 1 = healthy. Sort is stable, so within each
 // tier the API order is preserved.
 function laneRank(r: RouteNodeDTO): number {
-  const svc = r.services[0];
-  const broken = !r.accepted || !r.resolvedRefs || !svc || !svc.resolved;
-  return broken ? 0 : 1;
+  return routeBroken(r) ? 0 : 1;
 }
 const dot = (ok: boolean) => (ok ? "var(--color-text-success)" : "var(--color-text-danger)");
+
+function routeBroken(r: RouteNodeDTO): boolean {
+  const svc = r.services[0];
+  return !r.accepted || !r.resolvedRefs || !svc || !svc.resolved;
+}
+
+function routeHasGlobal(r: RouteNodeDTO): boolean {
+  return r.services.some((svc) => svc.global);
+}
+
+function routeHasPolicies(r: RouteNodeDTO): boolean {
+  return r.policies.length > 0 || r.services.some((svc) => svc.policies.length > 0 || svc.cnps.length > 0);
+}
+
+function routePolicyRefCount(r: RouteNodeDTO): number {
+  return r.policies.length + r.services.reduce((n, svc) => n + svc.policies.length + svc.cnps.length, 0);
+}
+
+function gatewayAddress(t: { gateway: { addresses?: { value: string }[] } }): string {
+  const values = (t.gateway.addresses ?? []).map((a) => a.value).filter(Boolean);
+  return values.length > 0 ? values.join(", ") : "—";
+}
 
 // Above this many namespaces the inline chips would wrap into a wall and shove
 // the lanes off-screen, so we fall back to a native <select>. A proper
@@ -34,6 +55,7 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
   const rmStale = useFleet((s) => s.network.routeMetricsStale);
   const [nsFilter, setNsFilter] = useState<string | null>(null);
   const [routeQuery, setRouteQuery] = useState("");
+  const [routeMode, setRouteMode] = useState<RouteMode>("all");
 
   useEffect(() => {
     void getGatewayTopology(cluster, gateway);
@@ -73,13 +95,31 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
   const showFilter = namespaces.length > 1;
   const activeNs = showFilter && nsFilter && nsCounts.has(nsFilter) ? nsFilter : null;
   const nsRoutes = activeNs ? t.routes.filter((r) => r.namespace === activeNs) : t.routes;
+  const brokenCount = t.routes.filter(routeBroken).length;
+  const globalCount = t.routes.filter(routeHasGlobal).length;
+  const policyRouteCount = t.routes.filter(routeHasPolicies).length;
+  const policyRefCount = t.routes.reduce((n, r) => n + routePolicyRefCount(r), 0) + t.gateway.policies.length + (t.clusterPolicies?.length ?? 0);
+  const activeMode = routeMode === "issues" && brokenCount === 0
+    ? "all"
+    : routeMode === "global" && globalCount === 0
+      ? "all"
+      : routeMode === "policies" && policyRouteCount === 0
+        ? "all"
+        : routeMode;
+  const modeRoutes = activeMode === "issues"
+    ? nsRoutes.filter(routeBroken)
+    : activeMode === "global"
+      ? nsRoutes.filter(routeHasGlobal)
+      : activeMode === "policies"
+        ? nsRoutes.filter(routeHasPolicies)
+        : nsRoutes;
 
   // Route filter: with dozens of routes behind one Gateway the lanes become a
   // wall; substring-match on name, namespace, hostname, and backend service.
   const q = routeQuery.trim().toLowerCase();
   const filteredRoutes = q === ""
-    ? nsRoutes
-    : nsRoutes.filter((r) =>
+    ? modeRoutes
+    : modeRoutes.filter((r) =>
         r.name.toLowerCase().includes(q) ||
         r.namespace.toLowerCase().includes(q) ||
         r.hostnames.some((h) => h.toLowerCase().includes(q)) ||
@@ -90,13 +130,15 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
   const visibleRoutes = [...filteredRoutes].sort((a, b) => laneRank(a) - laneRank(b));
 
   const selected = visibleRoutes.find((r) => routeKey(r) === net.selectedRoute) ?? null;
+  const listeners = t.gateway.listeners.length;
 
   return (
-    <div style={{ padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+    <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 500 }}>{t.gateway.name}</div>
         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: t.gateway.programmed ? "var(--color-background-success)" : "var(--color-background-warning)", color: t.gateway.programmed ? "var(--color-text-success)" : "var(--color-text-warning)" }}>{t.gateway.programmed ? "programmed" : "pending"}</span>
         <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{t.gateway.className}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: gatewayAddress(t) === "—" ? "var(--color-text-tertiary)" : "var(--color-text-primary)", ...ellipsis }}>{gatewayAddress(t)}</span>
         {t.gateway.policies.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)" }}>policies</span>
@@ -117,14 +159,29 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
         <button onClick={() => void getGatewayTopology(cluster, gateway)} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer", border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>Refresh</button>
       </div>
 
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden", background: "var(--color-background-primary)", flexShrink: 0 }}>
+        <TopologyCell label="routes" value={String(t.routes.length)} />
+        <TopologyCell label="issues" value={String(brokenCount)} tone={brokenCount > 0 ? "warning" : "success"} />
+        <TopologyCell label="namespaces" value={String(namespaces.length)} />
+        <TopologyCell label="global" value={String(globalCount)} tone={globalCount > 0 ? "info" : "muted"} />
+        <TopologyCell label="policies" value={String(policyRefCount)} tone={policyRefCount > 0 ? "info" : "muted"} />
+        <TopologyCell label="listeners" value={String(listeners)} />
+        <TopologyCell label="address" value={gatewayAddress(t)} tone={gatewayAddress(t) === "—" ? "muted" : "default"} />
+      </div>
+
       {t.error && (
-        <div style={{ marginBottom: 12, padding: "8px 10px", fontSize: 12, borderRadius: 4, background: "var(--color-background-danger)", color: "var(--color-text-danger)", border: "0.5px solid var(--color-border-danger)" }}>{t.error}</div>
+        <div style={{ padding: "8px 10px", fontSize: 12, borderRadius: 4, background: "var(--color-background-danger)", color: "var(--color-text-danger)", border: "0.5px solid var(--color-border-danger)", flexShrink: 0 }}>{t.error}</div>
       )}
 
-      {(showFilter || t.routes.length > 1) && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10, alignItems: "center" }}>
+      {(showFilter || t.routes.length > 0) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          <span style={{ fontSize: 9, color: "var(--color-text-tertiary)", marginRight: 2 }}>routes</span>
+          <Chip label="all routes" count={t.routes.length} active={activeMode === "all"} onClick={() => setRouteMode("all")} />
+          {brokenCount > 0 && <Chip label="issues" count={brokenCount} active={activeMode === "issues"} onClick={() => setRouteMode("issues")} />}
+          {globalCount > 0 && <Chip label="global" count={globalCount} active={activeMode === "global"} onClick={() => setRouteMode("global")} />}
+          {policyRouteCount > 0 && <Chip label="policies" count={policyRouteCount} active={activeMode === "policies"} onClick={() => setRouteMode("policies")} />}
           {showFilter && (<>
-          <span style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-text-tertiary)", marginRight: 2 }}>namespace</span>
+          <span style={{ fontSize: 9, color: "var(--color-text-tertiary)", marginRight: 2 }}>namespace</span>
           {namespaces.length <= NS_CHIP_LIMIT ? (
             <>
               <Chip label="All" active={activeNs === null} onClick={() => setNsFilter(null)} />
@@ -152,90 +209,134 @@ export function NetworkTopology({ cluster, gateway }: { cluster: string; gateway
             aria-label="filter routes"
             style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)", width: 160 }}
           />
-          {visibleRoutes.length !== nsRoutes.length && (
-            <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleRoutes.length} of {nsRoutes.length} routes</span>
+          {visibleRoutes.length !== modeRoutes.length && (
+            <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleRoutes.length} of {modeRoutes.length} routes</span>
           )}
         </div>
       )}
 
-      {t.routes.length === 0 && !t.error ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No HTTPRoutes attached to this Gateway.</div>
-      ) : visibleRoutes.length === 0 ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No routes match the current filter.</div>
-      ) : (
-        <div style={{ background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", padding: "14px 12px" }}>
-          {visibleRoutes.map((r) => {
-            const svc = r.services[0];
-            const broken = laneRank(r) === 0;
-            return (
-              <div key={routeKey(r)} style={{ display: "grid", gridTemplateColumns: "3px minmax(0,1.2fr) 20px minmax(0,1fr) 20px minmax(0,0.9fr)", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
-                {/* Severity rail: broken lanes read in peripheral vision. The
-                    gateway box is gone from lanes - it was identical in every
-                    lane and the topology header already states it. */}
-                <div style={{ background: broken ? "var(--color-text-danger)" : "transparent", borderRadius: 0 }} />
-                <div style={{ ...nb, borderColor: broken ? "var(--color-border-danger)" : "var(--color-border-info)", background: broken ? "var(--color-background-danger)" : nb.background, cursor: "pointer", boxShadow: net.selectedRoute === routeKey(r) ? "0 0 0 1px var(--color-text-info)" : undefined }} onClick={() => selectRoute(routeKey(r))}>
-                  <div style={{ ...lab, color: "var(--color-text-info)" }}>httproute</div>
-                  <div style={{ ...nm, color: "var(--color-text-info)" }}>{r.name}</div>
-                  <div style={{ fontSize: 9, marginTop: 2, ...ellipsis }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: dot(r.accepted), display: "inline-block", marginRight: 4 }} />{r.accepted ? "accepted" : "rejected"} · {r.matches[0]?.pathValue ?? "/"}</div>
-                  {r.policies.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
-                      {r.policies.map((p) => (
-                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div style={chev}>›</div>
-                <div style={nb}>
-                  <div style={lab}>service</div>
-                  <div style={nm}>{svc ? svc.name : "—"}</div>
-                  <div style={{ fontSize: 9, color: svc?.resolved ? "var(--color-text-secondary)" : "var(--color-text-danger)", marginTop: 2 }}>
-                    {!svc ? "no backend" : svc.resolved ? `${svc.type} :${svc.port}` : "unresolved"}{r.backends.length > 1 ? ` · +${r.backends.length - 1}` : ""}
-                    {svc && <span style={{ color: r.pods.unknown ? "var(--color-text-tertiary)" : r.pods.ready < r.pods.total ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}> · pods {r.pods.unknown ? "unknown" : `${r.pods.ready}/${r.pods.total}`}</span>}
-                  </div>
-                  {svc && (svc.policies.length > 0 || svc.cnps.length > 0) && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
-                      {svc.policies.map((p) => (
-                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
-                      ))}
-                      {svc.cnps.map((p) => (
-                        <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
-                      ))}
-                    </div>
-                  )}
-                  {svc && svc.global && (
-                    <div style={{ marginTop: 4, fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-text-info)" }} title={svc.meshUnconfirmed ? "global service: some mesh peers could not be fleet-verified (off-fleet or not connected). Live dataplane health is not checked." : "global service: also present on these fleet mesh peers. Live dataplane health is not checked."}>
-                      ⇄ global{svc.meshClusters.length > 0 ? ` → ${svc.meshClusters.join(", ")}` : ""}{svc.meshUnconfirmed && svc.meshClusters.length === 0 ? " (peers unverified)" : svc.meshUnconfirmed ? " (+unverified)" : ""}
-                    </div>
-                  )}
-                </div>
-                <div style={chev}>›</div>
-                <TrafficBox broken={broken} hasBackend={!!svc && svc.resolved} m={routeMetrics[routeKey(r)]} />
+      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "minmax(560px, 1fr) minmax(320px, 420px)", gap: 12, alignItems: "stretch", overflow: "hidden" }}>
+        <div style={{ minHeight: 0, overflow: "hidden", background: "var(--color-background-secondary)", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-tertiary)" }}>
+          <div data-testid="gateway-route-scroll" style={{ height: "100%", overflowY: "auto", padding: "14px 12px", boxSizing: "border-box" }}>
+            {t.routes.length === 0 && !t.error ? (
+              <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No HTTPRoutes attached to this Gateway.</div>
+            ) : visibleRoutes.length === 0 ? (
+              <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No routes match the current filter.</div>
+            ) : (
+              visibleRoutes.map((r) => (
+                <RouteLane
+                  key={routeKey(r)}
+                  route={r}
+                  selected={net.selectedRoute === routeKey(r)}
+                  metric={routeMetrics[routeKey(r)]}
+                  onSelect={() => selectRoute(routeKey(r))}
+                />
+              ))
+            )}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px dashed var(--color-border-secondary)", fontSize: 10, color: "var(--color-text-tertiary)" }}>⇄ global services show their fleet-confirmed mesh peers on the pods box · cluster peering is on the Fleet view</div>
+            {rmStatus && (
+              <div style={{ marginTop: 6, fontSize: 10, color: rmStatus.available ? "var(--color-text-tertiary)" : "var(--color-text-warning)" }}>
+                {rmStatus.available
+                  ? rmStatus.message
+                    ? `route metrics · ${rmStatus.message}`
+                    : `route metrics · updated ${ago(rmStatus.updatedAt)}${rmStale ? " · stale" : ""}`
+                  : `route metrics unavailable: ${rmStatus.message}`}
               </div>
-            );
-          })}
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "0.5px dashed var(--color-border-secondary)", fontSize: 10, color: "var(--color-text-tertiary)" }}>⇄ global services show their fleet-confirmed mesh peers on the pods box · cluster peering is on the Fleet view</div>
-          {rmStatus && (
-            <div style={{ marginTop: 6, fontSize: 10, color: rmStatus.available ? "var(--color-text-tertiary)" : "var(--color-text-warning)" }}>
-              {rmStatus.available
-                ? rmStatus.message
-                  ? `route metrics · ${rmStatus.message}`
-                  : `route metrics · updated ${ago(rmStatus.updatedAt)}${rmStale ? " · stale" : ""}`
-                : `route metrics unavailable: ${rmStatus.message}`}
-            </div>
+            )}
+            {t.warnings && t.warnings.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                {t.warnings.map((w, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "var(--color-text-warning)", padding: "2px 0" }}>⚠︎ {w}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <aside data-testid="gateway-route-inspector-scroll" style={{ minHeight: 0, overflowY: "auto" }}>
+          {selected ? (
+            <RouteDetail route={selected} metric={routeMetrics[routeKey(selected)]} />
+          ) : (
+            <EmptyRouteInspector routeCount={visibleRoutes.length} totalRoutes={t.routes.length} />
           )}
-        </div>
-      )}
+        </aside>
+      </div>
+    </div>
+  );
+}
 
-      {t.warnings && t.warnings.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          {t.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 11, color: "var(--color-text-warning)", padding: "2px 0" }}>⚠︎ {w}</div>
-          ))}
+function RouteLane({ route, selected, metric, onSelect }: { route: RouteNodeDTO; selected: boolean; metric: RouteMetricDTO | undefined; onSelect: () => void }) {
+  const svc = route.services[0];
+  const broken = routeBroken(route);
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "3px minmax(0,1.2fr) 20px minmax(0,1fr) 20px minmax(0,0.9fr)", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
+      <div style={{ background: broken ? "var(--color-text-danger)" : "transparent", borderRadius: 0 }} />
+      <button
+        onClick={onSelect}
+        style={{
+          ...nb,
+          borderColor: broken ? "var(--color-border-danger)" : "var(--color-border-info)",
+          background: broken ? "var(--color-background-danger)" : nb.background,
+          cursor: "pointer",
+          textAlign: "left",
+          color: "var(--color-text-primary)",
+          boxShadow: selected ? "0 0 0 1px var(--color-text-info)" : undefined,
+        }}
+      >
+        <div style={{ ...lab, color: "var(--color-text-info)" }}>httproute</div>
+        <div style={{ ...nm, color: "var(--color-text-info)" }}>{route.name}</div>
+        <div style={{ fontSize: 9, marginTop: 2, ...ellipsis }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot(route.accepted), display: "inline-block", marginRight: 4 }} />
+          {route.accepted ? "accepted" : "rejected"} · {route.matches[0]?.pathValue ?? "/"}
         </div>
-      )}
+        {route.policies.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+            {route.policies.map((p) => (
+              <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} />
+            ))}
+          </div>
+        )}
+      </button>
+      <div style={chev}>›</div>
+      <div style={nb}>
+        <div style={lab}>service</div>
+        <div style={nm}>{svc ? svc.name : "—"}</div>
+        <div style={{ fontSize: 9, color: svc?.resolved ? "var(--color-text-secondary)" : "var(--color-text-danger)", marginTop: 2 }}>
+          {!svc ? "no backend" : svc.resolved ? `${svc.type} :${svc.port}` : "unresolved"}{route.backends.length > 1 ? ` · +${route.backends.length - 1}` : ""}
+          {svc && <span style={{ color: route.pods.unknown ? "var(--color-text-tertiary)" : route.pods.ready < route.pods.total ? "var(--color-text-warning)" : "var(--color-text-secondary)" }}> · pods {route.pods.unknown ? "unknown" : `${route.pods.ready}/${route.pods.total}`}</span>}
+        </div>
+        {svc && (svc.policies.length > 0 || svc.cnps.length > 0) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+            {svc.policies.map((p) => (
+              <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
+            ))}
+            {svc.cnps.map((p) => (
+              <PolicyChip key={`${p.kind}/${p.namespace}/${p.name}`} p={p} align="right" />
+            ))}
+          </div>
+        )}
+        {svc && svc.global && (
+          <div style={{ marginTop: 4, fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--color-text-info)" }} title={svc.meshUnconfirmed ? "global service: some mesh peers could not be fleet-verified (off-fleet or not connected). Live dataplane health is not checked." : "global service: also present on these fleet mesh peers. Live dataplane health is not checked."}>
+            ⇄ global{svc.meshClusters.length > 0 ? ` → ${svc.meshClusters.join(", ")}` : ""}{svc.meshUnconfirmed && svc.meshClusters.length === 0 ? " (peers unverified)" : svc.meshUnconfirmed ? " (+unverified)" : ""}
+          </div>
+        )}
+      </div>
+      <div style={chev}>›</div>
+      <TrafficBox broken={broken} hasBackend={!!svc && svc.resolved} m={metric} />
+    </div>
+  );
+}
 
-      {selected && <RouteDetail route={selected} metric={routeMetrics[routeKey(selected)]} />}
+function EmptyRouteInspector({ routeCount, totalRoutes }: { routeCount: number; totalRoutes: number }) {
+  const text = totalRoutes === 0
+    ? "No HTTPRoutes are attached to this Gateway."
+    : routeCount === 0
+      ? "No route is visible with the current filters."
+      : "Select a route to inspect matches, backends, policies, Cilium inference, and traffic.";
+  return (
+    <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "10px 12px", fontSize: 12 }}>
+      <div style={{ color: "var(--color-text-tertiary)", fontSize: 11, marginBottom: 4 }}>selected route</div>
+      <div style={{ color: routeCount > 0 ? "var(--color-text-info)" : "var(--color-text-secondary)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>route inspector</div>
+      <div style={{ color: "var(--color-text-secondary)", marginTop: 8 }}>{text}</div>
     </div>
   );
 }
@@ -288,6 +389,24 @@ function TrafficBox({ broken, hasBackend, m }: { broken: boolean; hasBackend: bo
 }
 
 
+function TopologyCell({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warning" | "info" | "muted" }) {
+  const color = tone === "success"
+    ? "var(--color-text-success)"
+    : tone === "warning"
+      ? "var(--color-text-warning)"
+      : tone === "info"
+        ? "var(--color-text-info)"
+        : tone === "muted"
+          ? "var(--color-text-tertiary)"
+          : "var(--color-text-primary)";
+  return (
+    <div style={{ padding: "8px 10px", borderRight: "0.5px solid var(--color-border-tertiary)", minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color, ...ellipsis }}>{value}</div>
+    </div>
+  );
+}
+
 function Chip({ label, count, active, onClick }: { label: string; count?: number; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -314,7 +433,7 @@ function Chip({ label, count, active, onClick }: { label: string; count?: number
 
 function RouteDetail({ route, metric }: { route: RouteNodeDTO; metric: RouteMetricDTO | undefined }) {
   return (
-    <div style={{ marginTop: 12, background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "10px 12px" }}>
+    <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", padding: "10px 12px" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
         <span style={{ color: "var(--color-text-info)" }}>↳</span>
         <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 12 }}>{route.name}</span>

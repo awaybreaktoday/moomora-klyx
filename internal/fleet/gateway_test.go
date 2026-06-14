@@ -49,7 +49,10 @@ func gw(name, ns string) *unstructured.Unstructured {
 		"apiVersion": "gateway.networking.k8s.io/v1", "kind": "Gateway",
 		"metadata": map[string]interface{}{"name": name, "namespace": ns},
 		"spec":     map[string]interface{}{"gatewayClassName": "envoy-gateway", "listeners": []interface{}{map[string]interface{}{"name": "http", "protocol": "HTTP", "port": int64(80)}}},
-		"status":   map[string]interface{}{"conditions": []interface{}{map[string]interface{}{"type": "Accepted", "status": "True"}, map[string]interface{}{"type": "Programmed", "status": "True"}}},
+		"status": map[string]interface{}{
+			"addresses":  []interface{}{map[string]interface{}{"type": "IPAddress", "value": "192.0.2.10"}},
+			"conditions": []interface{}{map[string]interface{}{"type": "Accepted", "status": "True"}, map[string]interface{}{"type": "Programmed", "status": "True"}},
+		},
 	}}
 }
 
@@ -138,6 +141,12 @@ func TestListGatewaysServedFlag(t *testing.T) {
 	_ = served
 	if len(refs) != 1 || refs[0].Name != "eg" || !refs[0].Programmed {
 		t.Fatalf("refs: %+v", refs)
+	}
+	if len(refs[0].Addresses) != 1 || refs[0].Addresses[0].Value != "192.0.2.10" {
+		t.Fatalf("addresses: %+v", refs[0].Addresses)
+	}
+	if len(refs[0].Listeners) != 1 || refs[0].Listeners[0].Port != 80 {
+		t.Fatalf("listeners: %+v", refs[0].Listeners)
 	}
 }
 

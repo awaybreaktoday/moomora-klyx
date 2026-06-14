@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO, ServiceBackingDTO, HPAScalingDTO } from "../store/fleet";
+import { useFleet, ResourceRef, InstanceRef, SecretKeyDTO, ServiceBackingDTO, HPAScalingDTO, RelatedRefDTO, EventDTO } from "../store/fleet";
 import { getInstanceDetail, revealSecretKey, copyText } from "../bridge/crd";
 import { openPodDetail } from "../bridge/pods";
 import { ForwardPopover } from "./ForwardPopover";
 
 const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+type DetailTab = "summary" | "related" | "events" | "yaml";
 
 function age(created: string): string {
   if (!created) return "";
@@ -383,9 +384,13 @@ function ServiceBackingSection({
 
 export function InstanceDetail({ cluster, resource, instance }: { cluster: string; resource: ResourceRef; instance: InstanceRef }) {
   const id = useFleet((s) => s.instanceDetail);
+  const closeInstance = useFleet((s) => s.closeInstance);
+  const closeResource = useFleet((s) => s.closeResource);
   const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState<DetailTab>("summary");
 
   useEffect(() => {
+    setTab("summary");
     void getInstanceDetail(cluster, resource, instance);
     return () => useFleet.getState().clearInstanceDetail();
   }, [cluster, resource.group, resource.version, resource.plural, instance.namespace, instance.name]);
@@ -401,9 +406,12 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
   };
 
   return (
-    <div style={{ padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{ fontSize: 15, fontWeight: 500 }}>{resource.kind}</div>
+    <div style={{ padding: "14px 16px", height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexShrink: 0 }}>
+        <button aria-label="back to resources" onClick={closeResource} style={{ ...linkBtn, color: "var(--color-text-info)" }}>resources</button>
+        <span style={{ color: "var(--color-text-tertiary)" }}>/</span>
+        <button aria-label="back to resource list" onClick={closeInstance} style={{ ...linkBtn, color: "var(--color-text-info)" }}>{resource.kind}</button>
+        <span style={{ color: "var(--color-text-tertiary)" }}>/</span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--color-text-secondary)" }}>
           {instance.namespace ? `${instance.namespace}/` : ""}{instance.name}
         </span>
@@ -413,72 +421,158 @@ export function InstanceDetail({ cluster, resource, instance }: { cluster: strin
       </div>
 
       {id.loading && !d ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading detail…</div>
+        <div style={stateBox}>Loading {resource.kind} detail…</div>
       ) : !d ? (
-        <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Could not load this instance.</div>
+        <div style={stateBox}>Could not load {instance.namespace ? `${instance.namespace}/` : ""}{instance.name}.</div>
       ) : (
-        <>
-          {Object.keys(d.labels).length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-              {Object.entries(d.labels).map(([k, v]) => (
-                <span key={k} style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 10, padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)" }}>{k}={v}</span>
-              ))}
-            </div>
-          )}
-
-          {/* HPA scaling section — rendered ABOVE yaml, ONLY for autoscaling HPAs */}
-          {d.hpaScaling != null && (
-            <HPAScalingSection cluster={cluster} scaling={d.hpaScaling} />
-          )}
-
-          {/* Service backing section — rendered ABOVE yaml, ONLY for v1 Services */}
-          {d.serviceBacking != null && (
-            <ServiceBackingSection cluster={cluster} ns={instance.namespace} serviceName={instance.name} backing={d.serviceBacking} />
-          )}
-
-          {/* Secret data section — rendered ABOVE yaml, ONLY for Secrets */}
-          {d.secretKeys && d.secretKeys.length > 0 && (
-            <SecretDataSection cluster={cluster} ns={instance.namespace} name={instance.name} keys={d.secretKeys} />
-          )}
-
-          {d.conditions.length > 0 && (
-            <Section title="Conditions">
-              {d.conditions.map((c) => (
-                <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status, c.type), display: "inline-block" }} />
-                  <span style={{ fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{c.type}</span>
-                  <span style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={c.message}>{c.message || c.reason}</span>
-                </div>
-              ))}
-            </Section>
-          )}
-
-          <Section title={`Events (${d.events.length})`}>
-            {d.events.length === 0 ? (
-              <span style={{ color: "var(--color-text-tertiary)" }}>No events for this object.</span>
-            ) : (
-              d.events.map((e, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", color: e.type === "Warning" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
-                  <span style={{ width: 56, fontSize: 10, textTransform: "uppercase" }}>{e.type}</span>
-                  <span style={{ fontWeight: 500, width: 120, ...ellipsis }}>{e.reason}</span>
-                  <span style={{ ...ellipsis }} title={e.message}>{e.message}</span>
-                  {e.count > 1 && <span style={{ color: "var(--color-text-tertiary)" }}>×{e.count}</span>}
-                  <span style={{ color: "var(--color-text-tertiary)" }}>{age(e.lastSeen)}</span>
-                </div>
-              ))
-            )}
-          </Section>
-
-          <div style={{ marginTop: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)" }}>YAML</div>
-              <div style={{ flex: 1 }} />
-              <button onClick={onCopy} style={btn}>{copied ? "Copied" : "Copy"}</button>
-            </div>
-            <pre style={{ margin: 0, padding: 12, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.5, overflow: "auto", maxHeight: "60vh", color: "var(--color-text-primary)" }}>{d.yaml}</pre>
+        <div style={{ minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexShrink: 0 }}>
+            <button onClick={() => setTab("summary")} style={tabBtn(tab === "summary")}>summary</button>
+            <button onClick={() => setTab("related")} style={tabBtn(tab === "related")}>related {d.related?.length ?? 0}</button>
+            <button onClick={() => setTab("events")} style={tabBtn(tab === "events")}>events {d.events.length}</button>
+            <button onClick={() => setTab("yaml")} style={tabBtn(tab === "yaml")}>yaml</button>
           </div>
-        </>
+
+          <div data-testid="instance-detail-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+            {tab === "summary" ? (
+              <>
+                {Object.keys(d.labels).length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                    {Object.entries(d.labels).map(([k, v]) => (
+                      <span key={k} style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 10, padding: "1px 6px", borderRadius: 3, fontFamily: "var(--font-mono)" }}>{k}={v}</span>
+                    ))}
+                  </div>
+                )}
+
+                {d.hpaScaling != null && (
+                  <HPAScalingSection cluster={cluster} scaling={d.hpaScaling} />
+                )}
+
+                {d.serviceBacking != null && (
+                  <ServiceBackingSection cluster={cluster} ns={instance.namespace} serviceName={instance.name} backing={d.serviceBacking} />
+                )}
+
+                {d.secretKeys && d.secretKeys.length > 0 && (
+                  <SecretDataSection cluster={cluster} ns={instance.namespace} name={instance.name} keys={d.secretKeys} />
+                )}
+
+                {d.conditions.length > 0 && (
+                  <Section title="Conditions">
+                    {d.conditions.map((c) => (
+                      <div key={c.type} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: condColor(c.status, c.type), display: "inline-block" }} />
+                        <span style={{ fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>{c.type}</span>
+                        <span style={{ color: "var(--color-text-secondary)", ...ellipsis }} title={c.message}>{c.message || c.reason}</span>
+                      </div>
+                    ))}
+                  </Section>
+                )}
+              </>
+            ) : tab === "related" ? (
+              <RelatedSection cluster={cluster} related={d.related ?? []} />
+            ) : tab === "events" ? (
+              <EventsPanel events={d.events} />
+            ) : (
+              <YamlPanel yaml={d.yaml} copied={copied} onCopy={onCopy} />
+            )}
+          </div>
+        </div>
       )}
+    </div>
+  );
+}
+
+function RelatedSection({ cluster, related }: { cluster: string; related: RelatedRefDTO[] }) {
+  const openRelated = (ref: RelatedRefDTO) => {
+    if (ref.kind === "Pod") {
+      useFleet.getState().setSection("pods");
+      void openPodDetail(cluster, ref.namespace, ref.name);
+      return;
+    }
+    useFleet.getState().openResource({
+      group: ref.group,
+      version: ref.version,
+      plural: ref.plural,
+      kind: ref.kind,
+      scope: ref.scope,
+    });
+    useFleet.getState().openInstance(ref.namespace, ref.name);
+  };
+
+  if (related.length === 0) {
+    return <div style={stateBox}>No direct related objects found.</div>;
+  }
+
+  const groups = related.reduce<Record<string, RelatedRefDTO[]>>((acc, ref) => {
+    const key = ref.relation || "related";
+    acc[key] = [...(acc[key] ?? []), ref];
+    return acc;
+  }, {});
+
+  return (
+    <>
+      {Object.entries(groups).map(([relation, refs]) => (
+        <Section key={relation} title={`${relation} (${refs.length})`}>
+          {refs.map((ref) => (
+            <button
+              key={`${ref.relation}/${ref.group}/${ref.plural}/${ref.namespace}/${ref.name}`}
+              onClick={() => openRelated(ref)}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "120px minmax(0, 1fr)",
+                gap: 10,
+                alignItems: "center",
+                textAlign: "left",
+                padding: "5px 8px",
+                border: "0.5px solid var(--color-border-tertiary)",
+                borderRadius: 4,
+                background: "var(--color-background-primary)",
+                color: "var(--color-text-secondary)",
+                cursor: "pointer",
+                fontSize: 11,
+              }}
+            >
+              <span style={{ color: "var(--color-text-tertiary)" }}>{ref.kind}</span>
+              <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-primary)", ...ellipsis }}>
+                {ref.namespace ? `${ref.namespace}/` : ""}{ref.name}
+              </span>
+            </button>
+          ))}
+        </Section>
+      ))}
+    </>
+  );
+}
+
+function EventsPanel({ events }: { events: EventDTO[] }) {
+  return (
+    <Section title={`Events (${events.length})`}>
+      {events.length === 0 ? (
+        <span style={{ color: "var(--color-text-tertiary)" }}>No events for this object.</span>
+      ) : (
+        events.map((e, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", color: e.type === "Warning" ? "var(--color-text-danger)" : "var(--color-text-secondary)" }}>
+            <span style={{ width: 56, fontSize: 10, textTransform: "uppercase" }}>{e.type}</span>
+            <span style={{ fontWeight: 500, width: 120, ...ellipsis }}>{e.reason}</span>
+            <span style={{ ...ellipsis }} title={e.message}>{e.message}</span>
+            {e.count > 1 && <span style={{ color: "var(--color-text-tertiary)" }}>x{e.count}</span>}
+            <span style={{ color: "var(--color-text-tertiary)" }}>{age(e.lastSeen)}</span>
+          </div>
+        ))
+      )}
+    </Section>
+  );
+}
+
+function YamlPanel({ yaml, copied, onCopy }: { yaml: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--color-text-tertiary)" }}>YAML</div>
+        <div style={{ flex: 1 }} />
+        <button onClick={onCopy} style={btn}>{copied ? "Copied" : "Copy"}</button>
+      </div>
+      <pre style={{ margin: 0, padding: 12, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.5, overflow: "auto", maxHeight: "calc(100vh - 210px)", color: "var(--color-text-primary)" }}>{yaml}</pre>
     </div>
   );
 }
@@ -500,3 +594,29 @@ const btn: React.CSSProperties = {
 const btnSm: React.CSSProperties = {
   ...btn, padding: "2px 8px", fontSize: 10,
 };
+
+const stateBox: React.CSSProperties = {
+  color: "var(--color-text-secondary)",
+  fontSize: 13,
+  padding: 18,
+  border: "0.5px solid var(--color-border-tertiary)",
+  borderRadius: "var(--border-radius-md)",
+  background: "var(--color-background-primary)",
+};
+
+const linkBtn: React.CSSProperties = {
+  background: "transparent",
+  border: 0,
+  padding: 0,
+  cursor: "pointer",
+  fontSize: 12,
+};
+
+function tabBtn(active: boolean): React.CSSProperties {
+  return {
+    ...btn,
+    color: active ? "var(--color-text-info)" : "var(--color-text-secondary)",
+    background: active ? "var(--color-background-info)" : "var(--color-background-primary)",
+    border: active ? "0.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
+  };
+}

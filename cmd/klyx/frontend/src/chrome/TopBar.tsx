@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { IconCommand, IconHexagonLetterK } from "@tabler/icons-react";
+import { IconCommand } from "@tabler/icons-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { KlyxMark } from "./KlyxMark";
 import { useFleet } from "../store/fleet";
 import { stopAllForwards } from "../bridge/forwards";
+import { openCommandPalette } from "./CommandPalette";
 
 // Wails v3 window-drag regions: the bar is draggable, interactive children opt out.
 const drag = { "--wails-draggable": "drag" } as React.CSSProperties;
@@ -30,21 +32,14 @@ export function TopBar() {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-text-primary)", fontWeight: 500, fontSize: 13 }}>
-        <span style={{
-          width: 20,
-          height: 20,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          border: "0.5px solid var(--color-border-info)",
-          background: "var(--color-background-info)",
-          color: "var(--color-text-info)",
-        }}>
-          <IconHexagonLetterK size={13} stroke={1.5} />
-        </span>
+        <KlyxMark size={20} />
         Klyx
       </div>
-      <div
+      <button
+        type="button"
+        aria-label="open command palette"
+        data-testid="command-bar"
+        onClick={openCommandPalette}
         title="open command palette with cmd+k or ctrl+k"
         style={{
           ...noDrag,
@@ -61,7 +56,8 @@ export function TopBar() {
           color: "var(--color-text-tertiary)",
           fontFamily: "var(--font-mono)",
           fontSize: 11,
-          cursor: "default",
+          cursor: "pointer",
+          textAlign: "left",
         }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -69,7 +65,7 @@ export function TopBar() {
           jump to resource, namespace, action
         </span>
         <span>cmd/ctrl+k</span>
-      </div>
+      </button>
       <div style={{ ...noDrag, display: "flex", alignItems: "center", gap: 8, justifySelf: "end" }}>
         {clusters.length > 0 && (
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-tertiary)" }}>

@@ -77,7 +77,7 @@ func TestListInstancesMapsDTO(t *testing.T) {
 	created := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	conn := &fakeCRDConn{
 		instances: []crd.InstanceMeta{
-			{Namespace: "team-a", Name: "w1", Created: created},
+			{Namespace: "team-a", Name: "w1", Created: created, Fields: map[string]string{"type": "LoadBalancer"}},
 			{Namespace: "", Name: "cluster-scoped", Created: time.Time{}},
 		},
 		nextToken: "tok-2",
@@ -96,6 +96,9 @@ func TestListInstancesMapsDTO(t *testing.T) {
 	}
 	if page.Items[1].Created != "" {
 		t.Fatalf("zero time must map to empty string, got %q", page.Items[1].Created)
+	}
+	if page.Items[0].Fields["type"] != "LoadBalancer" {
+		t.Fatalf("fields: %+v", page.Items[0].Fields)
 	}
 }
 

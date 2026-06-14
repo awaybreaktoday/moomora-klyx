@@ -12,7 +12,10 @@ func gwObj(name, ns, class string, listeners, conds []interface{}) *unstructured
 		"kind":       "Gateway",
 		"metadata":   map[string]interface{}{"name": name, "namespace": ns},
 		"spec":       map[string]interface{}{"gatewayClassName": class, "listeners": listeners},
-		"status":     map[string]interface{}{"conditions": conds},
+		"status": map[string]interface{}{
+			"addresses":  []interface{}{map[string]interface{}{"type": "IPAddress", "value": "192.0.2.10"}},
+			"conditions": conds,
+		},
 	}}
 }
 
@@ -35,6 +38,9 @@ func TestParseGateway(t *testing.T) {
 	}
 	if len(g.Listeners) != 2 || g.Listeners[0].Port != 443 || g.Listeners[0].Hostname != "*.example.com" || g.Listeners[1].Protocol != "HTTP" {
 		t.Fatalf("listeners: %+v", g.Listeners)
+	}
+	if len(g.Addresses) != 1 || g.Addresses[0].Value != "192.0.2.10" {
+		t.Fatalf("addresses: %+v", g.Addresses)
 	}
 }
 

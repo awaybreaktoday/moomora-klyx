@@ -52,9 +52,14 @@ export async function countKind(cluster: string, group: string, version: string,
 
 type InstancePageDTO = { items: InstanceDTO[]; nextToken: string };
 
+export async function listInstancePage(cluster: string, ref: ResourceRef, token = ""): Promise<InstancePageDTO> {
+  const page = (await CRDService.ListInstances(cluster, ref.group, ref.version, ref.plural, token)) as InstancePageDTO;
+  return { items: page.items ?? [], nextToken: page.nextToken ?? "" };
+}
+
 export async function loadInstances(cluster: string, ref: ResourceRef, token?: string): Promise<void> {
   if (!token) useFleet.getState().setInstancesLoading(ref);
-  const page = (await CRDService.ListInstances(cluster, ref.group, ref.version, ref.plural, token ?? "")) as InstancePageDTO;
+  const page = await listInstancePage(cluster, ref, token ?? "");
   // Drop a stale page if the user navigated to a different kind meanwhile.
   const cur = useFleet.getState().instances.ref;
   if (!cur || cur.group !== ref.group || cur.plural !== ref.plural) return;

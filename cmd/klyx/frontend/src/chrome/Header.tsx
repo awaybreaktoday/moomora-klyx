@@ -27,7 +27,7 @@ export function Header() {
                 fontSize: 10,
                 padding: "2px 6px",
               }}>
-                protected cluster
+                prd lock
               </span>
             )}
           </div>

@@ -25,7 +25,14 @@ func ParseGateway(u *unstructured.Unstructured) GatewayNode {
 	g.ClassName, _, _ = unstructured.NestedString(u.Object, "spec", "gatewayClassName")
 	g.Accepted = condTrue(u.Object, "Accepted")
 	g.Programmed = condTrue(u.Object, "Programmed")
-	ls, _, _ := unstructured.NestedSlice(u.Object, "spec", "listeners")
+	g.Listeners = parseListeners(u.Object)
+	g.Addresses = parseAddresses(u.Object)
+	return g
+}
+
+func parseListeners(obj map[string]interface{}) []Listener {
+	ls, _, _ := unstructured.NestedSlice(obj, "spec", "listeners")
+	out := make([]Listener, 0, len(ls))
 	for _, l := range ls {
 		m, ok := l.(map[string]interface{})
 		if !ok {
@@ -38,9 +45,27 @@ func ParseGateway(u *unstructured.Unstructured) GatewayNode {
 		if p, ok, _ := unstructured.NestedNumberAsFloat64(m, "port"); ok {
 			lis.Port = int32(p)
 		}
-		g.Listeners = append(g.Listeners, lis)
+		out = append(out, lis)
 	}
-	return g
+	return out
+}
+
+func parseAddresses(obj map[string]interface{}) []GatewayAddress {
+	addrs, _, _ := unstructured.NestedSlice(obj, "status", "addresses")
+	out := make([]GatewayAddress, 0, len(addrs))
+	for _, a := range addrs {
+		m, ok := a.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		value, _ := m["value"].(string)
+		if value == "" {
+			continue
+		}
+		addrType, _ := m["type"].(string)
+		out = append(out, GatewayAddress{Type: addrType, Value: value})
+	}
+	return out
 }
 
 // ParseGatewayRef maps a Gateway to the lightweight list item.
@@ -49,5 +74,7 @@ func ParseGatewayRef(u *unstructured.Unstructured) GatewayRef {
 	return GatewayRef{
 		Namespace: u.GetNamespace(), Name: u.GetName(), ClassName: cls,
 		Accepted: condTrue(u.Object, "Accepted"), Programmed: condTrue(u.Object, "Programmed"),
+		Addresses: parseAddresses(u.Object),
+		Listeners: parseListeners(u.Object),
 	}
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   IconLayoutGrid,
   IconArrowsLeftRight, IconLayoutDashboard, IconStack2, IconGitBranch, IconGitMerge,
@@ -6,9 +6,12 @@ import {
   IconAlertTriangle, IconServer, IconAnchor, IconChevronRight, IconChevronLeft,
   IconComponents,
 } from "@tabler/icons-react";
-import { useFleet, ClusterSection, SECTION_LABELS } from "../store/fleet";
+import { useFleet, SECTION_LABELS } from "../store/fleet";
+import type { ClusterDTO, ClusterSection, FleetBoardEntry, MeshGraphDTO, MetricsDTO } from "../store/fleet";
 import { openTerminal } from "../bridge/configsvc";
+import { getClusterMetrics } from "../bridge/metrics";
 import { BUILTIN_CATALOG } from "../cluster/builtins";
+import { KlyxMark } from "./KlyxMark";
 
 const COLLAPSED_WIDTH = 46;
 const EXPANDED_WIDTH = 190;
@@ -22,6 +25,7 @@ const SECTION_GROUPS: { section: ClusterSection; Icon: typeof IconLayoutDashboar
   [
     { section: "workloads", Icon: IconBox },
     { section: "pods",      Icon: IconCircleDot },
+    { section: "nodes",     Icon: IconServer },
     { section: "events",    Icon: IconAlertTriangle },
   ],
   [
@@ -31,7 +35,6 @@ const SECTION_GROUPS: { section: ClusterSection; Icon: typeof IconLayoutDashboar
   ],
   [
     { section: "network",   Icon: IconRoute },
-    { section: "nodes",     Icon: IconServer },
   ],
   [
     { section: "resources", Icon: IconStack2 },
@@ -53,9 +56,26 @@ export function Sidebar() {
   const setSection = useFleet((s) => s.setSection);
   const builtinCategory = useFleet((s) => s.crd.builtinCategory);
   const setBuiltinCategory = useFleet((s) => s.setBuiltinCategory);
+  const cluster = useFleet((s) => {
+    const r = s.route;
+    return r.name === "cluster" ? s.clusters.find((c) => c.name === r.cluster) ?? null : null;
+  });
+  const board = useFleet((s) => {
+    const r = s.route;
+    return r.name === "cluster" ? s.fleetBoard[r.cluster] : undefined;
+  });
+  const mesh = useFleet((s) => s.mesh);
+  const metrics = useFleet((s) => s.metrics);
   const inCluster = route.name === "cluster";
+  const metricsForCluster = cluster && metrics.cluster === cluster.name ? metrics.dto : null;
 
   const [expanded, setExpanded] = useState<boolean>(readPersistedExpanded);
+
+  useEffect(() => {
+    if (!expanded || !cluster) return;
+    const metricsAlreadyCurrent = metrics.cluster === cluster.name && (metrics.loading || metrics.dto);
+    if (!metricsAlreadyCurrent) void getClusterMetrics(cluster.name, false);
+  }, [expanded, cluster, metrics.cluster, metrics.dto, metrics.loading]);
 
   function toggle() {
     setExpanded((prev) => {
@@ -82,91 +102,106 @@ export function Sidebar() {
       overflow: "hidden",
     }}>
       {/* Logo mark */}
-      <div style={{
-        width: 28, height: 28, borderRadius: 6,
-        margin: expanded ? "0 0 6px 9px" : "0 auto 6px auto",
-        background: "var(--color-text-primary)", color: "var(--color-background-primary)",
-        display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 12,
-        flexShrink: 0,
-      }}>K</div>
+      <KlyxMark
+        size={28}
+        title="Klyx"
+        style={{ margin: expanded ? "0 0 6px 9px" : "0 auto 6px auto" }}
+      />
 
-      {/* Fleet home */}
-      <RailButton
-        label="Fleet"
-        active={route.name === "fleet"}
-        onClick={openFleet}
-        expanded={expanded}
+      <div
+        data-testid="sidebar-nav-scroll"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          width: "100%",
+          overflowY: "auto",
+          overflowX: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: expanded ? "stretch" : "center",
+          gap: 4,
+        }}
       >
-        <IconLayoutGrid size={16} stroke={1.5} />
-      </RailButton>
+        {/* Fleet home */}
+        <RailButton
+          label="Fleet"
+          active={route.name === "fleet"}
+          onClick={openFleet}
+          expanded={expanded}
+        >
+          <IconLayoutGrid size={16} stroke={1.5} />
+        </RailButton>
 
-      {/* Port-forwards — fleet-level (tunnels span clusters) */}
-      <RailButton
-        label={forwardsCount > 0 ? `Forwards · ${forwardsCount}` : "Forwards"}
-        active={route.name === "forwards"}
-        onClick={openForwards}
-        expanded={expanded}
-      >
-        <IconArrowsLeftRight size={16} stroke={1.5} />
-      </RailButton>
+        {/* Port-forwards — fleet-level (tunnels span clusters) */}
+        <RailButton
+          label={forwardsCount > 0 ? `Forwards · ${forwardsCount}` : "Forwards"}
+          active={route.name === "forwards"}
+          onClick={openForwards}
+          expanded={expanded}
+        >
+          <IconArrowsLeftRight size={16} stroke={1.5} />
+        </RailButton>
 
-      {/* Section nav — grouped with semantic dividers */}
-      {SECTION_GROUPS.map((group, gi) => (
-        <div key={gi}>
-          {gi > 0 && (
-            <div role="separator" style={{
-              height: 0,
-              borderTop: "0.5px solid var(--color-border-tertiary)",
-              margin: "6px 8px",
-            }} />
-          )}
-          {group.map(({ section, Icon }) => (
-            <div key={section}>
-              <RailButton
-                label={SECTION_LABELS[section]}
-                disabled={!inCluster}
-                active={inCluster && route.section === section}
-                onClick={() => setSection(section)}
-                expanded={expanded}
-              >
-                <Icon size={16} stroke={1.5} />
-              </RailButton>
-              {expanded && inCluster && route.section === section && section === "resources" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  {BUILTIN_CATALOG.map((cat) => (
-                    <button
-                      key={cat.label}
-                      aria-label={`category ${cat.label}`}
-                      onClick={() => { setSection("resources"); setBuiltinCategory(builtinCategory === cat.label ? null : cat.label); }}
-                      style={{
-                        display: "flex", alignItems: "center",
-                        width: "calc(100% - 18px)",
-                        height: 24,
-                        margin: "0 9px",
-                        paddingLeft: 28,
-                        borderRadius: 4,
-                        cursor: "pointer",
-                        background: builtinCategory === cat.label ? "var(--color-background-primary)" : "transparent",
-                        border: builtinCategory === cat.label ? "0.5px solid var(--color-border-secondary)" : "0.5px solid transparent",
-                        color: builtinCategory === cat.label ? "var(--color-text-primary)" : "var(--color-text-secondary)",
-                        fontSize: 11,
-                        textAlign: "left",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+        {/* Section nav — grouped with semantic dividers */}
+        {SECTION_GROUPS.map((group, gi) => (
+          <div key={gi}>
+            {gi > 0 && (
+              <div role="separator" style={{
+                height: 0,
+                borderTop: "0.5px solid var(--color-border-tertiary)",
+                margin: "6px 8px",
+              }} />
+            )}
+            {group.map(({ section, Icon }) => (
+              <div key={section}>
+                <RailButton
+                  label={SECTION_LABELS[section]}
+                  disabled={!inCluster}
+                  active={inCluster && route.section === section}
+                  onClick={() => setSection(section)}
+                  expanded={expanded}
+                >
+                  <Icon size={16} stroke={1.5} />
+                </RailButton>
+                {expanded && inCluster && route.section === section && section === "resources" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    {BUILTIN_CATALOG.map((cat) => (
+                      <button
+                        key={cat.label}
+                        aria-label={`category ${cat.label}`}
+                        onClick={() => { setSection("resources"); setBuiltinCategory(builtinCategory === cat.label ? null : cat.label); }}
+                        style={{
+                          display: "flex", alignItems: "center",
+                          width: "calc(100% - 18px)",
+                          height: 24,
+                          margin: "0 9px",
+                          paddingLeft: 28,
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          background: builtinCategory === cat.label ? "var(--color-background-primary)" : "transparent",
+                          border: builtinCategory === cat.label ? "0.5px solid var(--color-border-secondary)" : "0.5px solid transparent",
+                          color: builtinCategory === cat.label ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                          fontSize: 11,
+                          textAlign: "left",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
 
-      <div style={{ flex: 1 }} />
+        {expanded && inCluster && cluster && (
+          <CapabilitiesBlock cluster={cluster} board={board} mesh={mesh} metrics={metricsForCluster} />
+        )}
+      </div>
 
       {/* Bottom placeholders */}
       <RailButton label="Terminal" onClick={() => void openTerminal()} expanded={expanded}>
@@ -207,6 +242,157 @@ export function Sidebar() {
       </button>
     </div>
   );
+}
+
+type CapabilityTone = "success" | "warning" | "danger" | "info" | "muted";
+type CapabilityRow = { label: string; value: string; tone: CapabilityTone; title?: string };
+
+function CapabilitiesBlock({ cluster, board, mesh, metrics }: { cluster: ClusterDTO; board: FleetBoardEntry | undefined; mesh: MeshGraphDTO | null; metrics: MetricsDTO | null }) {
+  const rows = capabilityRows(cluster, board, mesh, metrics);
+  return (
+    <div
+      aria-label="cluster capabilities"
+      style={{
+        margin: "8px 9px 0",
+        padding: "10px 0 2px",
+        borderTop: "0.5px solid var(--color-border-tertiary)",
+        display: "grid",
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <div style={{
+        fontSize: 10,
+        fontFamily: "var(--font-mono)",
+        color: "var(--color-text-tertiary)",
+        textTransform: "lowercase",
+      }}>
+        capabilities
+      </div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            title={row.title}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "8px minmax(0, 1fr) auto",
+              alignItems: "center",
+              gap: 8,
+              minHeight: 18,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+            }}
+          >
+            <span style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: toneColor(row.tone),
+            }} />
+            <span style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: "var(--color-text-secondary)",
+            }}>
+              {row.label}
+            </span>
+            <span style={{
+              color: toneColor(row.tone),
+              whiteSpace: "nowrap",
+              textAlign: "right",
+              maxWidth: 72,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}>
+              {row.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function capabilityRows(cluster: ClusterDTO, board: FleetBoardEntry | undefined, mesh: MeshGraphDTO | null, metrics: MetricsDTO | null): CapabilityRow[] {
+  return [
+    fluxCapability(cluster, board),
+    ciliumCapability(cluster, mesh),
+    gatewayCapability(cluster, board),
+    prometheusCapability(metrics),
+  ];
+}
+
+function fluxCapability(cluster: ClusterDTO, board: FleetBoardEntry | undefined): CapabilityRow {
+  const flux = board?.flux;
+  if (flux) {
+    if (flux.notReady > 0) return { label: "flux", value: `${flux.notReady} bad`, tone: "warning" };
+    return { label: "flux", value: "ready", tone: "success" };
+  }
+  if (cluster.fluxPresent === false || cluster.gitopsTier === "Absent") {
+    return { label: "flux", value: "absent", tone: "muted", title: cluster.gitopsReason || undefined };
+  }
+  if (cluster.fluxPresent && cluster.fluxHealthy) return { label: "flux", value: "ready", tone: "success" };
+  if (cluster.fluxPresent) return { label: "flux", value: "degraded", tone: "warning", title: cluster.gitopsReason || undefined };
+  return { label: "flux", value: "unknown", tone: "muted" };
+}
+
+function meshNodeForCluster(mesh: MeshGraphDTO | null, clusterName: string) {
+  return mesh?.nodes.find((n) => n.cluster === clusterName || n.name === clusterName);
+}
+
+function ciliumCapability(cluster: ClusterDTO, mesh: MeshGraphDTO | null): CapabilityRow {
+  const meshNode = meshNodeForCluster(mesh, cluster.name);
+  if (meshNode && meshNode.present && meshNode.state !== "unavailable") {
+    const meshed = meshNode.state === "peered";
+    return { label: "cilium", value: meshed ? "mesh" : "present", tone: meshed ? "success" : "info" };
+  }
+  if (cluster.ciliumPresent === true) {
+    return { label: "cilium", value: cluster.clusterMesh ? "mesh" : "present", tone: cluster.clusterMesh ? "success" : "info" };
+  }
+  if (cluster.ciliumPresent === false) {
+    return { label: "cilium", value: "absent", tone: "muted" };
+  }
+  return { label: "cilium", value: "unknown", tone: "muted" };
+}
+
+function gatewayCapability(cluster: ClusterDTO, board: FleetBoardEntry | undefined): CapabilityRow {
+  const g = board?.gateway;
+  const issueCount = (g?.unprogrammed ?? 0) + (g?.brokenRoutes ?? 0);
+  if (issueCount > 0) return { label: "gateway api", value: `${issueCount} issue${issueCount === 1 ? "" : "s"}`, tone: "warning" };
+  if (cluster.networkTier && cluster.networkTier !== "Healthy" && cluster.gatewayAPIVersion) {
+    return { label: "gateway api", value: cluster.networkTier.toLowerCase(), tone: "warning", title: cluster.networkReason || undefined };
+  }
+  if (cluster.gatewayAPIVersion) return { label: "gateway api", value: cluster.gatewayAPIVersion, tone: "success" };
+  if (g?.served && g.routes != null) return { label: "gateway api", value: `${g.routes} route${g.routes === 1 ? "" : "s"}`, tone: "success" };
+  if (g?.served) return { label: "gateway api", value: "served", tone: "success" };
+  if (g?.served === false || (cluster.networkTier === "Absent" && !cluster.gatewayAPIVersion)) {
+    return { label: "gateway api", value: "absent", tone: "muted", title: cluster.networkReason || undefined };
+  }
+  if (cluster.networkTier === "Healthy") return { label: "gateway api", value: "ready", tone: "success" };
+  return { label: "gateway api", value: "unknown", tone: "muted", title: cluster.networkReason || undefined };
+}
+
+function prometheusCapability(metrics: MetricsDTO | null): CapabilityRow {
+  if (!metrics) return { label: "prometheus", value: "unknown", tone: "muted" };
+  if (!metrics.available) return { label: "prometheus", value: "unavailable", tone: "warning", title: metrics.reason || metrics.warning || undefined };
+  const source = `${metrics.mode} ${metrics.source}`.toLowerCase();
+  const value = source.includes("prometheus") || source.includes("grafana") || source.includes("mimir") || source.includes("lgtm")
+    ? "lgtm"
+    : "ready";
+  return { label: "prometheus", value, tone: "info", title: metrics.source || undefined };
+}
+
+function toneColor(tone: CapabilityTone): string {
+  switch (tone) {
+    case "success": return "var(--color-text-success)";
+    case "warning": return "var(--color-text-warning)";
+    case "danger": return "var(--color-text-danger)";
+    case "info": return "var(--color-text-info)";
+    case "muted": return "var(--color-text-tertiary)";
+  }
 }
 
 function RailButton({ label, active, disabled, onClick, children, expanded }: {

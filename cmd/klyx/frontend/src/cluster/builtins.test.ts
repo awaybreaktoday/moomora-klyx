@@ -46,15 +46,32 @@ describe("BUILTIN_CATALOG sanity", () => {
     expect(BUILTIN_CATALOG.length).toBe(6);
   });
 
-  it("Cluster-scoped resources have the right plurals", () => {
-    const clusterScoped = allGvrEntries.filter((r) => r.scope === "Cluster").map((r) => r.plural);
-    expect(clusterScoped).toContain("namespaces");
-    expect(clusterScoped).toContain("nodes");
-    expect(clusterScoped).toContain("persistentvolumes");
-    expect(clusterScoped).toContain("storageclasses");
-    expect(clusterScoped).toContain("clusterroles");
-    expect(clusterScoped).toContain("clusterrolebindings");
-  });
+	  it("Cluster-scoped resources have the right plurals", () => {
+	    const clusterScoped = allGvrEntries.filter((r) => r.scope === "Cluster").map((r) => r.plural);
+	    expect(clusterScoped).toContain("namespaces");
+	    expect(clusterScoped).toContain("nodes");
+	    expect(clusterScoped).toContain("persistentvolumes");
+	    expect(clusterScoped).toContain("storageclasses");
+	    expect(clusterScoped).toContain("csidrivers");
+	    expect(clusterScoped).toContain("csinodes");
+	    expect(clusterScoped).toContain("volumeattachments");
+	    expect(clusterScoped).toContain("ingressclasses");
+	    expect(clusterScoped).toContain("priorityclasses");
+	    expect(clusterScoped).toContain("runtimeclasses");
+	    expect(clusterScoped).toContain("clusterroles");
+	    expect(clusterScoped).toContain("clusterrolebindings");
+	  });
+
+	  it("includes the curated missing daily-driver resources without legacy Endpoints", () => {
+	    const plurals = allGvrEntries.map((r) => r.plural);
+	    expect(plurals).toContain("poddisruptionbudgets");
+	    expect(plurals).toContain("leases");
+	    expect(plurals).toContain("mutatingwebhookconfigurations");
+	    expect(plurals).toContain("validatingwebhookconfigurations");
+	    expect(plurals).toContain("validatingadmissionpolicies");
+	    expect(plurals).toContain("validatingadmissionpolicybindings");
+	    expect(plurals).not.toContain("endpoints");
+	  });
 
   it("no duplicate labels within a category (lens entries)", () => {
     for (const cat of BUILTIN_CATALOG) {

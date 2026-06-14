@@ -30,8 +30,8 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
   const isEmpty = categories.length === 0;
 
   return (
-    <div style={{ padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+    <div style={{ padding: "14px 16px", height: "100%", minHeight: 0, overflow: "hidden", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexShrink: 0 }}>
         <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
           Built-in resource catalog
         </div>
@@ -45,7 +45,7 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
       </div>
 
       {/* Category chip row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap", flexShrink: 0 }}>
         <Chip on={builtinCategory === null} onClick={() => setBuiltinCategory(null)}>all</Chip>
         {BUILTIN_CATALOG.map((cat) => (
           <Chip
@@ -61,7 +61,7 @@ export function BuiltinsView({ cluster }: { cluster: string }) {
       {isEmpty ? (
         <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>No built-in resources match your search.</div>
       ) : (
-        <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflow: "hidden" }}>
+        <div data-testid="builtin-resource-scroll" style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-md)", overflowY: "auto", overflowX: "hidden", flex: 1, minHeight: 0 }}>
           {categories.map((cat) => (
             <BuiltinCategorySection key={cat.label} cluster={cluster} label={cat.label} entries={cat.entries} />
           ))}

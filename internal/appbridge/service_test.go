@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/fleet"
 )
@@ -52,6 +53,33 @@ func TestGetFleetUnknownConfigStillProjects(t *testing.T) {
 	dtos := svc.GetFleet()
 	if len(dtos) != 1 || dtos[0].Name != "ghost" {
 		t.Fatalf("want ghost projected with empty tags, got %+v", dtos)
+	}
+}
+
+func TestToDTOProjectsCapabilityDetails(t *testing.T) {
+	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	dto := ToDTO(fleet.Snapshot{
+		Name:  "nelli",
+		State: fleet.Synced,
+		Capabilities: capability.Set{
+			GitOps: capability.GitOpsCapability{
+				Base: capability.Base{Tier: capability.Healthy},
+				Flux: capability.FluxInfo{Present: true, Healthy: true},
+			},
+			Network: capability.NetworkCapability{
+				Base:              capability.Base{Tier: capability.Healthy},
+				GatewayAPIVersion: "v1",
+				CiliumPresent:     true,
+				ClusterMesh:       true,
+			},
+		},
+	}, config.ClusterConfig{}, now)
+
+	if !dto.FluxPresent || !dto.FluxHealthy {
+		t.Fatalf("want flux capability projected, got %+v", dto)
+	}
+	if dto.GatewayAPIVersion != "v1" || !dto.CiliumPresent || !dto.ClusterMesh {
+		t.Fatalf("want network capability details projected, got %+v", dto)
 	}
 }
 

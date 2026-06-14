@@ -1,41 +1,105 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
-type Theme = "light" | "dark";
-type Ctx = { theme: Theme; toggle: () => void };
+export type Theme = "system" | "light" | "dark" | "midnight" | "graphite" | "crimson" | "forest" | "amber" | "violet";
+export type EffectiveTheme = Exclude<Theme, "system">;
+type Ctx = { theme: Theme; effectiveTheme: EffectiveTheme; setTheme: (theme: Theme) => void; toggle: () => void };
 
 const ThemeContext = createContext<Ctx | null>(null);
 
 const STORAGE_KEY = "klyx-theme";
+const CHANGE_EVENT = "klyx:theme-change";
+export const THEMES: ReadonlyArray<{ id: Theme; label: string }> = [
+  { id: "system", label: "System" },
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+  { id: "midnight", label: "Midnight" },
+  { id: "graphite", label: "Graphite" },
+  { id: "crimson", label: "Crimson" },
+  { id: "forest", label: "Forest" },
+  { id: "amber", label: "Amber" },
+  { id: "violet", label: "Violet" },
+];
+
+function isTheme(value: string | null): value is Theme {
+  return value === "system" || value === "light" || value === "dark" || value === "midnight" ||
+    value === "graphite" || value === "crimson" || value === "forest" || value === "amber" || value === "violet";
+}
 
 function initial(): Theme {
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved === "dark" ? "dark" : "light";
+  return isTheme(saved) ? saved : "light";
 }
 
-// toggleTheme flips the active theme using the same storage key and DOM
+function prefersDark(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-color-scheme: dark)").matches
+    : false;
+}
+
+export function resolveTheme(theme: Theme): EffectiveTheme {
+  return theme === "system" ? (prefersDark() ? "dark" : "light") : theme;
+}
+
+function applyTheme(theme: Theme): EffectiveTheme {
+  const effective = resolveTheme(theme);
+  document.documentElement.setAttribute("data-theme-choice", theme);
+  document.documentElement.setAttribute("data-theme", effective);
+  document.documentElement.style.colorScheme = effective === "light" ? "light" : "dark";
+  localStorage.setItem(STORAGE_KEY, theme);
+  return effective;
+}
+
+export function setThemeChoice(theme: Theme): EffectiveTheme {
+  const effective = applyTheme(theme);
+  window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { theme } }));
+  return effective;
+}
+
+// toggleTheme cycles concrete themes using the same storage key and DOM
 // attribute the provider manages, for callers outside the React tree (e.g. the
-// command palette). The provider, when mounted, picks up the persisted value on
-// next read; both paths agree on STORAGE_KEY + data-theme so state stays
-// consistent. Returns the new theme.
+// command palette). System remains an explicit menu choice; the quick action
+// moves through the concrete palettes.
 export function toggleTheme(): Theme {
-  const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  const next: Theme = current === "light" ? "dark" : "light";
-  document.documentElement.setAttribute("data-theme", next);
-  localStorage.setItem(STORAGE_KEY, next);
+  const stored = document.documentElement.getAttribute("data-theme-choice") ?? localStorage.getItem(STORAGE_KEY);
+  const current: Theme = isTheme(stored) ? stored : "light";
+  const order: Theme[] = ["light", "dark", "midnight", "graphite", "crimson", "forest", "amber", "violet"];
+  const next = order[(Math.max(0, order.indexOf(current)) + 1) % order.length];
+  setThemeChoice(next);
   return next;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(initial);
+  const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>(() => resolveTheme(initial()));
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(STORAGE_KEY, theme);
+    setEffectiveTheme(applyTheme(theme));
   }, [theme]);
 
-  const toggle = () => setTheme((t) => (t === "light" ? "dark" : "light"));
+  const toggle = () => setTheme((t) => {
+    const order: Theme[] = ["light", "dark", "midnight", "graphite", "crimson", "forest", "amber", "violet"];
+    return order[(Math.max(0, order.indexOf(t)) + 1) % order.length];
+  });
+  const choose = (next: Theme) => setTheme(next);
 
-  return <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>;
+  useEffect(() => {
+    const onThemeChange = (e: Event) => {
+      const next = (e as CustomEvent<{ theme?: Theme }>).detail?.theme;
+      if (next && isTheme(next)) setTheme(next);
+    };
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const onMediaChange = () => {
+      if (theme === "system") setEffectiveTheme(applyTheme("system"));
+    };
+    window.addEventListener(CHANGE_EVENT, onThemeChange);
+    media?.addEventListener?.("change", onMediaChange);
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, onThemeChange);
+      media?.removeEventListener?.("change", onMediaChange);
+    };
+  }, [theme]);
+
+  return <ThemeContext.Provider value={{ theme, effectiveTheme, setTheme: choose, toggle }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme(): Ctx {
