@@ -269,7 +269,27 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+
+          $searchRoots = @(
+            ${env:ProgramFiles(x86)},
+            $env:ProgramFiles,
+            "C:\tools"
+          ) | Where-Object { $_ -and (Test-Path $_) }
+
+          $nsisPath = $searchRoots |
+            ForEach-Object {
+              Get-ChildItem -Path $_ -Filter makensis.exe -Recurse -ErrorAction SilentlyContinue
+            } |
+            Select-Object -First 1 -ExpandProperty DirectoryName
+
+          if (-not $nsisPath) {
+            throw "makensis.exe was not found after installing NSIS"
+          }
+
+          Add-Content -Path $env:GITHUB_PATH -Value $nsisPath
+          & (Join-Path $nsisPath "makensis.exe") /VERSION
 
       - name: Install Wails CLI
         shell: pwsh
