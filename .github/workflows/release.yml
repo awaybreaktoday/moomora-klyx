@@ -317,7 +317,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Copy-Item cmd/klyx/bin/klyx.exe "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.exe"
-          Copy-Item cmd/klyx/build/windows/nsis/klyx-installer.exe "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}-installer.exe"
+          Copy-Item "cmd/klyx/bin/klyx-${env:KLYX_ARCH}-installer.exe" "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}-installer.exe"
           Compress-Archive -Path "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.exe" -DestinationPath "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.zip"
           Remove-Item "artifacts/klyx-${env:KLYX_VERSION}-windows-${env:KLYX_ARCH}.exe"
           Get-ChildItem artifacts | Get-FileHash -Algorithm SHA256 | ForEach-Object {
