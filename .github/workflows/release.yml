@@ -21,7 +21,7 @@ permissions:
 
 env:
   NODE_VERSION: "24"
-  WAILS_VERSION: "v3.0.0-alpha.98"
+  WAILS_VERSION: "v3.0.0-alpha2.103"
 
 jobs:
   version:
