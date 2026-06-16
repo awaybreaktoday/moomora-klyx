@@ -41,6 +41,16 @@ describe("ClusterCard", () => {
     const { queryByTitle } = render(<ClusterCard c={{ ...base, protected: false }} />);
     expect(queryByTitle("protected")).toBeNull();
   });
+
+  it("contains long EKS ARN context names inside the card", () => {
+    const arn = "arn:aws:eks:us-east-1:934692410245:cluster/eks-prod-platform-observability-us-east-1";
+    const { getByTestId, getByText, getByTitle } = render(<ClusterCard c={{ ...base, name: arn, provider: "", region: "" }} />);
+    const card = getByTestId(`cluster-card-${arn}`);
+    expect(card.style.minWidth).toBe("0px");
+    expect(card.style.overflow).toBe("hidden");
+    expect(getByText("eks-prod-platform-observability-us-east-1")).toBeTruthy();
+    expect(getByTitle(arn)).toBeTruthy();
+  });
 });
 
 it("drills into the cluster on click", () => {

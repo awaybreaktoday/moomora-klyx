@@ -32,7 +32,7 @@ export function FleetView() {
   const allConnected = connected === clusters.length;
 
   return (
-    <div style={{ padding: "14px 16px", display: "grid", gap: 12 }}>
+    <div style={{ padding: "14px 16px", display: "grid", gap: 12, minWidth: 0, overflowX: "hidden" }}>
       {clusters.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No clusters connected yet.</div>
       ) : (
@@ -59,9 +59,10 @@ export function FleetView() {
           </div>
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(360px, 100%), 1fr))",
             gap: 8,
             alignItems: "stretch",
+            minWidth: 0,
           }}>
             {orderedClusters.map((c) => <ClusterCard key={c.name} c={c} />)}
           </div>

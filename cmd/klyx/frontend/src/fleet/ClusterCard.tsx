@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { IconLock } from "@tabler/icons-react";
 import type { ClusterDTO, FleetBoardEntry, MeshGraphDTO } from "../store/fleet";
 import { useFleet } from "../store/fleet";
@@ -36,6 +36,7 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
   const unreachable = c.state === "Failed" || c.state === "Unconnected";
 
   if (unreachable) {
+    const displayName = clusterDisplayName(c.name);
     return (
       <div
         data-testid={`cluster-card-${c.name}`}
@@ -47,14 +48,17 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
           padding: "10px 12px",
           cursor: "pointer",
           color: "var(--color-text-tertiary)",
+          minWidth: 0,
+          overflow: "hidden",
+          boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 13, color: "var(--color-text-secondary)" }}>{c.name}</span>
-          <span style={{ fontSize: 10 }}>{c.state.toLowerCase()} · {ago(c.ageSeconds)}</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
+          <span title={c.name} style={{ fontFamily: "var(--font-mono)", fontWeight: 500, fontSize: 13, color: "var(--color-text-secondary)", ...ellipsis }}>{displayName}</span>
+          <span style={{ fontSize: 10, flexShrink: 0 }}>{c.state.toLowerCase()} · {ago(c.ageSeconds)}</span>
           {c.protected && <span title="protected" style={{ marginLeft: "auto", display: "inline-flex" }}><IconLock size={13} stroke={1.5} /></span>}
         </div>
-        <div style={{ fontSize: 10, marginTop: 6 }}>{c.reason || "no connection"}</div>
+        <div style={{ fontSize: 10, marginTop: 6, ...ellipsis }}>{c.reason || "no connection"}</div>
         <div style={{ fontSize: 10, marginTop: 14 }}>reconnects automatically when reachable</div>
       </div>
     );
@@ -69,6 +73,7 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
   ];
   const rail = cardRail(c, board, signals);
   const badge = cardBadge(c, board, signals);
+  const displayName = clusterDisplayName(c.name);
 
   return (
     <div
@@ -84,23 +89,26 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
         display: "grid",
         gridTemplateRows: "auto 1fr auto",
         minHeight: 232,
+        minWidth: 0,
+        overflow: "hidden",
+        boxSizing: "border-box",
       }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-border-secondary)"; e.currentTarget.style.borderLeftColor = toneColor(rail); }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-border-tertiary)"; e.currentTarget.style.borderLeftColor = toneColor(rail); }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "11px 12px 10px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "11px 12px 10px", borderBottom: "0.5px solid var(--color-border-tertiary)", minWidth: 0 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-          <div style={{ marginTop: 3, fontSize: 11, color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+          <div title={c.name} style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 14, ...ellipsis }}>{displayName}</div>
+          <div style={{ marginTop: 3, fontSize: 11, color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)", ...ellipsis }}>
             {clusterMeta(c)}
           </div>
-          <div style={{ marginTop: 8, display: "flex", gap: 14, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)" }}>
-            <span style={{ color: c.nodesReady < c.nodesTotal ? "var(--color-text-warning)" : undefined }}>{c.nodesReady}/{c.nodesTotal} nodes</span>
-            <span>{c.pods} pods</span>
-            {c.env && <span style={{ color: "var(--color-text-tertiary)" }}>{c.env}</span>}
+          <div style={{ marginTop: 8, display: "flex", gap: 14, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", minWidth: 0 }}>
+            <span style={{ color: c.nodesReady < c.nodesTotal ? "var(--color-text-warning)" : undefined, flexShrink: 0 }}>{c.nodesReady}/{c.nodesTotal} nodes</span>
+            <span style={{ flexShrink: 0 }}>{c.pods} pods</span>
+            {c.env && <span style={{ color: "var(--color-text-tertiary)", ...ellipsis }}>{c.env}</span>}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flexShrink: 0, maxWidth: "46%", minWidth: 0 }}>
           {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
           {c.protected && (
             <span title="protected" style={{
@@ -124,7 +132,7 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
         {signals.map((s) => <SignalRow key={s.label} signal={s} />)}
       </div>
 
-      <div style={{ padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}>
+      <div style={{ padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)", ...ellipsis }}>
         {diagnosticReason(c, board, signals)}
       </div>
     </div>
@@ -134,12 +142,12 @@ export function ClusterCard({ c }: { c: ClusterDTO }) {
 function SignalRow({ signal }: { signal: Signal }) {
   const width = `${Math.round((signal.fraction ?? 0) * 100)}%`;
   return (
-    <div title={signal.title} style={{ display: "grid", gridTemplateColumns: "86px minmax(56px, 1fr) auto", alignItems: "center", gap: 10, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-      <span style={{ color: "var(--color-text-secondary)" }}>{signal.label}</span>
-      <span style={{ height: 5, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", overflow: "hidden" }}>
+    <div title={signal.title ?? signal.value} style={{ display: "grid", gridTemplateColumns: "86px minmax(44px, 1fr) minmax(0, 46%)", alignItems: "center", gap: 10, fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 0 }}>
+      <span style={{ color: "var(--color-text-secondary)", ...ellipsis }}>{signal.label}</span>
+      <span style={{ height: 5, background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", overflow: "hidden", minWidth: 0 }}>
         <span style={{ display: "block", width, maxWidth: "100%", height: "100%", background: toneColor(signal.tone), opacity: signal.fraction == null ? 0.25 : 1 }} />
       </span>
-      <span style={{ color: toneColor(signal.tone), whiteSpace: "nowrap" }}>{signal.value}</span>
+      <span style={{ color: toneColor(signal.tone), ...ellipsis }}>{signal.value}</span>
     </div>
   );
 }
@@ -153,7 +161,7 @@ function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
       fontFamily: "var(--font-mono)",
       fontSize: 10,
       padding: "2px 7px",
-      whiteSpace: "nowrap",
+      ...ellipsis,
     }}>
       {children}
     </span>
@@ -280,6 +288,20 @@ function diagnosticReason(c: ClusterDTO, board: FleetBoardEntry | undefined, sig
 function clusterMeta(c: ClusterDTO): string {
   return [c.provider, c.region, c.protected ? "protected" : "", c.version].filter(Boolean).join(" / ");
 }
+
+function clusterDisplayName(name: string): string {
+  const eksClusterMarker = ":cluster/";
+  const markerAt = name.lastIndexOf(eksClusterMarker);
+  if (markerAt < 0) return name;
+  return name.slice(markerAt + eksClusterMarker.length) || name;
+}
+
+const ellipsis: CSSProperties = {
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
 
 function toneColor(tone: Tone): string {
   switch (tone) {
