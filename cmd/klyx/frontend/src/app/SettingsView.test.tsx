@@ -16,8 +16,8 @@ const baseCfg: FleetConfigDTO = {
   kubeconfigPath: "/home/me/.kube/config",
   warnings: ["cluster \"prd\": tag \"protected\" shadows a cluster field and is ignored; move it out of `tags:` to a top-level key"],
   clusters: [
-    { name: "homelab-nelli", context: "kubernetes-admin@homelab-nelli", env: "homelab", group: "", protected: false, hasMetrics: true },
-    { name: "prd-weu", context: "prd-weu", env: "prd", group: "prd", protected: true, hasMetrics: false },
+    { name: "homelab-nelli", context: "kubernetes-admin@homelab-nelli", env: "homelab", region: "", provider: "", account: "", group: "", protected: false, hasMetrics: true },
+    { name: "prd-weu", context: "prd-weu", env: "prd", region: "we", provider: "aks", account: "", group: "prd", protected: true, hasMetrics: false },
   ],
   contexts: [
     { name: "kubernetes-admin@homelab-nelli", inFleet: true },

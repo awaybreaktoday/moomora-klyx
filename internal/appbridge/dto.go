@@ -45,6 +45,7 @@ func ToDTO(s fleet.Snapshot, cc config.ClusterConfig, now time.Time) ClusterDTO 
 			age = 0
 		}
 	}
+	tags := cc.EffectiveTags()
 	return ClusterDTO{
 		Name:              s.Name,
 		State:             s.State.String(),
@@ -62,10 +63,10 @@ func ToDTO(s fleet.Snapshot, cc config.ClusterConfig, now time.Time) ClusterDTO 
 		GatewayAPIVersion: s.Capabilities.Network.GatewayAPIVersion,
 		CiliumPresent:     s.Capabilities.Network.CiliumPresent,
 		ClusterMesh:       s.Capabilities.Network.ClusterMesh,
-		Env:               firstNonEmpty(cc.Environment, cc.Tags["env"]),
+		Env:               firstNonEmpty(cc.Environment, tags["env"]),
 		Protected:         cc.Protected,
-		Region:            cc.Tags["region"],
-		Provider:          cc.Tags["provider"],
+		Region:            tags["region"],
+		Provider:          tags["provider"],
 		Group:             cc.Group,
 		AgeSeconds:        age,
 	}

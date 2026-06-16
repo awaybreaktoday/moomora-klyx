@@ -12,10 +12,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/moomora/klyx/internal/config"
+	"github.com/moomora/klyx/internal/execenv"
 )
 
 // RESTConfig builds a *rest.Config for the cluster's kubeconfig context.
 func RESTConfig(cc config.ClusterConfig) (*rest.Config, error) {
+	execenv.ApplyDesktopToolPath()
+
 	kubeconfigPath := cc.Kubeconfig
 	loadingRules := kubeconfigLoadingRules(kubeconfigPath)
 	overrides := &clientcmd.ConfigOverrides{CurrentContext: cc.Context}

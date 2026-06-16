@@ -14,6 +14,9 @@ type FleetClusterDTO struct {
 	Name       string `json:"name"`
 	Context    string `json:"context"`
 	Env        string `json:"env"`
+	Region     string `json:"region"`
+	Provider   string `json:"provider"`
+	Account    string `json:"account"`
 	Group      string `json:"group"`
 	Protected  bool   `json:"protected"`
 	HasMetrics bool   `json:"hasMetrics"`
@@ -94,10 +97,14 @@ func (s *ConfigService) GetFleetConfig() FleetConfigDTO {
 	for _, c := range s.fleetClusters() {
 		inFleet[c.Name] = true
 		inFleet[c.Context] = true
+		tags := c.EffectiveTags()
 		dto.Clusters = append(dto.Clusters, FleetClusterDTO{
 			Name:       c.Name,
 			Context:    c.Context,
-			Env:        c.Env(),
+			Env:        firstNonEmpty(c.Environment, tags["env"]),
+			Region:     tags["region"],
+			Provider:   tags["provider"],
+			Account:    tags["account"],
 			Group:      c.Group,
 			Protected:  c.Protected,
 			HasMetrics: c.Metrics != nil,
@@ -143,10 +150,10 @@ func (s *ConfigService) AddClusters(contexts []string) ActionResultDTO {
 	}
 	var failed []string
 	for _, name := range contexts {
-		cc := config.ClusterConfig{Name: name, Context: name}
+		cc := config.ClusterConfigForContext(name)
 		if s.connect != nil {
 			if err := s.connect(cc); err != nil {
-				failed = append(failed, fmt.Sprintf("%s: %v", name, err))
+				failed = append(failed, fmt.Sprintf("%s: %v", cc.Name, err))
 				continue
 			}
 		}

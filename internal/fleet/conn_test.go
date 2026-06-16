@@ -102,6 +102,19 @@ func TestOnWatchErrorIgnoredWhenNotSynced(t *testing.T) {
 	}
 }
 
+func TestOnWatchErrorRemembersPreSyncCredentialFailure(t *testing.T) {
+	c := NewClusterConn("x", nil, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
+	c.state = Connecting
+	c.onWatchError(errors.New(`getting credentials: exec: "aws": executable file not found in $PATH`))
+	s := c.Snapshot()
+	if s.State != Connecting {
+		t.Fatalf("want Connecting unchanged, got %v", s.State)
+	}
+	if !strings.Contains(s.Reason, "AWS CLI not found") {
+		t.Fatalf("want friendly AWS reason, got %q", s.Reason)
+	}
+}
+
 func TestNewClusterConnDefaultsConnectTimeout(t *testing.T) {
 	c := NewClusterConn("x", nil, nil, nil, nil, clock.Real{}, config.MetricsConfig{})
 	if c.connectTimeout != defaultConnectTimeout {

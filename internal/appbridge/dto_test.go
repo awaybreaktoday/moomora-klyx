@@ -72,6 +72,18 @@ func TestToDTOMapsEnvironmentAndProtected(t *testing.T) {
 	}
 }
 
+func TestToDTODerivesEKSProviderMetadata(t *testing.T) {
+	ctx := "arn:aws:eks:us-east-1:934692410245:cluster/eks-tooling"
+	dto := ToDTO(
+		fleet.Snapshot{Name: ctx},
+		config.ClusterConfig{Name: ctx, Context: ctx},
+		time.Now(),
+	)
+	if dto.Provider != "eks" || dto.Region != "us-east-1" {
+		t.Fatalf("want derived EKS metadata, got %+v", dto)
+	}
+}
+
 func TestToDTOZeroLastSyncAgeIsZero(t *testing.T) {
 	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
 	d := ToDTO(fleet.Snapshot{Name: "x", State: fleet.Connecting}, config.ClusterConfig{Name: "x"}, now)

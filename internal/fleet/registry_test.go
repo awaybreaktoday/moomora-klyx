@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -257,5 +258,19 @@ func TestRegistryAddReturnsFactoryError(t *testing.T) {
 	// The error is the caller's to show; no Failed ghost entry is recorded.
 	if got := len(reg.Snapshots()); got != 0 {
 		t.Fatalf("want 0 snapshots after failed Add, got %d", got)
+	}
+}
+
+func TestRegistrySurfacesFriendlyFactoryError(t *testing.T) {
+	cfg := &config.Config{Clusters: []config.ClusterConfig{{Name: "eks"}}}
+	factory := func(config.ClusterConfig) (Conn, error) {
+		return nil, errors.New(`getting credentials: exec: "aws": executable file not found in $PATH`)
+	}
+	reg := NewRegistry(cfg, factory)
+	reg.Start(context.Background())
+
+	snaps := reg.Snapshots()
+	if len(snaps) != 1 || !strings.Contains(snaps[0].Reason, "AWS CLI not found") {
+		t.Fatalf("want friendly AWS failure, got %+v", snaps)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -17,6 +18,10 @@ func AppendClusters(path string, contexts []string) error {
 	if len(contexts) == 0 {
 		return fmt.Errorf("no contexts to add")
 	}
+	entries := make([]ClusterConfig, 0, len(contexts))
+	for _, ctx := range contexts {
+		entries = append(entries, ClusterConfigForContext(ctx))
+	}
 
 	original, readErr := os.ReadFile(path)
 	exists := readErr == nil
@@ -26,20 +31,30 @@ func AppendClusters(path string, contexts []string) error {
 
 	// Refuse duplicates against the CURRENT file state (not the in-memory
 	// startup config) so two adds in one session behave.
+	seen := map[string]bool{}
+	inFleet := map[string]bool{}
 	if exists {
 		cur, err := Load(path)
 		if err != nil {
 			return fmt.Errorf("existing fleet config is invalid; fix it before adding clusters: %w", err)
 		}
-		inFleet := map[string]bool{}
 		for _, c := range cur.Clusters {
 			inFleet[c.Name] = true
 			inFleet[c.Context] = true
 		}
-		for _, ctx := range contexts {
-			if inFleet[ctx] {
-				return fmt.Errorf("context %q is already in the fleet", ctx)
+	}
+	for _, entry := range entries {
+		keys := uniqueIdentityKeys(entry.Name, entry.Context)
+		for _, key := range keys {
+			if inFleet[key] {
+				return fmt.Errorf("context %q is already in the fleet", entry.Context)
 			}
+			if seen[key] {
+				return fmt.Errorf("context %q is duplicated in the add request", entry.Context)
+			}
+		}
+		for _, key := range keys {
+			seen[key] = true
 		}
 	}
 
@@ -59,9 +74,8 @@ func AppendClusters(path string, contexts []string) error {
 		b.WriteString("# Docs: each entry needs a name; context defaults to the name.\n")
 		b.WriteString("clusters:\n")
 	}
-	for _, ctx := range contexts {
-		fmt.Fprintf(&b, "  - name: %s\n", yamlScalar(ctx))
-		fmt.Fprintf(&b, "    context: %s\n", yamlScalar(ctx))
+	for _, entry := range entries {
+		writeClusterEntry(&b, entry)
 	}
 	candidate := b.String()
 
@@ -95,6 +109,34 @@ func AppendClusters(path string, contexts []string) error {
 	return nil
 }
 
+func writeClusterEntry(b *strings.Builder, cc ClusterConfig) {
+	fmt.Fprintf(b, "  - name: %s\n", yamlScalar(cc.Name))
+	fmt.Fprintf(b, "    context: %s\n", yamlScalar(cc.Context))
+	if len(cc.Tags) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(cc.Tags))
+	for k := range cc.Tags {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	b.WriteString("    tags:\n")
+	for _, k := range keys {
+		fmt.Fprintf(b, "      %s: %s\n", yamlScalar(k), yamlTagScalar(cc.Tags[k]))
+	}
+}
+
+func uniqueIdentityKeys(name, context string) []string {
+	out := make([]string, 0, 2)
+	if name != "" {
+		out = append(out, name)
+	}
+	if context != "" && context != name {
+		out = append(out, context)
+	}
+	return out
+}
+
 // yamlScalar quotes a value when it contains characters that would change its
 // YAML meaning; kube context names like user@cluster are safe bare, but quote
 // defensively for anything beyond the common shape.
@@ -116,4 +158,32 @@ func isSafeContext(s string) bool {
 		}
 	}
 	return true
+}
+
+func yamlTagScalar(s string) string {
+	if s == "" || isYAMLBoolLike(s) || isAllDigits(s) {
+		return fmt.Sprintf("%q", s)
+	}
+	return yamlScalar(s)
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isYAMLBoolLike(s string) bool {
+	switch strings.ToLower(s) {
+	case "true", "false", "yes", "no", "on", "off", "null", "~":
+		return true
+	default:
+		return false
+	}
 }

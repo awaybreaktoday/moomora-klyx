@@ -20,6 +20,7 @@ import (
 
 	"github.com/moomora/klyx/internal/capability"
 	"github.com/moomora/klyx/internal/clock"
+	"github.com/moomora/klyx/internal/cluster"
 	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/config"
 	"github.com/moomora/klyx/internal/crd"
@@ -180,14 +181,22 @@ func (c *ClusterConn) signalRefresh() {
 }
 
 // onWatchError flips a synced connection to Stale when a list/watch fails.
-// Pre-sync watch errors (state Connecting) are left to the connect-timeout
-// path, so this is a no-op unless we are currently Synced or Degraded.
+// Pre-sync errors are remembered so connect-timeout can report auth/tooling
+// failures instead of hiding them behind a generic timeout.
 func (c *ClusterConn) onWatchError(err error) {
-	c.mu.RLock()
+	msg := cluster.FriendlyErrorMessage(err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	st := c.state
-	c.mu.RUnlock()
 	if st == Synced || st == Degraded {
-		c.setState(EvWatchDrop, "watch error: "+err.Error())
+		if next, ok := Transition(c.state, EvWatchDrop); ok {
+			c.state = next
+			c.reason = "watch error: " + msg
+		}
+		return
+	}
+	if st == Connecting || st == Failed {
+		c.reason = msg
 	}
 }
 
@@ -267,8 +276,19 @@ func (c *ClusterConn) connectLoop(ctx context.Context, nodeInformer, podInformer
 			c.startCapHealth(ctx, caps)
 			return
 		}
-		c.setState(EvConnError, "connect timed out after "+c.connectTimeout.String())
+		reason := c.connectFailureReason()
+		msg := "connect timed out after " + c.connectTimeout.String()
+		if reason != "" {
+			msg += ": " + reason
+		}
+		c.setState(EvConnError, msg)
 	}
+}
+
+func (c *ClusterConn) connectFailureReason() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.reason
 }
 
 // refreshLoop recomputes counts on coalesced informer events for the lifetime of

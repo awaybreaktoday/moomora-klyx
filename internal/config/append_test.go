@@ -58,6 +58,41 @@ func TestAppendClustersCreatesNewFile(t *testing.T) {
 	}
 }
 
+func TestAppendClustersEnrichesEKSContext(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fleet.yaml")
+	ctx := "arn:aws:eks:us-east-1:934692410245:cluster/eks-tooling"
+
+	if err := AppendClusters(path, []string{ctx}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	s := string(got)
+	for _, want := range []string{
+		"- name: eks-tooling",
+		`context: "arn:aws:eks:us-east-1:934692410245:cluster/eks-tooling"`,
+		"provider: eks",
+		"region: us-east-1",
+		`account: "934692410245"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("appended EKS config missing %q:\n%s", want, s)
+		}
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("result must load: %v", err)
+	}
+	if cfg.Clusters[0].Name != "eks-tooling" || cfg.Clusters[0].Context != ctx {
+		t.Fatalf("cluster identity wrong: %+v", cfg.Clusters[0])
+	}
+	if cfg.Clusters[0].Tags["account"] != "934692410245" {
+		t.Fatalf("account tag wrong: %+v", cfg.Clusters[0].Tags)
+	}
+}
+
 func TestAppendClustersRefusesDuplicates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fleet.yaml")
@@ -69,6 +104,9 @@ func TestAppendClustersRefusesDuplicates(t *testing.T) {
 	}
 	if err := AppendClusters(path, []string{"a"}); err == nil {
 		t.Fatal("want duplicate-name error")
+	}
+	if err := AppendClusters(path, []string{"ctx-new", "ctx-new"}); err == nil {
+		t.Fatal("want duplicate-within-request error")
 	}
 	got, _ := os.ReadFile(path)
 	if strings.Count(string(got), "- name:") != 1 {

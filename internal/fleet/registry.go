@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/moomora/klyx/internal/cluster"
 	"github.com/moomora/klyx/internal/config"
 )
 
@@ -44,7 +45,7 @@ func (r *Registry) Start(ctx context.Context) {
 		if err != nil {
 			r.entries = append(r.entries, entry{
 				failed: true, failName: cc.Name,
-				failMsg: fmt.Sprintf("failed to connect: %v", err),
+				failMsg: fmt.Sprintf("failed to connect: %s", cluster.FriendlyErrorMessage(err)),
 			})
 			continue
 		}
@@ -73,7 +74,7 @@ func (r *Registry) Add(ctx context.Context, cc config.ClusterConfig) error {
 	}
 	conn, err := r.factory(cc)
 	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
+		return fmt.Errorf("failed to connect: %s", cluster.FriendlyErrorMessage(err))
 	}
 	conn.Start(ctx)
 	r.entries = append(r.entries, entry{conn: conn})

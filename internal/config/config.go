@@ -116,6 +116,7 @@ func (c *Config) applyDefaults() {
 		if c.Clusters[i].Context == "" {
 			c.Clusters[i].Context = c.Clusters[i].Name
 		}
+		c.Clusters[i].applyDerivedDefaults()
 	}
 }
 

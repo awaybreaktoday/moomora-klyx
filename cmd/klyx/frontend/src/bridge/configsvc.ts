@@ -7,6 +7,9 @@ export type FleetClusterConfigDTO = {
   name: string;
   context: string;
   env: string;
+  region: string;
+  provider: string;
+  account: string;
   group: string;
   protected: boolean;
   hasMetrics: boolean;

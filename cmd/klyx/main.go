@@ -11,6 +11,7 @@ import (
 	"github.com/moomora/klyx/internal/clock"
 	"github.com/moomora/klyx/internal/clustermesh"
 	"github.com/moomora/klyx/internal/config"
+	"github.com/moomora/klyx/internal/execenv"
 	"github.com/moomora/klyx/internal/fleet"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -30,6 +31,8 @@ func configPath() string {
 }
 
 func main() {
+	execenv.ApplyDesktopToolPath()
+
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		log.Printf("warn: could not load fleet config (%v); starting with empty fleet", err)

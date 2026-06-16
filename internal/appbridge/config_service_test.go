@@ -116,6 +116,38 @@ func TestAddClustersHotAddsToRunningFleet(t *testing.T) {
 	}
 }
 
+func TestAddClustersHotAddsEKSContextWithDerivedIdentity(t *testing.T) {
+	ctx := "arn:aws:eks:us-east-1:934692410245:cluster/eks-tooling"
+	s := testConfigService(t, []string{ctx}, nil)
+	s.appendClusters = func(string, []string) error { return nil }
+	var connected config.ClusterConfig
+	s.connect = func(cc config.ClusterConfig) error {
+		connected = cc
+		return nil
+	}
+
+	if r := s.AddClusters([]string{ctx}); !r.OK {
+		t.Fatalf("AddClusters failed: %+v", r)
+	}
+	if connected.Name != "eks-tooling" || connected.Context != ctx {
+		t.Fatalf("hot-added EKS identity wrong: %+v", connected)
+	}
+	if connected.Tags["provider"] != "eks" || connected.Tags["region"] != "us-east-1" || connected.Tags["account"] != "934692410245" {
+		t.Fatalf("hot-added EKS tags wrong: %+v", connected.Tags)
+	}
+
+	dto := s.GetFleetConfig()
+	var found FleetClusterDTO
+	for _, c := range dto.Clusters {
+		if c.Name == "eks-tooling" {
+			found = c
+		}
+	}
+	if found.Provider != "eks" || found.Region != "us-east-1" || found.Account != "934692410245" {
+		t.Fatalf("settings DTO did not expose EKS tags: %+v", found)
+	}
+}
+
 func TestAddClustersReportsConnectFailureHonestly(t *testing.T) {
 	s := testConfigService(t, []string{"ctx-bad"}, nil)
 	s.appendClusters = func(string, []string) error { return nil }
