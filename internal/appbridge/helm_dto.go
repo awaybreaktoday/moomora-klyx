@@ -12,8 +12,8 @@ type HelmReleaseDTO struct {
 }
 
 // HelmReleasesResultDTO is the response from ListHelmReleases.
-// Available is false when the helm binary is not on PATH or the cluster has no
-// kubeContext; in that case Message explains why and Releases is nil.
+// Available is false when the helm binary cannot be resolved or the cluster has
+// no kubeContext; in that case Message explains why and Releases is nil.
 type HelmReleasesResultDTO struct {
 	Available bool             `json:"available"`
 	Message   string           `json:"message,omitempty"`

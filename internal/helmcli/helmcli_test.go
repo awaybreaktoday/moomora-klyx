@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -276,6 +277,69 @@ func TestRollback_PropagatesError(t *testing.T) {
 	}
 }
 
+// ---------- executable resolution tests ----------
+
+func TestResolve_UsesConfiguredPath(t *testing.T) {
+	withHelmResolution(t,
+		func(string) (string, error) { return "", exec.ErrNotFound },
+		func(path string) bool { return path == "/custom/helm" },
+		func() []string { return []string{"/fallback/helm"} },
+	)
+	t.Setenv("KLYX_HELM_PATH", "/custom/helm")
+
+	got, ok := Resolve()
+	if !ok {
+		t.Fatal("want configured helm path to resolve")
+	}
+	if got != "/custom/helm" {
+		t.Fatalf("want configured path, got %q", got)
+	}
+}
+
+func TestResolve_UsesPathBeforeFallback(t *testing.T) {
+	withHelmResolution(t,
+		func(string) (string, error) { return "/path/helm", nil },
+		func(string) bool { return true },
+		func() []string { return []string{"/fallback/helm"} },
+	)
+
+	got, ok := Resolve()
+	if !ok {
+		t.Fatal("want PATH helm to resolve")
+	}
+	if got != "/path/helm" {
+		t.Fatalf("want PATH helm, got %q", got)
+	}
+}
+
+func TestResolve_UsesFallbackPath(t *testing.T) {
+	withHelmResolution(t,
+		func(string) (string, error) { return "", exec.ErrNotFound },
+		func(path string) bool { return path == "/fallback/helm" },
+		func() []string { return []string{"/fallback/helm"} },
+	)
+
+	got, ok := Resolve()
+	if !ok {
+		t.Fatal("want fallback helm to resolve")
+	}
+	if got != "/fallback/helm" {
+		t.Fatalf("want fallback path, got %q", got)
+	}
+}
+
+func TestDetect_UsesFallbackPath(t *testing.T) {
+	withHelmResolution(t,
+		func(string) (string, error) { return "", exec.ErrNotFound },
+		func(path string) bool { return path == "/fallback/helm" },
+		func() []string { return []string{"/fallback/helm"} },
+	)
+
+	if !Detect() {
+		t.Fatal("want Detect to use fallback helm locations")
+	}
+}
+
 // ---------- parseUpdated edge cases ----------
 
 func TestParseUpdated_RFC3339(t *testing.T) {
@@ -330,6 +394,27 @@ func assertArg(t *testing.T, args []string, want string) {
 		}
 	}
 	t.Errorf("expected arg %q in %v", want, args)
+}
+
+func withHelmResolution(
+	t *testing.T,
+	lp func(string) (string, error),
+	exists func(string) bool,
+	fallbacks func() []string,
+) {
+	t.Helper()
+	oldLookPath := lookPath
+	oldExecutableExists := executableExists
+	oldHelmFallbackPaths := helmFallbackPaths
+	t.Cleanup(func() {
+		lookPath = oldLookPath
+		executableExists = oldExecutableExists
+		helmFallbackPaths = oldHelmFallbackPaths
+	})
+	lookPath = lp
+	executableExists = exists
+	helmFallbackPaths = fallbacks
+	t.Setenv("KLYX_HELM_PATH", "")
 }
 
 // ExecRunner smoke test: just confirm it tries to run helm (will skip if helm

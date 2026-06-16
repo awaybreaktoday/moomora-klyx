@@ -8,7 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -25,10 +28,20 @@ type Runner interface {
 // it to the UI without a separate stderr read.
 type ExecRunner struct{}
 
+var (
+	lookPath          = exec.LookPath
+	executableExists  = defaultExecutableExists
+	helmFallbackPaths = defaultHelmFallbackPaths
+)
+
 // Run executes helm with the given args. If helm exits non-zero it returns an
 // error whose message includes the combined stderr text.
 func (ExecRunner) Run(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "helm", args...) //nolint:gosec
+	bin, ok := Resolve()
+	if !ok {
+		bin = "helm"
+	}
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -42,10 +55,72 @@ func (ExecRunner) Run(ctx context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-// Detect reports whether the helm binary is available on PATH.
+// Detect reports whether the helm binary is available to Klyx.
 func Detect() bool {
-	_, err := exec.LookPath("helm")
-	return err == nil
+	_, ok := Resolve()
+	return ok
+}
+
+// Resolve returns the helm executable Klyx should use. macOS .app launches do
+// not inherit the user's interactive shell PATH, so we also check the usual
+// Homebrew and package-manager locations.
+func Resolve() (string, bool) {
+	if configured := strings.TrimSpace(os.Getenv("KLYX_HELM_PATH")); configured != "" {
+		if executableExists(configured) {
+			return configured, true
+		}
+	}
+	if p, err := lookPath("helm"); err == nil {
+		return p, true
+	}
+	for _, candidate := range helmFallbackPaths() {
+		if executableExists(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func defaultExecutableExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return info.Mode()&0111 != 0
+}
+
+func defaultHelmFallbackPaths() []string {
+	switch runtime.GOOS {
+	case "darwin":
+		return []string{
+			"/opt/homebrew/bin/helm",
+			"/usr/local/bin/helm",
+			"/opt/local/bin/helm",
+		}
+	case "linux":
+		return []string{
+			"/usr/local/bin/helm",
+			"/usr/bin/helm",
+			"/snap/bin/helm",
+		}
+	case "windows":
+		var paths []string
+		if root := strings.TrimSpace(os.Getenv("ChocolateyInstall")); root != "" {
+			paths = append(paths, filepath.Join(root, "bin", "helm.exe"))
+		}
+		if root := strings.TrimSpace(os.Getenv("ProgramData")); root != "" {
+			paths = append(paths, filepath.Join(root, "chocolatey", "bin", "helm.exe"))
+		}
+		if root := strings.TrimSpace(os.Getenv("ProgramFiles")); root != "" {
+			paths = append(paths, filepath.Join(root, "Helm", "bin", "helm.exe"))
+		}
+		return paths
+	default:
+		return nil
+	}
 }
 
 // Release is one entry from `helm list -A -o json`.

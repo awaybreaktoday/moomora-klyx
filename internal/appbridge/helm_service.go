@@ -8,8 +8,8 @@ import (
 )
 
 // DetectFunc is the seam for helm binary detection. Tests replace it with a
-// stub that returns false (binary absent) or true (present) without touching
-// PATH. Production leaves it as helmcli.Detect.
+// stub that returns false (binary absent) or true (present) without depending
+// on the host environment. Production leaves it as helmcli.Detect.
 var DetectFunc = helmcli.Detect
 
 // HelmConn is the per-cluster surface HelmService needs.
@@ -39,7 +39,7 @@ func (s *HelmService) ListHelmReleases(cluster string) HelmReleasesResultDTO {
 	if !DetectFunc() {
 		return HelmReleasesResultDTO{
 			Available: false,
-			Message:   "helm not found in PATH",
+			Message:   "helm not found",
 			Releases:  []HelmReleaseDTO{},
 		}
 	}

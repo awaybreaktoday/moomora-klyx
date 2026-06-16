@@ -86,12 +86,12 @@ describe("HelmView", () => {
 
   // ----- capability-absent state -----
 
-  it("shows honest empty state when not available (helm not in PATH)", () => {
+  it("shows honest empty state when not available (helm not found)", () => {
     useFleet.setState((s) => ({
-      helm: { ...s.helm, cluster: "homelab", available: false, message: "helm not found in PATH", loading: false },
+      helm: { ...s.helm, cluster: "homelab", available: false, message: "helm not found", loading: false },
     }));
     const { getByText } = render(<HelmView cluster="homelab" />);
-    expect(getByText(/helm not found in PATH — install helm to inspect releases/)).toBeTruthy();
+    expect(getByText(/helm not found - install helm or set KLYX_HELM_PATH to inspect releases/)).toBeTruthy();
   });
 
   it("shows raw message when available:false and message is not PATH-related", () => {

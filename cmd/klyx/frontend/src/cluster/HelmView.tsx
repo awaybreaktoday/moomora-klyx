@@ -67,8 +67,8 @@ export function HelmView({ cluster }: { cluster: string }) {
 
   // availability gate
   if (!helm.loading && !helm.available) {
-    const displayMsg = helm.message.includes("not found in PATH")
-      ? "helm not found in PATH — install helm to inspect releases"
+    const displayMsg = helm.message.includes("helm not found")
+      ? "helm not found - install helm or set KLYX_HELM_PATH to inspect releases"
       : helm.message || "helm not available for this cluster";
     return (
       <div style={{ padding: 24, color: "var(--color-text-secondary)", fontSize: 13 }}>
