@@ -45,6 +45,7 @@ type Conn interface {
 	GitOpsSources() []flux.Source
 	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	Reconcile(ctx context.Context, kind, ns, name string) error
+	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 	ListCRDs(ctx context.Context) ([]crd.Info, error)

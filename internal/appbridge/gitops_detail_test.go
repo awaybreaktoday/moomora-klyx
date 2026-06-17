@@ -60,6 +60,9 @@ func (f *fakeGitOpsSummaryConn) GitOpsSourceObject(kind, namespace, name string)
 func (f *fakeGitOpsSummaryConn) Reconcile(ctx context.Context, kind, ns, name string) error {
 	return nil
 }
+func (f *fakeGitOpsSummaryConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	return nil
+}
 func (f *fakeGitOpsSummaryConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil
 }

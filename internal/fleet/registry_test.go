@@ -46,6 +46,9 @@ func (f *fakeConn) GitOpsSourceObject(kind, namespace, name string) (*unstructur
 	return nil, false
 }
 func (f *fakeConn) Reconcile(ctx context.Context, kind, ns, name string) error { return nil }
+func (f *fakeConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	return nil
+}
 func (f *fakeConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil
 }

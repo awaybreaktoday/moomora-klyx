@@ -26,6 +26,7 @@ type fakeGitOpsConn struct {
 	reconcileErr error
 	suspendErr   error
 	lastSuspend  bool
+	withSource   bool
 }
 
 func (f *fakeGitOpsConn) OpenGitOps()  { f.mu.Lock(); f.opened++; f.mu.Unlock() }
@@ -52,6 +53,12 @@ func (f *fakeGitOpsConn) GitOpsSourceObject(kind, namespace, name string) (*unst
 }
 
 func (f *fakeGitOpsConn) Reconcile(ctx context.Context, kind, ns, name string) error {
+	return f.reconcileErr
+}
+func (f *fakeGitOpsConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	f.mu.Lock()
+	f.withSource = true
+	f.mu.Unlock()
 	return f.reconcileErr
 }
 func (f *fakeGitOpsConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
@@ -172,6 +179,26 @@ func TestReconcileActionSurfacesError(t *testing.T) {
 	r := svc.Reconcile("x", "Kustomization", "flux-system", "app")
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure surfaced, got %+v", r)
+	}
+}
+
+func TestReconcileWithSourceActionResult(t *testing.T) {
+	conn := &fakeGitOpsConn{}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.ReconcileWithSource("x", "Kustomization", "flux-system", "app"); !r.OK || r.Error != "" {
+		t.Fatalf("want OK, got %+v", r)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if !conn.withSource {
+		t.Fatal("expected ReconcileWithSource to reach the conn")
+	}
+}
+
+func TestReconcileWithSourceUnknownClusterIsError(t *testing.T) {
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return nil, false }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.ReconcileWithSource("ghost", "Kustomization", "n", "x"); r.OK || r.Error == "" {
+		t.Fatalf("want failure for unknown cluster, got %+v", r)
 	}
 }
 

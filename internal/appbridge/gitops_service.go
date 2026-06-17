@@ -19,6 +19,7 @@ type GitOpsConn interface {
 	GitOpsSources() []flux.Source
 	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	Reconcile(ctx context.Context, kind, ns, name string) error
+	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 	// GitOpsSummaryFlux performs a cluster-wide on-demand LIST and returns counts.
@@ -124,6 +125,19 @@ func (s *GitOpsService) Reconcile(cluster, kind, namespace, name string) ActionR
 	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
 	defer cancel()
 	if err := conn.Reconcile(ctx, kind, namespace, name); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
+}
+
+func (s *GitOpsService) ReconcileWithSource(cluster, kind, namespace, name string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.ReconcileWithSource(ctx, kind, namespace, name); err != nil {
 		return ActionResultDTO{Error: err.Error()}
 	}
 	return ActionResultDTO{OK: true}
