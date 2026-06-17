@@ -18,6 +18,8 @@ type fakeGitOpsConn struct {
 	closed int
 	res    []flux.Resource
 	obj    *unstructured.Unstructured
+	srcObj *unstructured.Unstructured
+	srcs   []flux.Source
 
 	sourceURL string
 
@@ -39,6 +41,14 @@ func (f *fakeGitOpsConn) GitOpsObject(kind, namespace, name string) (*unstructur
 		return nil, false
 	}
 	return f.obj, true
+}
+
+func (f *fakeGitOpsConn) GitOpsSources() []flux.Source { return f.srcs }
+func (f *fakeGitOpsConn) GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	if f.srcObj == nil {
+		return nil, false
+	}
+	return f.srcObj, true
 }
 
 func (f *fakeGitOpsConn) Reconcile(ctx context.Context, kind, ns, name string) error {

@@ -16,6 +16,8 @@ type GitOpsConn interface {
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	GitOpsSources() []flux.Source
+	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
@@ -38,6 +40,7 @@ const GitOpsUpdatedEvent = "gitops:updated"
 type gitOpsPayload struct {
 	Cluster   string            `json:"cluster"`
 	Resources []FluxResourceDTO `json:"resources"`
+	Sources   []FluxSourceDTO   `json:"sources"`
 }
 
 // GitOpsService is bound to JS. Open starts a cluster's lazy watch and pushes
@@ -101,7 +104,12 @@ func (s *GitOpsService) pushLoop(ctx context.Context, cluster string, conn GitOp
 			for _, r := range res {
 				dtos = append(dtos, ToFluxDTO(r, now))
 			}
-			s.em.Emit(GitOpsUpdatedEvent, gitOpsPayload{Cluster: cluster, Resources: dtos})
+			srcs := conn.GitOpsSources()
+			srcDTOs := make([]FluxSourceDTO, 0, len(srcs))
+			for _, sr := range srcs {
+				srcDTOs = append(srcDTOs, toSourceDTO(sr))
+			}
+			s.em.Emit(GitOpsUpdatedEvent, gitOpsPayload{Cluster: cluster, Resources: dtos, Sources: srcDTOs})
 		}
 	}
 }
@@ -145,7 +153,16 @@ func (s *GitOpsService) GetResourceDetail(cluster, kind, namespace, name string)
 	if !ok {
 		return ResourceDetailDTO{}
 	}
-	return toDetailDTO(flux.ParseDetail(u))
+	d := toDetailDTO(flux.ParseDetail(u))
+	// Embed the bound source's health so a stuck resource's root cause (a source
+	// that is not pulling) is visible in the detail panel without a separate read.
+	if ref, ok := flux.BoundSource(u); ok {
+		if su, ok := conn.GitOpsSourceObject(ref.Kind, ref.Namespace, ref.Name); ok {
+			src := toSourceDTO(flux.ParseSource(su))
+			d.Source = &src
+		}
+	}
+	return d
 }
 
 // GetGitOpsSummary returns a point-in-time Flux summary for the named cluster.

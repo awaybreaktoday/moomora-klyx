@@ -56,6 +56,33 @@ type GitLinkDTO struct {
 	CopyText   string `json:"copyText"`
 }
 
+// FluxSourceDTO is the JSON projection of a Flux source object's fetch state.
+type FluxSourceDTO struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Ready     string `json:"ready"`
+	Reason    string `json:"reason"`
+	Message   string `json:"message"`
+	Revision  string `json:"revision"`
+	URL       string `json:"url"`
+	Suspended bool   `json:"suspended"`
+}
+
+func toSourceDTO(s flux.Source) FluxSourceDTO {
+	return FluxSourceDTO{
+		Kind:      string(s.Kind),
+		Namespace: s.Namespace,
+		Name:      s.Name,
+		Ready:     string(s.Ready),
+		Reason:    s.Reason,
+		Message:   s.Message,
+		Revision:  s.Revision,
+		URL:       s.URL,
+		Suspended: s.Suspended,
+	}
+}
+
 type ConditionDTO struct {
 	Type    string `json:"type"`
 	Status  string `json:"status"`
@@ -81,6 +108,7 @@ type ResourceDetailDTO struct {
 	ApplyFailed       bool                `json:"applyFailed"`
 	Conditions        []ConditionDTO      `json:"conditions"`
 	Inventory         []InventoryEntryDTO `json:"inventory"`
+	Source            *FluxSourceDTO      `json:"source"`
 }
 
 func toDetailDTO(d flux.Detail) ResourceDetailDTO {
