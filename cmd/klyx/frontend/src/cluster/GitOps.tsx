@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useFleet } from "../store/fleet";
 import type { FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
-import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
+import { openGitOps, closeGitOps, getResourceDetail, reconcile, reconcileWithSource, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
 const readyColor: Record<string, string> = {
@@ -112,7 +112,7 @@ export function GitOps({ cluster }: { cluster: string }) {
   const expand = useFleet((s) => s.expand);
   const collapse = useFleet((s) => s.collapse);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const [pending, setPending] = useState<null | { verb: "reconcile" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
+  const [pending, setPending] = useState<null | { verb: "reconcile" | "reconcile-source" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
   const [filter, setFilter] = useState<FluxFilter>("all");
   const [query, setQuery] = useState("");
   const absent = tier === "Absent";
@@ -241,6 +241,7 @@ export function GitOps({ cluster }: { cluster: string }) {
                 resource={selectedResource}
                 detail={selectedDetail}
                 onReconcile={() => setPending({ verb: "reconcile", r: selectedResource })}
+                onReconcileWithSource={() => setPending({ verb: "reconcile-source", r: selectedResource })}
                 onToggleSuspend={(isSuspended) => setPending({ verb: isSuspended ? "resume" : "suspend", r: selectedResource })}
                 onViewGit={() => void resolveGitLink(cluster, selectedResource.kind, selectedResource.namespace, selectedResource.name)}
               />
@@ -253,17 +254,28 @@ export function GitOps({ cluster }: { cluster: string }) {
 
       {pending && (
         <ConfirmDialog
-          title={pending.verb === "reconcile" ? "Reconcile" : pending.verb === "suspend" ? "Suspend reconciliation" : "Resume reconciliation"}
+          title={
+            pending.verb === "reconcile" ? "Reconcile"
+              : pending.verb === "reconcile-source" ? "Reconcile with source"
+                : pending.verb === "suspend" ? "Suspend reconciliation"
+                  : "Resume reconciliation"
+          }
           cluster={cluster}
           detail={`${pending.r.kind} ${pending.r.namespace}/${pending.r.name}`}
           protected={isProtected}
           danger={pending.verb === "suspend"}
-          confirmLabel={pending.verb === "reconcile" ? "Reconcile" : pending.verb === "suspend" ? "Suspend" : "Resume"}
+          confirmLabel={
+            pending.verb === "reconcile" ? "Reconcile"
+              : pending.verb === "reconcile-source" ? "Reconcile + source"
+                : pending.verb === "suspend" ? "Suspend"
+                  : "Resume"
+          }
           onCancel={() => setPending(null)}
           onConfirm={() => {
             const { verb, r } = pending;
             setPending(null);
             if (verb === "reconcile") void reconcile(cluster, r.kind, r.namespace, r.name);
+            else if (verb === "reconcile-source") void reconcileWithSource(cluster, r.kind, r.namespace, r.name);
             else void setSuspend(cluster, r.kind, r.namespace, r.name, verb === "suspend");
           }}
         />
@@ -352,10 +364,11 @@ function SourceRow({ s }: { s: FluxSourceDTO }) {
   );
 }
 
-function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit }: {
+function DetailPanel({ resource, detail, onReconcile, onReconcileWithSource, onToggleSuspend, onViewGit }: {
   resource: FluxResourceDTO;
   detail: ResourceDetailDTO | null;
   onReconcile: () => void;
+  onReconcileWithSource: () => void;
   onToggleSuspend: (suspended: boolean) => void;
   onViewGit: () => void;
 }) {
@@ -374,6 +387,7 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
       <InspectorHeader resource={resource} color={headerColor} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, marginBottom: 8, flexWrap: "wrap" }}>
         <button onClick={onReconcile} style={actionBtn}>Reconcile</button>
+        <button onClick={onReconcileWithSource} style={actionBtn}>Reconcile with source</button>
         <button onClick={() => onToggleSuspend(detail.suspended ?? false)} style={actionBtn}>
           {detail.suspended ? "Resume" : "Suspend"}
         </button>

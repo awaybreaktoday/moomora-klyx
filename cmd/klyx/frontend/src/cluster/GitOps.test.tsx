@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { useFleet, FluxResourceDTO, FluxSourceDTO, ClusterDTO } from "../store/fleet";
-import { reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
+import { reconcile, reconcileWithSource, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { GitOps } from "./GitOps";
 
 vi.mock("../bridge/gitops", () => ({
@@ -9,6 +9,7 @@ vi.mock("../bridge/gitops", () => ({
   closeGitOps: async () => {},
   getResourceDetail: async () => {},
   reconcile: vi.fn(),
+  reconcileWithSource: vi.fn(),
   setSuspend: vi.fn(),
   resolveGitLink: vi.fn(),
 }));
@@ -127,6 +128,15 @@ describe("GitOps view", () => {
     const reconcileButtons = getAllByRole("button", { name: "Reconcile" });
     fireEvent.click(reconcileButtons[reconcileButtons.length - 1]); // dialog confirm is last in DOM
     expect(reconcile).toHaveBeenCalledWith("x", "Kustomization", "flux-system", "flux-system");
+  });
+
+  it("reconcile-with-source flows through the confirm dialog", () => {
+    useFleet.setState({ clusters: [cluster("Healthy")], gitops: expandedDetail() });
+    const { getByText, getAllByRole } = render(<GitOps cluster="x" />);
+    fireEvent.click(getByText("Reconcile with source"));            // panel button opens the dialog
+    const confirmButtons = getAllByRole("button", { name: "Reconcile + source" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);      // dialog confirm
+    expect(reconcileWithSource).toHaveBeenCalledWith("x", "Kustomization", "flux-system", "flux-system");
   });
 
   it("shows Resume + a suspended badge when detail.suspended is true", () => {
