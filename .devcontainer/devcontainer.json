@@ -1,0 +1,103 @@
+{
+  // ==========================================================================
+  // Devcontainer template (hardened) — rendered by `vibe-devcontainer`.
+  // --------------------------------------------------------------------------
+  // Design choices:
+  //   1. Claude Code installed via the official Feature (pinned), not curl.
+  //   2. ~/.claude is a per-project NAMED VOLUME, not a host bind-mount —
+  //      project code can't read/exfiltrate your real host credentials, and
+  //      parallel containers can't clobber one shared config.
+  //   3. Host secret mounts (SSH key, gh token, kubeconfig) are OPT-IN,
+  //      commented out by default. Uncomment per-project only when needed.
+  //   4. Non-root remoteUser made explicit (required for --dangerously-skip-
+  //      permissions and for the Feature's VS Code extension install).
+  //   5. Optional egress firewall + telemetry opt-out shown as comments.
+  // ==========================================================================
+  "name": "moomorqklyx",
+  "image": "mcr.microsoft.com/devcontainers/base:trixie",
+  "runArgs": [
+    "--name", "moomorqklyx"
+    // --- Optional egress firewall (default-deny outbound) -------------------
+    // Requires the reference init-firewall.sh in .devcontainer/ and a matching
+    // "postStartCommand". See:
+    // https://github.com/anthropics/claude-code/blob/main/.devcontainer/init-firewall.sh
+    // , "--cap-add=NET_ADMIN", "--cap-add=NET_RAW"
+  ],
+
+  // Non-root user — lets you safely pass --dangerously-skip-permissions and is
+  // required by the Claude Code Feature's VS Code extension install.
+  "remoteUser": "vscode",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest",
+      "enableNonRootDocker": "true",
+      "moby": "false"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "latest",
+      "helm": "latest",
+      "minikube": "none"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    // Official Claude Code Feature: cached, pins the install script, and adds
+    // the VS Code extension. Replaces the old `curl | bash` in postCreate.
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+
+  "mounts": [
+    // --- Agent config: per-project named volumes (NOT host bind-mounts) -----
+    // ${devcontainerId} isolates each project's auth/session state. You sign in
+    // to Claude once per project; your real host credentials are never exposed
+    // to project code. State survives container rebuilds.
+    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+
+    // --- Git identity (config only, not a secret) — safe to share read-only --
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly"
+
+    // ======================================================================
+    // OPT-IN HOST SECRET MOUNTS — uncomment per-project ONLY when needed.
+    // Anthropic explicitly advises against mounting host secrets into a
+    // devcontainer: with skip-permissions, a malicious dependency in the repo
+    // can exfiltrate anything reachable here. Prefer short-lived tokens.
+    // ======================================================================
+    //
+    // SSH key (only if this project pushes over git+ssh):
+    // , "source=${localEnv:HOME}/.ssh/id_ed25519,target=/home/vscode/.ssh/id_ed25519,type=bind,readonly"
+    // , "source=${localEnv:HOME}/.ssh/known_hosts,target=/home/vscode/.ssh/known_hosts,type=bind,consistency=cached"
+    //
+    // GitHub CLI auth (alternative: run `gh auth login` inside the container,
+    // or inject a short-lived token via containerEnv GH_TOKEN below):
+    // , "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,readonly"
+    //
+    // Kubeconfig (only if this project talks to your cluster):
+    // , "source=${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind,readonly"
+  ],
+
+  // MCP servers: define them per-project in a checked-in .mcp.json at the repo
+  // root (project scope), and install any stdio-server binaries in a Dockerfile.
+  // This replaces inheriting the host's global ~/.claude.json. See:
+  // https://code.claude.com/docs/en/mcp#mcp-installation-scopes
+
+  "containerEnv": {
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+    // Inject a short-lived GitHub token instead of mounting ~/.config/gh
+    // (requires GH_TOKEN exported on the host):
+    // , "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    //
+    // Optional: opt out of non-essential traffic / pin behavior:
+    // , "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    // , "DISABLE_AUTOUPDATER": "1"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ]
+    }
+  }
+}

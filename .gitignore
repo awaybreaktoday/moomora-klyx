@@ -32,3 +32,4 @@
 
 # Visual brainstorm companion
 /.superpowers/
+.env
