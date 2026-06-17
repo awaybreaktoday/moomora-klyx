@@ -311,6 +311,7 @@ function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; o
       <div style={{ minWidth: 0 }}>
         <span style={{ fontFamily: "var(--font-mono)" }}>{r.namespace}/{r.name}</span>{" "}
         <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>{r.kind === "Kustomization" ? "ks" : "hr"}</span>
+        {needsAttention(r) && r.reason && <ReasonChip reason={r.reason} bad={isBad} />}
         {r.message && needsAttention(r) && (
           <div style={{ color: isBad ? "var(--color-text-danger)" : "var(--color-text-warning)", fontSize: 11, marginTop: 2, ...ellipsis }} title={r.message}>{r.message}</div>
         )}
@@ -460,11 +461,35 @@ function InspectorHeader({ resource, color }: { resource: FluxResourceDTO; color
       <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, marginTop: 2 }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 600, ...ellipsis }}>{resource.name}</span>
         <span style={{ color, fontSize: 11 }}>{statusText(resource)}</span>
+        {needsAttention(resource) && resource.reason && <ReasonChip reason={resource.reason} bad={resource.ready === "Failed"} />}
       </div>
       {resource.message && needsAttention(resource) && (
         <div style={{ color: resource.ready === "Failed" ? "var(--color-text-danger)" : "var(--color-text-warning)", marginTop: 6, ...ellipsis }} title={resource.message}>{resource.message}</div>
       )}
     </div>
+  );
+}
+
+function ReasonChip({ reason, bad }: { reason: string; bad: boolean }) {
+  const tone = bad ? "danger" : "warning";
+  return (
+    <span
+      title={reason}
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 9,
+        padding: "1px 5px",
+        borderRadius: 3,
+        marginLeft: 6,
+        verticalAlign: "middle",
+        border: `0.5px solid var(--color-border-${tone})`,
+        color: `var(--color-text-${tone})`,
+        background: `var(--color-background-${tone})`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {reason}
+    </span>
   );
 }
 

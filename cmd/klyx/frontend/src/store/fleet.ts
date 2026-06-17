@@ -30,6 +30,7 @@ export type FluxResourceDTO = {
   namespace: string;
   name: string;
   ready: string;
+  reason: string;
   message: string;
   revision: string;
   lastAppliedAgeSeconds: number;

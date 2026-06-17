@@ -21,7 +21,7 @@ const cluster = (tier: string): ClusterDTO => ({
 });
 const res = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
   kind: "Kustomization", namespace: "flux-system", name: "flux-system", ready: "Ready",
-  message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false,
+  reason: "", message: "", revision: "main@abc", lastAppliedAgeSeconds: 1, suspended: false,
   sourceKind: "", sourceName: "", ...over,
 });
 
@@ -58,6 +58,14 @@ describe("GitOps view", () => {
     expect(getByText("flux-system/flux-system")).toBeTruthy();
     expect(getByText("flux-system/cilium")).toBeTruthy();
     expect(getByText(/install failed/i)).toBeTruthy();
+  });
+
+  it("shows the failing condition reason as a chip on the row", () => {
+    useFleet.setState({ gitops: { cluster: "x", resources: [
+      res({ kind: "HelmRelease", name: "cilium", ready: "Failed", reason: "UpgradeFailed", message: "upgrade retries exhausted" }),
+    ], sources: [], loading: false, expandedKey: null, detail: null } });
+    const { getAllByText } = render(<GitOps cluster="x" />);
+    expect(getAllByText("UpgradeFailed").length).toBeGreaterThan(0);
   });
 
   it("owns scrolling inside the hidden cluster page shell", () => {
