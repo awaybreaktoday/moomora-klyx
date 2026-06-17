@@ -37,6 +37,21 @@ func TestToDetailDTOApplyOK(t *testing.T) {
 	}
 }
 
+func TestToDetailDTOReasonAndDependsOn(t *testing.T) {
+	d := flux.Detail{
+		Kind: flux.KustomizationKind, Namespace: "flux-system", Name: "apps",
+		Reason:    "DependencyNotReady",
+		DependsOn: []flux.DependencyRef{{Namespace: "flux-system", Name: "infra"}, {Namespace: "data", Name: "db"}},
+	}
+	dto := toDetailDTO(d)
+	if dto.Reason != "DependencyNotReady" {
+		t.Fatalf("reason: %q", dto.Reason)
+	}
+	if len(dto.DependsOn) != 2 || dto.DependsOn[1].Namespace != "data" || dto.DependsOn[1].Name != "db" {
+		t.Fatalf("dependsOn: %+v", dto.DependsOn)
+	}
+}
+
 // ---- GetGitOpsSummary tests -----------------------------------------------
 
 type fakeGitOpsSummaryConn struct {

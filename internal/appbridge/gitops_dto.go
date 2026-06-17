@@ -100,17 +100,24 @@ type InventoryEntryDTO struct {
 	Name      string `json:"name"`
 }
 
+type DependencyRefDTO struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
 type ResourceDetailDTO struct {
 	Kind              string              `json:"kind"`
 	Namespace         string              `json:"namespace"`
 	Name              string              `json:"name"`
 	Suspended         bool                `json:"suspended"`
+	Reason            string              `json:"reason"`
 	AppliedRevision   string              `json:"appliedRevision"`
 	AttemptedRevision string              `json:"attemptedRevision"`
 	ApplyFailed       bool                `json:"applyFailed"`
 	Conditions        []ConditionDTO      `json:"conditions"`
 	Inventory         []InventoryEntryDTO `json:"inventory"`
 	Source            *FluxSourceDTO      `json:"source"`
+	DependsOn         []DependencyRefDTO  `json:"dependsOn"`
 }
 
 func toDetailDTO(d flux.Detail) ResourceDetailDTO {
@@ -119,6 +126,7 @@ func toDetailDTO(d flux.Detail) ResourceDetailDTO {
 		Namespace:         d.Namespace,
 		Name:              d.Name,
 		Suspended:         d.Suspended,
+		Reason:            d.Reason,
 		AppliedRevision:   d.AppliedRevision,
 		AttemptedRevision: d.AttemptedRevision,
 		ApplyFailed:       d.AttemptedRevision != "" && d.AttemptedRevision != d.AppliedRevision,
@@ -128,6 +136,9 @@ func toDetailDTO(d flux.Detail) ResourceDetailDTO {
 	}
 	for _, e := range d.Inventory {
 		out.Inventory = append(out.Inventory, InventoryEntryDTO{Group: e.Group, Version: e.Version, Kind: e.Kind, Namespace: e.Namespace, Name: e.Name})
+	}
+	for _, dep := range d.DependsOn {
+		out.DependsOn = append(out.DependsOn, DependencyRefDTO{Namespace: dep.Namespace, Name: dep.Name})
 	}
 	return out
 }

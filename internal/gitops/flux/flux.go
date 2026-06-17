@@ -47,6 +47,36 @@ type Resource struct {
 	Suspended   bool
 	SourceKind  string
 	SourceName  string
+	DependsOn   []DependencyRef
+}
+
+// DependencyRef is a spec.dependsOn entry (another Kustomization/HelmRelease the
+// resource waits on). Namespace defaults to the resource's own when omitted.
+type DependencyRef struct {
+	Namespace string
+	Name      string
+}
+
+// parseDependsOn reads spec.dependsOn; namespace defaults to the object's own.
+func parseDependsOn(u *unstructured.Unstructured) []DependencyRef {
+	raw, _, _ := unstructured.NestedSlice(u.Object, "spec", "dependsOn")
+	var out []DependencyRef
+	for _, e := range raw {
+		em, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := em["name"].(string)
+		if name == "" {
+			continue
+		}
+		ns, _ := em["namespace"].(string)
+		if ns == "" {
+			ns = u.GetNamespace()
+		}
+		out = append(out, DependencyRef{Namespace: ns, Name: name})
+	}
+	return out
 }
 
 func ParseKustomization(u *unstructured.Unstructured) Resource {
@@ -90,6 +120,7 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 		r.SourceName = n
 	}
 	r.Ready, r.Reason, r.Message = readyFromConditions(u)
+	r.DependsOn = parseDependsOn(u)
 	// lastTransitionTime of the Ready condition → LastApplied (only common needs it).
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
 	for _, c := range conds {
@@ -219,10 +250,12 @@ type Detail struct {
 	Namespace         string
 	Name              string
 	Suspended         bool
+	Reason            string
 	AppliedRevision   string
 	AttemptedRevision string
 	Conditions        []Condition
 	Inventory         []InventoryEntry
+	DependsOn         []DependencyRef
 }
 
 // ParseDetail extracts the detail view from a watched Flux CR. Inventory is
@@ -232,6 +265,8 @@ func ParseDetail(u *unstructured.Unstructured) Detail {
 	d.AppliedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAppliedRevision")
 	d.AttemptedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAttemptedRevision")
 	d.Suspended, _, _ = unstructured.NestedBool(u.Object, "spec", "suspend")
+	_, d.Reason, _ = readyFromConditions(u)
+	d.DependsOn = parseDependsOn(u)
 
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
 	for _, c := range conds {
