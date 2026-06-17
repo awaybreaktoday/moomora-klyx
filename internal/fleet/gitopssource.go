@@ -9,11 +9,19 @@ import (
 )
 
 // sourceGVR maps a Flux source kind to its group, fallback version, and resource.
-// Only GitRepository is supported; OCIRepository/Bucket are future work.
 func sourceGVR(kind string) (group, fallbackVersion, resource string, ok bool) {
+	const g = "source.toolkit.fluxcd.io"
 	switch kind {
 	case "GitRepository":
-		return "source.toolkit.fluxcd.io", "v1", "gitrepositories", true
+		return g, "v1", "gitrepositories", true
+	case "OCIRepository":
+		return g, "v1beta2", "ocirepositories", true
+	case "Bucket":
+		return g, "v1", "buckets", true
+	case "HelmRepository":
+		return g, "v1", "helmrepositories", true
+	case "HelmChart":
+		return g, "v1", "helmcharts", true
 	default:
 		return "", "", "", false
 	}

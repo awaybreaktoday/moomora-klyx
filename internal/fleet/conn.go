@@ -42,6 +42,8 @@ type Conn interface {
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	GitOpsSources() []flux.Source
+	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
