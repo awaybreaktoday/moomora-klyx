@@ -16,6 +16,15 @@ const (
 	HelmReleaseKind   Kind = "HelmRelease"
 )
 
+// Source kinds Klyx watches + acts on (source.toolkit.fluxcd.io).
+const (
+	GitRepositoryKind  Kind = "GitRepository"
+	OCIRepositoryKind  Kind = "OCIRepository"
+	BucketKind         Kind = "Bucket"
+	HelmRepositoryKind Kind = "HelmRepository"
+	HelmChartKind      Kind = "HelmChart"
+)
+
 type ReadyState string
 
 const (
@@ -31,6 +40,7 @@ type Resource struct {
 	Namespace   string
 	Name        string
 	Ready       ReadyState
+	Reason      string
 	Message     string
 	Revision    string
 	LastApplied time.Time
@@ -79,9 +89,33 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 	if n, ok, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name"); ok {
 		r.SourceName = n
 	}
+	r.Ready, r.Reason, r.Message = readyFromConditions(u)
+	// lastTransitionTime of the Ready condition → LastApplied (only common needs it).
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := cm["type"].(string); t == "Ready" {
+			if lt, ok := cm["lastTransitionTime"].(string); ok {
+				if ts, err := time.Parse(time.RFC3339, lt); err == nil {
+					r.LastApplied = ts
+				}
+			}
+		}
+	}
+	return r
+}
+
+// readyFromConditions derives the aggregate Ready state, the Ready condition's
+// reason, and its message from status.conditions. Reconciling overrides Ready
+// unless Ready is Failed. Shared by common() and ParseSource.
+func readyFromConditions(u *unstructured.Unstructured) (ReadyState, string, string) {
+	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	state := Unknown
 	reconciling := false
-	r.Ready = Unknown
+	var reason, message string
 	for _, c := range conds {
 		cm, ok := c.(map[string]interface{})
 		if !ok {
@@ -93,28 +127,76 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 		case "Ready":
 			switch cstatus {
 			case "True":
-				r.Ready = Ready
+				state = Ready
 			case "False":
-				r.Ready = Failed
+				state = Failed
 			}
-			if msg, ok := cm["message"].(string); ok {
-				r.Message = msg
-			}
-			if lt, ok := cm["lastTransitionTime"].(string); ok {
-				if t, err := time.Parse(time.RFC3339, lt); err == nil {
-					r.LastApplied = t
-				}
-			}
+			reason, _ = cm["reason"].(string)
+			message, _ = cm["message"].(string)
 		case "Reconciling":
 			if cstatus == "True" {
 				reconciling = true
 			}
 		}
 	}
-	if reconciling && r.Ready != Failed {
-		r.Ready = Reconciling
+	if reconciling && state != Failed {
+		state = Reconciling
 	}
-	return r
+	return state, reason, message
+}
+
+// Source is a Flux source object's fetch state (status.artifact + Ready).
+type Source struct {
+	Kind      Kind
+	Namespace string
+	Name      string
+	Ready     ReadyState
+	Reason    string
+	Message   string
+	Revision  string
+	URL       string
+	Suspended bool
+}
+
+// ParseSource extracts a source's fetch state from a watched source CR.
+func ParseSource(u *unstructured.Unstructured) Source {
+	s := Source{Kind: Kind(u.GetKind()), Namespace: u.GetNamespace(), Name: u.GetName()}
+	s.Suspended, _, _ = unstructured.NestedBool(u.Object, "spec", "suspend")
+	s.URL, _, _ = unstructured.NestedString(u.Object, "spec", "url")
+	s.Revision, _, _ = unstructured.NestedString(u.Object, "status", "artifact", "revision")
+	s.Ready, s.Reason, s.Message = readyFromConditions(u)
+	return s
+}
+
+// SourceRef points at a source object bound to a Kustomization/HelmRelease.
+type SourceRef struct {
+	Kind      string
+	Name      string
+	Namespace string
+}
+
+// BoundSource resolves the source a Kustomization/HelmRelease reconciles from:
+// spec.sourceRef for Kustomization, spec.chartRef or spec.chart.spec.sourceRef
+// for HelmRelease. Namespace defaults to the resource's own namespace.
+func BoundSource(u *unstructured.Unstructured) (SourceRef, bool) {
+	candidates := [][]string{
+		{"spec", "sourceRef"},                  // Kustomization
+		{"spec", "chartRef"},                   // HelmRelease (newer)
+		{"spec", "chart", "spec", "sourceRef"}, // HelmRelease (chart template)
+	}
+	for _, p := range candidates {
+		name, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, p...), "name")...)
+		if name == "" {
+			continue
+		}
+		kind, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, p...), "kind")...)
+		ns, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, p...), "namespace")...)
+		if ns == "" {
+			ns = u.GetNamespace()
+		}
+		return SourceRef{Kind: kind, Name: name, Namespace: ns}, true
+	}
+	return SourceRef{}, false
 }
 
 type Condition struct {
