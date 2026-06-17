@@ -118,6 +118,7 @@ type ResourceDetailDTO struct {
 	Inventory         []InventoryEntryDTO `json:"inventory"`
 	Source            *FluxSourceDTO      `json:"source"`
 	DependsOn         []DependencyRefDTO  `json:"dependsOn"`
+	Events            []EventRowDTO       `json:"events"`
 }
 
 func toDetailDTO(d flux.Detail) ResourceDetailDTO {

@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 // GitOpsConn is the per-cluster watch surface GitOpsService needs.
@@ -18,6 +19,7 @@ type GitOpsConn interface {
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	GitOpsSources() []flux.Source
 	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
@@ -174,6 +176,14 @@ func (s *GitOpsService) GetResourceDetail(cluster, kind, namespace, name string)
 		if su, ok := conn.GitOpsSourceObject(ref.Kind, ref.Namespace, ref.Name); ok {
 			src := toSourceDTO(flux.ParseSource(su))
 			d.Source = &src
+		}
+	}
+	// Drift surface: the controller's own record of what it did (M10-e).
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if evs, err := conn.FluxEvents(ctx, kind, namespace, name); err == nil {
+		for _, e := range evs {
+			d.Events = append(d.Events, toEventRowDTO(e))
 		}
 	}
 	return d

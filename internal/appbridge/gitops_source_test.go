@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 func TestToSourceDTO(t *testing.T) {
@@ -43,6 +44,22 @@ func TestGetResourceDetailEmbedsBoundSource(t *testing.T) {
 	}
 	if dto.Source.Kind != "GitRepository" || dto.Source.Revision != "main@sha1:def" || dto.Source.Ready != "Ready" {
 		t.Fatalf("embedded source: %+v", dto.Source)
+	}
+}
+
+func TestGetResourceDetailEmbedsEvents(t *testing.T) {
+	ks := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "kustomize.toolkit.fluxcd.io/v1", "kind": "Kustomization",
+		"metadata": map[string]interface{}{"name": "apps", "namespace": "flux-system"},
+		"spec":     map[string]interface{}{},
+	}}
+	conn := &fakeGitOpsConn{obj: ks, events: []workloads.EventSummary{
+		{Type: "Warning", Reason: "DriftDetected", Message: "Deployment/x configured", Kind: "Kustomization", Name: "apps"},
+	}}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	dto := svc.GetResourceDetail("x", "Kustomization", "flux-system", "apps")
+	if len(dto.Events) != 1 || dto.Events[0].Reason != "DriftDetected" || dto.Events[0].Type != "Warning" {
+		t.Fatalf("embedded events: %+v", dto.Events)
 	}
 }
 

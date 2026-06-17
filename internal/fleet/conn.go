@@ -44,6 +44,7 @@ type Conn interface {
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	GitOpsSources() []flux.Source
 	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error

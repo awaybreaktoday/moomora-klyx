@@ -45,6 +45,9 @@ func (f *fakeConn) GitOpsSources() []flux.Source { return nil }
 func (f *fakeConn) GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
 	return nil, false
 }
+func (f *fakeConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
+	return nil, nil
+}
 func (f *fakeConn) Reconcile(ctx context.Context, kind, ns, name string) error { return nil }
 func (f *fakeConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
 	return nil

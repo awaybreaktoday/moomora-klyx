@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 func TestToDetailDTOApplyFailed(t *testing.T) {
@@ -77,6 +78,9 @@ func (f *fakeGitOpsSummaryConn) Reconcile(ctx context.Context, kind, ns, name st
 }
 func (f *fakeGitOpsSummaryConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
 	return nil
+}
+func (f *fakeGitOpsSummaryConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
+	return nil, nil
 }
 func (f *fakeGitOpsSummaryConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil

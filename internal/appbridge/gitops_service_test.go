@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 type fakeGitOpsConn struct {
@@ -20,6 +21,7 @@ type fakeGitOpsConn struct {
 	obj    *unstructured.Unstructured
 	srcObj *unstructured.Unstructured
 	srcs   []flux.Source
+	events []workloads.EventSummary
 
 	sourceURL string
 
@@ -50,6 +52,9 @@ func (f *fakeGitOpsConn) GitOpsSourceObject(kind, namespace, name string) (*unst
 		return nil, false
 	}
 	return f.srcObj, true
+}
+func (f *fakeGitOpsConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
+	return f.events, nil
 }
 
 func (f *fakeGitOpsConn) Reconcile(ctx context.Context, kind, ns, name string) error {
