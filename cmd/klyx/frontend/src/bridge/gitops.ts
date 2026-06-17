@@ -57,6 +57,12 @@ export async function setSuspend(cluster: string, kind: string, namespace: strin
   );
 }
 
+export type FluxDiffDTO = { available: boolean; hasChanges: boolean; output: string; error: string };
+
+export async function fluxDiff(cluster: string, namespace: string, name: string, path: string): Promise<FluxDiffDTO> {
+  return (await GitOpsService.FluxDiff(cluster, namespace, name, path)) as FluxDiffDTO;
+}
+
 type GitLinkDTO = { url: string; isDeepLink: boolean; copyText: string };
 
 export async function resolveGitLink(cluster: string, kind: string, namespace: string, name: string): Promise<void> {

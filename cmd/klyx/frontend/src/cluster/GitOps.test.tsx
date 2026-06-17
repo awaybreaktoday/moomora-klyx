@@ -12,6 +12,7 @@ vi.mock("../bridge/gitops", () => ({
   reconcileWithSource: vi.fn(),
   setSuspend: vi.fn(),
   resolveGitLink: vi.fn(),
+  fluxDiff: vi.fn(async () => ({ available: true, hasChanges: true, output: "± spec.replicas: 2 -> 3", error: "" })),
 }));
 
 const cluster = (tier: string): ClusterDTO => ({
@@ -232,6 +233,19 @@ describe("GitOps view", () => {
     expect(getByText("DriftDetected")).toBeTruthy();
     expect(getByText("drift")).toBeTruthy();
     expect(getByText(/podinfo configured/i)).toBeTruthy();
+  });
+
+  it("hides Compute diff on a healthy Kustomization and shows it when suspended", () => {
+    // Healthy (Ready, not suspended): gated out.
+    useFleet.setState({ clusters: [cluster("Healthy")], gitops: expandedDetail() });
+    const healthy = render(<GitOps cluster="x" />);
+    expect(healthy.queryByText("Compute diff")).toBeNull();
+    healthy.unmount();
+
+    // Suspended: the escape hatch appears.
+    useFleet.setState({ clusters: [cluster("Healthy")], gitops: expandedDetail({ suspended: true }) });
+    const { getByText } = render(<GitOps cluster="x" />);
+    expect(getByText("Compute diff")).toBeTruthy();
   });
 
   it("lists sources under the sources filter", () => {

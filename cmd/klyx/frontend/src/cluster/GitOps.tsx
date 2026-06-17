@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useFleet } from "../store/fleet";
 import type { DependencyRefDTO, EventRowDTO, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
-import { openGitOps, closeGitOps, getResourceDetail, reconcile, reconcileWithSource, setSuspend, resolveGitLink } from "../bridge/gitops";
+import { openGitOps, closeGitOps, getResourceDetail, reconcile, reconcileWithSource, setSuspend, resolveGitLink, fluxDiff } from "../bridge/gitops";
+import type { FluxDiffDTO } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
 const readyColor: Record<string, string> = {
@@ -243,6 +244,8 @@ export function GitOps({ cluster }: { cluster: string }) {
           <div data-testid="flux-inspector-scroll" style={{ minHeight: 0, overflowY: "auto" }}>
             {selectedResource ? (
               <DetailPanel
+                key={keyOf(selectedResource)}
+                cluster={cluster}
                 resource={selectedResource}
                 detail={selectedDetail}
                 deps={byKey}
@@ -371,7 +374,8 @@ function SourceRow({ s }: { s: FluxSourceDTO }) {
   );
 }
 
-function DetailPanel({ resource, detail, deps, onReconcile, onReconcileWithSource, onToggleSuspend, onViewGit }: {
+function DetailPanel({ cluster, resource, detail, deps, onReconcile, onReconcileWithSource, onToggleSuspend, onViewGit }: {
+  cluster: string;
   resource: FluxResourceDTO;
   detail: ResourceDetailDTO | null;
   deps: Map<string, FluxResourceDTO>;
@@ -390,6 +394,9 @@ function DetailPanel({ resource, detail, deps, onReconcile, onReconcileWithSourc
     );
   }
   const condColor = (c: { status: string }) => (c.status === "True" ? "var(--color-text-success)" : c.status === "False" ? "var(--color-text-danger)" : "var(--color-text-info)");
+  // M10-f: a real diff only helps when Flux isn't auto-healing (suspended) or is
+  // stuck (apply-failing); a healthy resource's diff is empty/misleading.
+  const canDiff = resource.kind === "Kustomization" && (detail.suspended || resource.ready === "Failed");
   return (
     <div style={{ ...frame, padding: "10px 12px", fontSize: 12 }}>
       <InspectorHeader resource={resource} color={headerColor} />
@@ -434,7 +441,39 @@ function DetailPanel({ resource, detail, deps, onReconcile, onReconcileWithSourc
       ) : (
         <Section title="Inventory"><Muted>no inventory in the HelmRelease CR</Muted></Section>
       )}
+      {canDiff && <DiffSection cluster={cluster} namespace={resource.namespace} name={resource.name} />}
     </div>
+  );
+}
+
+function DiffSection({ cluster, namespace, name }: { cluster: string; namespace: string; name: string }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<FluxDiffDTO | null>(null);
+  const run = () => {
+    setRunning(true);
+    fluxDiff(cluster, namespace, name, "")
+      .then((r) => setResult(r))
+      .catch((e) => setResult({ available: true, hasChanges: false, output: "", error: String(e) }))
+      .finally(() => setRunning(false));
+  };
+  return (
+    <Section title="Live diff (flux diff)">
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={run} disabled={running} style={{ ...actionBtn, opacity: running ? 0.6 : 1 }}>
+          {running ? "Computing…" : "Compute diff"}
+        </button>
+        <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>shells out to <span style={{ fontFamily: "var(--font-mono)" }}>flux diff</span> with your local credentials</span>
+      </div>
+      {result && result.error && (
+        <div style={{ color: "var(--color-text-danger)", marginTop: 6, ...ellipsis }} title={result.error}>{result.error}</div>
+      )}
+      {result && !result.error && !result.hasChanges && (
+        <div style={{ color: "var(--color-text-success)", marginTop: 6 }}>no changes — live matches Git</div>
+      )}
+      {result && result.hasChanges && (
+        <pre style={{ marginTop: 6, padding: 8, maxHeight: 280, overflow: "auto", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "pre", lineHeight: 1.4 }}>{result.output}</pre>
+      )}
+    </Section>
   );
 }
 
