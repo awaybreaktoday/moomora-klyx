@@ -53,6 +53,27 @@ func (c *ClusterConn) Reconcile(ctx context.Context, kind, ns, name string) erro
 	return nil
 }
 
+// ReconcileWithSource stamps the reconcile annotation on the resource AND its
+// bound source (equivalent to `flux reconcile <kind> <name> --with-source`). It
+// reads the resource to resolve the source, patches the source first (best
+// effort - a source patch failure must not block the resource), then reconciles
+// the resource. Degrades to a plain reconcile when the source can't be resolved.
+func (c *ClusterConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	if gvr, err := c.gvrForKind(flux.Kind(kind)); err == nil {
+		if u, err := c.dyn.Resource(gvr).Namespace(ns).Get(ctx, name, metav1.GetOptions{}); err == nil {
+			if ref, ok := flux.BoundSource(u); ok {
+				if group, fallback, resource, ok := sourceGVR(ref.Kind); ok {
+					version := preferredVersion(c.typed.Discovery(), group, fallback)
+					sgvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resource}
+					body := flux.ReconcilePatch(c.clk.Now())
+					_, _ = c.dyn.Resource(sgvr).Namespace(ref.Namespace).Patch(ctx, ref.Name, types.MergePatchType, body, metav1.PatchOptions{})
+				}
+			}
+		}
+	}
+	return c.Reconcile(ctx, kind, ns, name)
+}
+
 // SetSuspend toggles spec.suspend on a Flux resource.
 func (c *ClusterConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	gvr, err := c.gvrForKind(flux.Kind(kind))

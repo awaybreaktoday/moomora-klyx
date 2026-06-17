@@ -16,6 +16,15 @@ const (
 	HelmReleaseKind   Kind = "HelmRelease"
 )
 
+// Source kinds Klyx watches + acts on (source.toolkit.fluxcd.io).
+const (
+	GitRepositoryKind  Kind = "GitRepository"
+	OCIRepositoryKind  Kind = "OCIRepository"
+	BucketKind         Kind = "Bucket"
+	HelmRepositoryKind Kind = "HelmRepository"
+	HelmChartKind      Kind = "HelmChart"
+)
+
 type ReadyState string
 
 const (
@@ -31,12 +40,43 @@ type Resource struct {
 	Namespace   string
 	Name        string
 	Ready       ReadyState
+	Reason      string
 	Message     string
 	Revision    string
 	LastApplied time.Time
 	Suspended   bool
 	SourceKind  string
 	SourceName  string
+	DependsOn   []DependencyRef
+}
+
+// DependencyRef is a spec.dependsOn entry (another Kustomization/HelmRelease the
+// resource waits on). Namespace defaults to the resource's own when omitted.
+type DependencyRef struct {
+	Namespace string
+	Name      string
+}
+
+// parseDependsOn reads spec.dependsOn; namespace defaults to the object's own.
+func parseDependsOn(u *unstructured.Unstructured) []DependencyRef {
+	raw, _, _ := unstructured.NestedSlice(u.Object, "spec", "dependsOn")
+	var out []DependencyRef
+	for _, e := range raw {
+		em, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := em["name"].(string)
+		if name == "" {
+			continue
+		}
+		ns, _ := em["namespace"].(string)
+		if ns == "" {
+			ns = u.GetNamespace()
+		}
+		out = append(out, DependencyRef{Namespace: ns, Name: name})
+	}
+	return out
 }
 
 func ParseKustomization(u *unstructured.Unstructured) Resource {
@@ -49,12 +89,8 @@ func ParseHelmRelease(u *unstructured.Unstructured) Resource {
 	r := common(u, HelmReleaseKind)
 	if rev, ok, _ := unstructured.NestedString(u.Object, "status", "lastAppliedRevision"); ok && rev != "" {
 		r.Revision = rev
-	} else if hist, ok, _ := unstructured.NestedSlice(u.Object, "status", "history"); ok && len(hist) > 0 {
-		if last, ok := hist[len(hist)-1].(map[string]interface{}); ok {
-			if cv, ok := last["chartVersion"].(string); ok {
-				r.Revision = cv
-			}
-		}
+	} else if cv := currentHelmChartVersion(u); cv != "" {
+		r.Revision = cv
 	}
 	if r.SourceName == "" {
 		if n, ok, _ := unstructured.NestedString(u.Object, "spec", "chart", "spec", "sourceRef", "name"); ok && n != "" {
@@ -68,6 +104,45 @@ func ParseHelmRelease(u *unstructured.Unstructured) Resource {
 	return r
 }
 
+// currentHelmChartVersion returns the chart version of a HelmRelease's current
+// release from status.history. Flux maintains history newest-first (Latest() ==
+// history[0]) and each Snapshot carries an integer `version` (the Helm release
+// revision). We pick the entry with the highest version so the result is correct
+// regardless of slice ordering; falling back to the first entry's chartVersion.
+func currentHelmChartVersion(u *unstructured.Unstructured) string {
+	hist, ok, _ := unstructured.NestedSlice(u.Object, "status", "history")
+	if !ok || len(hist) == 0 {
+		return ""
+	}
+	bestVer := int64(-1)
+	var bestChart, firstChart string
+	for i, h := range hist {
+		hm, ok := h.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cv, _ := hm["chartVersion"].(string)
+		if i == 0 {
+			firstChart = cv
+		}
+		var ver int64 = -1
+		switch v := hm["version"].(type) {
+		case int64:
+			ver = v
+		case float64:
+			ver = int64(v)
+		}
+		if cv != "" && ver > bestVer {
+			bestVer = ver
+			bestChart = cv
+		}
+	}
+	if bestChart != "" {
+		return bestChart
+	}
+	return firstChart
+}
+
 func common(u *unstructured.Unstructured, kind Kind) Resource {
 	r := Resource{Kind: kind, Name: u.GetName(), Namespace: u.GetNamespace()}
 	if susp, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok {
@@ -79,9 +154,34 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 	if n, ok, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name"); ok {
 		r.SourceName = n
 	}
+	r.Ready, r.Reason, r.Message = readyFromConditions(u)
+	r.DependsOn = parseDependsOn(u)
+	// lastTransitionTime of the Ready condition → LastApplied (only common needs it).
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := cm["type"].(string); t == "Ready" {
+			if lt, ok := cm["lastTransitionTime"].(string); ok {
+				if ts, err := time.Parse(time.RFC3339, lt); err == nil {
+					r.LastApplied = ts
+				}
+			}
+		}
+	}
+	return r
+}
+
+// readyFromConditions derives the aggregate Ready state, the Ready condition's
+// reason, and its message from status.conditions. Reconciling overrides Ready
+// unless Ready is Failed. Shared by common() and ParseSource.
+func readyFromConditions(u *unstructured.Unstructured) (ReadyState, string, string) {
+	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	state := Unknown
 	reconciling := false
-	r.Ready = Unknown
+	var reason, message string
 	for _, c := range conds {
 		cm, ok := c.(map[string]interface{})
 		if !ok {
@@ -93,28 +193,76 @@ func common(u *unstructured.Unstructured, kind Kind) Resource {
 		case "Ready":
 			switch cstatus {
 			case "True":
-				r.Ready = Ready
+				state = Ready
 			case "False":
-				r.Ready = Failed
+				state = Failed
 			}
-			if msg, ok := cm["message"].(string); ok {
-				r.Message = msg
-			}
-			if lt, ok := cm["lastTransitionTime"].(string); ok {
-				if t, err := time.Parse(time.RFC3339, lt); err == nil {
-					r.LastApplied = t
-				}
-			}
+			reason, _ = cm["reason"].(string)
+			message, _ = cm["message"].(string)
 		case "Reconciling":
 			if cstatus == "True" {
 				reconciling = true
 			}
 		}
 	}
-	if reconciling && r.Ready != Failed {
-		r.Ready = Reconciling
+	if reconciling && state != Failed {
+		state = Reconciling
 	}
-	return r
+	return state, reason, message
+}
+
+// Source is a Flux source object's fetch state (status.artifact + Ready).
+type Source struct {
+	Kind      Kind
+	Namespace string
+	Name      string
+	Ready     ReadyState
+	Reason    string
+	Message   string
+	Revision  string
+	URL       string
+	Suspended bool
+}
+
+// ParseSource extracts a source's fetch state from a watched source CR.
+func ParseSource(u *unstructured.Unstructured) Source {
+	s := Source{Kind: Kind(u.GetKind()), Namespace: u.GetNamespace(), Name: u.GetName()}
+	s.Suspended, _, _ = unstructured.NestedBool(u.Object, "spec", "suspend")
+	s.URL, _, _ = unstructured.NestedString(u.Object, "spec", "url")
+	s.Revision, _, _ = unstructured.NestedString(u.Object, "status", "artifact", "revision")
+	s.Ready, s.Reason, s.Message = readyFromConditions(u)
+	return s
+}
+
+// SourceRef points at a source object bound to a Kustomization/HelmRelease.
+type SourceRef struct {
+	Kind      string
+	Name      string
+	Namespace string
+}
+
+// BoundSource resolves the source a Kustomization/HelmRelease reconciles from:
+// spec.sourceRef for Kustomization, spec.chartRef or spec.chart.spec.sourceRef
+// for HelmRelease. Namespace defaults to the resource's own namespace.
+func BoundSource(u *unstructured.Unstructured) (SourceRef, bool) {
+	candidates := [][]string{
+		{"spec", "sourceRef"},                  // Kustomization
+		{"spec", "chartRef"},                   // HelmRelease (newer)
+		{"spec", "chart", "spec", "sourceRef"}, // HelmRelease (chart template)
+	}
+	for _, p := range candidates {
+		name, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, p...), "name")...)
+		if name == "" {
+			continue
+		}
+		kind, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, p...), "kind")...)
+		ns, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, p...), "namespace")...)
+		if ns == "" {
+			ns = u.GetNamespace()
+		}
+		return SourceRef{Kind: kind, Name: name, Namespace: ns}, true
+	}
+	return SourceRef{}, false
 }
 
 type Condition struct {
@@ -137,10 +285,12 @@ type Detail struct {
 	Namespace         string
 	Name              string
 	Suspended         bool
+	Reason            string
 	AppliedRevision   string
 	AttemptedRevision string
 	Conditions        []Condition
 	Inventory         []InventoryEntry
+	DependsOn         []DependencyRef
 }
 
 // ParseDetail extracts the detail view from a watched Flux CR. Inventory is
@@ -150,6 +300,8 @@ func ParseDetail(u *unstructured.Unstructured) Detail {
 	d.AppliedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAppliedRevision")
 	d.AttemptedRevision, _, _ = unstructured.NestedString(u.Object, "status", "lastAttemptedRevision")
 	d.Suspended, _, _ = unstructured.NestedBool(u.Object, "spec", "suspend")
+	_, d.Reason, _ = readyFromConditions(u)
+	d.DependsOn = parseDependsOn(u)
 
 	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
 	for _, c := range conds {

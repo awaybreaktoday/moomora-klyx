@@ -8,7 +8,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 func TestToDetailDTOApplyFailed(t *testing.T) {
@@ -31,9 +33,36 @@ func TestToDetailDTOApplyFailed(t *testing.T) {
 }
 
 func TestToDetailDTOApplyOK(t *testing.T) {
-	dto := toDetailDTO(flux.Detail{AppliedRevision: "main@a", AttemptedRevision: "main@a"})
+	dto := toDetailDTO(flux.Detail{Kind: flux.KustomizationKind, AppliedRevision: "main@a", AttemptedRevision: "main@a"})
 	if dto.ApplyFailed {
 		t.Fatal("want ApplyFailed false when equal")
+	}
+}
+
+func TestToDetailDTOApplyFailedHelmReleaseNeverFlags(t *testing.T) {
+	// HelmRelease v2 has no lastAppliedRevision but does have lastAttemptedRevision,
+	// so the attempted!=applied heuristic must NOT fire for HelmReleases.
+	d := flux.Detail{
+		Kind: flux.HelmReleaseKind, Namespace: "argocd", Name: "argo-cd",
+		AppliedRevision: "", AttemptedRevision: "9.5.21",
+	}
+	if toDetailDTO(d).ApplyFailed {
+		t.Fatal("HelmRelease must never report ApplyFailed from revision mismatch")
+	}
+}
+
+func TestToDetailDTOReasonAndDependsOn(t *testing.T) {
+	d := flux.Detail{
+		Kind: flux.KustomizationKind, Namespace: "flux-system", Name: "apps",
+		Reason:    "DependencyNotReady",
+		DependsOn: []flux.DependencyRef{{Namespace: "flux-system", Name: "infra"}, {Namespace: "data", Name: "db"}},
+	}
+	dto := toDetailDTO(d)
+	if dto.Reason != "DependencyNotReady" {
+		t.Fatalf("reason: %q", dto.Reason)
+	}
+	if len(dto.DependsOn) != 2 || dto.DependsOn[1].Namespace != "data" || dto.DependsOn[1].Name != "db" {
+		t.Fatalf("dependsOn: %+v", dto.DependsOn)
 	}
 }
 
@@ -53,8 +82,22 @@ func (f *fakeGitOpsSummaryConn) GitOpsResources() []flux.Resource { return nil }
 func (f *fakeGitOpsSummaryConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
 	return nil, false
 }
+func (f *fakeGitOpsSummaryConn) GitOpsSources() []flux.Source { return nil }
+func (f *fakeGitOpsSummaryConn) GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	return nil, false
+}
 func (f *fakeGitOpsSummaryConn) Reconcile(ctx context.Context, kind, ns, name string) error {
 	return nil
+}
+func (f *fakeGitOpsSummaryConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	return nil
+}
+func (f *fakeGitOpsSummaryConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
+	return nil, nil
+}
+func (f *fakeGitOpsSummaryConn) FluxAvailable() bool { return false }
+func (f *fakeGitOpsSummaryConn) FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error) {
+	return fluxcli.DiffResult{}, nil
 }
 func (f *fakeGitOpsSummaryConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil

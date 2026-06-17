@@ -19,6 +19,7 @@ import (
 	"github.com/moomora/klyx/internal/helmcli"
 	"github.com/moomora/klyx/internal/metrics"
 	"github.com/moomora/klyx/internal/routemetrics"
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/workloads"
 )
 
@@ -41,7 +42,21 @@ func (f *fakeConn) GitOpsResources() []flux.Resource { return nil }
 func (f *fakeConn) GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
 	return nil, false
 }
+func (f *fakeConn) GitOpsSources() []flux.Source { return nil }
+func (f *fakeConn) GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	return nil, false
+}
+func (f *fakeConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
+	return nil, nil
+}
+func (f *fakeConn) FluxAvailable() bool { return false }
+func (f *fakeConn) FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error) {
+	return fluxcli.DiffResult{}, nil
+}
 func (f *fakeConn) Reconcile(ctx context.Context, kind, ns, name string) error { return nil }
+func (f *fakeConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	return nil
+}
 func (f *fakeConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil
 }

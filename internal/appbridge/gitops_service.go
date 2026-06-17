@@ -7,7 +7,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 // GitOpsConn is the per-cluster watch surface GitOpsService needs.
@@ -16,7 +18,13 @@ type GitOpsConn interface {
 	CloseGitOps()
 	GitOpsResources() []flux.Resource
 	GitOpsObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	GitOpsSources() []flux.Source
+	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
+	FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error)
+	FluxAvailable() bool
+	FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error)
 	Reconcile(ctx context.Context, kind, ns, name string) error
+	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
 	SourceURL(ctx context.Context, kind, ns, name string) (string, bool)
 	// GitOpsSummaryFlux performs a cluster-wide on-demand LIST and returns counts.
@@ -38,6 +46,7 @@ const GitOpsUpdatedEvent = "gitops:updated"
 type gitOpsPayload struct {
 	Cluster   string            `json:"cluster"`
 	Resources []FluxResourceDTO `json:"resources"`
+	Sources   []FluxSourceDTO   `json:"sources"`
 }
 
 // GitOpsService is bound to JS. Open starts a cluster's lazy watch and pushes
@@ -101,12 +110,21 @@ func (s *GitOpsService) pushLoop(ctx context.Context, cluster string, conn GitOp
 			for _, r := range res {
 				dtos = append(dtos, ToFluxDTO(r, now))
 			}
-			s.em.Emit(GitOpsUpdatedEvent, gitOpsPayload{Cluster: cluster, Resources: dtos})
+			srcs := conn.GitOpsSources()
+			srcDTOs := make([]FluxSourceDTO, 0, len(srcs))
+			for _, sr := range srcs {
+				srcDTOs = append(srcDTOs, toSourceDTO(sr))
+			}
+			s.em.Emit(GitOpsUpdatedEvent, gitOpsPayload{Cluster: cluster, Resources: dtos, Sources: srcDTOs})
 		}
 	}
 }
 
 const actionTimeout = 30 * time.Second
+
+// diffTimeout is generous: `flux diff` builds the kustomization locally
+// (including SOPS decryption) and dry-runs it against the apiserver.
+const diffTimeout = 120 * time.Second
 
 func (s *GitOpsService) Reconcile(cluster, kind, namespace, name string) ActionResultDTO {
 	conn, ok := s.lookup(cluster)
@@ -119,6 +137,40 @@ func (s *GitOpsService) Reconcile(cluster, kind, namespace, name string) ActionR
 		return ActionResultDTO{Error: err.Error()}
 	}
 	return ActionResultDTO{OK: true}
+}
+
+func (s *GitOpsService) ReconcileWithSource(cluster, kind, namespace, name string) ActionResultDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return ActionResultDTO{Error: "cluster not connected: " + cluster}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if err := conn.ReconcileWithSource(ctx, kind, namespace, name); err != nil {
+		return ActionResultDTO{Error: err.Error()}
+	}
+	return ActionResultDTO{OK: true}
+}
+
+// FluxDiff runs an on-demand `flux diff` for a Kustomization (M10-f). Bound to
+// JS, request/response, never auto-run. Available=false when the CLI is absent
+// (the UI hides the button); the gate (suspended/failing only) is enforced in
+// the conn and any refusal/CLI failure surfaces in Error.
+func (s *GitOpsService) FluxDiff(cluster, namespace, name, path string) FluxDiffDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return FluxDiffDTO{Error: "cluster not connected: " + cluster}
+	}
+	if !conn.FluxAvailable() {
+		return FluxDiffDTO{Available: false, Error: "the flux CLI was not found on PATH"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	res, err := conn.FluxDiffKustomization(ctx, namespace, name, path)
+	if err != nil {
+		return FluxDiffDTO{Available: true, Error: err.Error()}
+	}
+	return FluxDiffDTO{Available: true, HasChanges: res.HasChanges, Output: res.Output, Error: res.Err}
 }
 
 func (s *GitOpsService) SetSuspend(cluster, kind, namespace, name string, suspend bool) ActionResultDTO {
@@ -145,7 +197,24 @@ func (s *GitOpsService) GetResourceDetail(cluster, kind, namespace, name string)
 	if !ok {
 		return ResourceDetailDTO{}
 	}
-	return toDetailDTO(flux.ParseDetail(u))
+	d := toDetailDTO(flux.ParseDetail(u))
+	// Embed the bound source's health so a stuck resource's root cause (a source
+	// that is not pulling) is visible in the detail panel without a separate read.
+	if ref, ok := flux.BoundSource(u); ok {
+		if su, ok := conn.GitOpsSourceObject(ref.Kind, ref.Namespace, ref.Name); ok {
+			src := toSourceDTO(flux.ParseSource(su))
+			d.Source = &src
+		}
+	}
+	// Drift surface: the controller's own record of what it did (M10-e).
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	defer cancel()
+	if evs, err := conn.FluxEvents(ctx, kind, namespace, name); err == nil {
+		for _, e := range evs {
+			d.Events = append(d.Events, toEventRowDTO(e))
+		}
+	}
+	return d
 }
 
 // GetGitOpsSummary returns a point-in-time Flux summary for the named cluster.

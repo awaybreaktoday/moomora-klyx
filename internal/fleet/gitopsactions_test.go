@@ -67,6 +67,84 @@ func TestReconcilePatchesAnnotation(t *testing.T) {
 	}
 }
 
+func seedKustomizationWithSource(name, srcKind, srcName string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+		"kind":       "Kustomization",
+		"metadata":   map[string]interface{}{"name": name, "namespace": "flux-system"},
+		"spec":       map[string]interface{}{"sourceRef": map[string]interface{}{"kind": srcKind, "name": srcName}},
+	}}
+}
+
+func seedGitRepoSource(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "source.toolkit.fluxcd.io/v1",
+		"kind":       "GitRepository",
+		"metadata":   map[string]interface{}{"name": name, "namespace": "flux-system"},
+		"spec":       map[string]interface{}{"url": "https://github.com/org/repo"},
+	}}
+}
+
+func TestReconcileWithSourcePatchesBoth(t *testing.T) {
+	gitRepoGVR := schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "gitrepositories"}
+	listKinds := map[schema.GroupVersionResource]string{
+		ksGVR():    "KustomizationList",
+		gitRepoGVR: "GitRepositoryList",
+	}
+	dyn := fake.NewSimpleDynamicClientWithCustomListKinds(dynScheme(), listKinds,
+		seedKustomizationWithSource("app", "GitRepository", "flux-system"),
+		seedGitRepoSource("flux-system"))
+	c := newActionConn(dyn)
+
+	if err := c.ReconcileWithSource(context.Background(), "Kustomization", "flux-system", "app"); err != nil {
+		t.Fatalf("reconcile with source: %v", err)
+	}
+
+	patchedKs, patchedSrc := false, false
+	for _, a := range dyn.Actions() {
+		pa, ok := a.(k8stesting.PatchAction)
+		if !ok || !strings.Contains(string(pa.GetPatch()), flux.ReconcileRequestedAtAnnotation) {
+			continue
+		}
+		switch pa.GetResource().Resource {
+		case "kustomizations":
+			if pa.GetName() == "app" {
+				patchedKs = true
+			}
+		case "gitrepositories":
+			if pa.GetName() == "flux-system" {
+				patchedSrc = true
+			}
+		}
+	}
+	if !patchedKs {
+		t.Fatal("expected the Kustomization to be reconciled")
+	}
+	if !patchedSrc {
+		t.Fatal("expected the bound GitRepository to be reconciled")
+	}
+}
+
+func TestReconcileWithSourceDegradesWhenNoSource(t *testing.T) {
+	listKinds := map[schema.GroupVersionResource]string{ksGVR(): "KustomizationList"}
+	// A Kustomization with no sourceRef: the action must still reconcile it.
+	dyn := fake.NewSimpleDynamicClientWithCustomListKinds(dynScheme(), listKinds, seedKustomization("app"))
+	c := newActionConn(dyn)
+
+	if err := c.ReconcileWithSource(context.Background(), "Kustomization", "flux-system", "app"); err != nil {
+		t.Fatalf("reconcile with source: %v", err)
+	}
+	patchedKs := false
+	for _, a := range dyn.Actions() {
+		if pa, ok := a.(k8stesting.PatchAction); ok && pa.GetName() == "app" && strings.Contains(string(pa.GetPatch()), flux.ReconcileRequestedAtAnnotation) {
+			patchedKs = true
+		}
+	}
+	if !patchedKs {
+		t.Fatal("expected the Kustomization to still be reconciled without a source")
+	}
+}
+
 func TestSetSuspendPatchesSpec(t *testing.T) {
 	listKinds := map[schema.GroupVersionResource]string{ksGVR(): "KustomizationList"}
 	dyn := fake.NewSimpleDynamicClientWithCustomListKinds(dynScheme(), listKinds, seedKustomization("app"))

@@ -8,7 +8,7 @@ const detail: ResourceDetailDTO = {
   inventory: [{ group: "", version: "v1", kind: "ConfigMap", namespace: "ns", name: "cm" }],
 };
 
-beforeEach(() => useFleet.setState({ gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null } }));
+beforeEach(() => useFleet.setState({ gitops: { cluster: null, resources: [], sources: [], loading: false, expandedKey: null, detail: null } }));
 
 describe("gitops detail store", () => {
   it("expand sets the key and collapse clears", () => {

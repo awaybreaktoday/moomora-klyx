@@ -114,6 +114,48 @@ func TestParseHelmReleaseReadyRevisionFromHistory(t *testing.T) {
 	}
 }
 
+func TestParseHelmReleaseCurrentChartVersionFromHistory(t *testing.T) {
+	// Flux status.history is newest-first; the current release has the highest
+	// `version`. The old code read history[last] (oldest) -> showed a stale chart.
+	u := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "helm.toolkit.fluxcd.io/v2",
+		"kind":       "HelmRelease",
+		"metadata":   map[string]interface{}{"name": "argo-cd", "namespace": "argocd"},
+		"spec":       map[string]interface{}{},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Ready", "status": "True", "message": "Helm upgrade succeeded"},
+			},
+			"history": []interface{}{
+				map[string]interface{}{"chartVersion": "9.5.21", "version": int64(4), "status": "deployed"},
+				map[string]interface{}{"chartVersion": "9.5.15", "version": int64(3), "status": "superseded"},
+			},
+		},
+	}}
+	if r := ParseHelmRelease(u); r.Revision != "9.5.21" {
+		t.Fatalf("want current chart 9.5.21, got %q", r.Revision)
+	}
+}
+
+func TestParseHelmReleaseCurrentChartVersionOldestFirst(t *testing.T) {
+	// Robust to ordering: even if history is oldest-first, the max version wins.
+	u := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "helm.toolkit.fluxcd.io/v2",
+		"kind":       "HelmRelease",
+		"metadata":   map[string]interface{}{"name": "argo-cd", "namespace": "argocd"},
+		"spec":       map[string]interface{}{},
+		"status": map[string]interface{}{
+			"history": []interface{}{
+				map[string]interface{}{"chartVersion": "9.5.15", "version": float64(3)},
+				map[string]interface{}{"chartVersion": "9.5.21", "version": float64(4)},
+			},
+		},
+	}}
+	if r := ParseHelmRelease(u); r.Revision != "9.5.21" {
+		t.Fatalf("want current chart 9.5.21, got %q", r.Revision)
+	}
+}
+
 func TestParseKustomizationSourceRef(t *testing.T) {
 	r := ParseKustomization(ksWithSource("True", "ReconciliationSucceeded", false, "main@sha1:abc1234", "", "GitRepository", "flux-system"))
 	if r.SourceName != "flux-system" {

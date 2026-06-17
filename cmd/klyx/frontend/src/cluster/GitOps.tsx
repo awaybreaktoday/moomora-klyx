@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useFleet } from "../store/fleet";
-import type { FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
-import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
+import type { DependencyRefDTO, EventRowDTO, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
+import { openGitOps, closeGitOps, getResourceDetail, reconcile, reconcileWithSource, setSuspend, resolveGitLink, fluxDiff } from "../bridge/gitops";
+import type { FluxDiffDTO } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
 const readyColor: Record<string, string> = {
@@ -27,9 +28,17 @@ const frame: CSSProperties = {
   background: "var(--color-background-primary)",
 };
 
-type FluxFilter = "all" | "attention" | "suspended" | "kustomizations" | "helmreleases";
+type FluxFilter = "all" | "attention" | "suspended" | "kustomizations" | "helmreleases" | "sources";
 
 const keyOf = (r: { kind: string; namespace: string; name: string }) => `${r.kind}/${r.namespace}/${r.name}`;
+
+const sourceKindLabel: Record<string, string> = {
+  GitRepository: "git",
+  OCIRepository: "oci",
+  Bucket: "bucket",
+  HelmRepository: "helmrepo",
+  HelmChart: "chart",
+};
 
 function shortRev(rev: string): string {
   if (!rev) return "";
@@ -57,6 +66,14 @@ function rank(r: FluxResourceDTO): number {
   if (r.ready === "Reconciling") return 1;
   if (r.suspended) return 2;
   if (r.ready !== "Ready") return 3;
+  return 4;
+}
+
+function srcRank(s: FluxSourceDTO): number {
+  if (s.ready === "Failed") return 0;
+  if (s.ready === "Reconciling") return 1;
+  if (s.suspended) return 2;
+  if (s.ready !== "Ready") return 3;
   return 4;
 }
 
@@ -96,7 +113,7 @@ export function GitOps({ cluster }: { cluster: string }) {
   const expand = useFleet((s) => s.expand);
   const collapse = useFleet((s) => s.collapse);
   const isProtected = useFleet((s) => s.clusters.find((c) => c.name === cluster)?.protected ?? false);
-  const [pending, setPending] = useState<null | { verb: "reconcile" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
+  const [pending, setPending] = useState<null | { verb: "reconcile" | "reconcile-source" | "suspend" | "resume"; r: FluxResourceDTO }>(null);
   const [filter, setFilter] = useState<FluxFilter>("all");
   const [query, setQuery] = useState("");
   const absent = tier === "Absent";
@@ -119,6 +136,16 @@ export function GitOps({ cluster }: { cluster: string }) {
   const visibleRows = useMemo(
     () => orderedRows.filter((r) => matchesFilter(r, filter) && matchesQuery(r, query)),
     [orderedRows, filter, query],
+  );
+  const byKey = useMemo(() => {
+    const m = new Map<string, FluxResourceDTO>();
+    for (const r of rows) m.set(keyOf(r), r);
+    return m;
+  }, [rows]);
+  const allSources = gitops.cluster === cluster ? (gitops.sources ?? []) : [];
+  const orderedSources = useMemo(
+    () => [...allSources].sort((a, b) => srcRank(a) - srcRank(b) || a.kind.localeCompare(b.kind) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name)),
+    [allSources],
   );
 
   useEffect(() => {
@@ -168,6 +195,7 @@ export function GitOps({ cluster }: { cluster: string }) {
         <FilterButton label="suspended" active={filter === "suspended"} count={suspended} onClick={() => setFilter("suspended")} />
         <FilterButton label="ks" active={filter === "kustomizations"} count={ks} onClick={() => setFilter("kustomizations")} />
         <FilterButton label="hr" active={filter === "helmreleases"} count={hr} onClick={() => setFilter("helmreleases")} />
+        <FilterButton label="sources" active={filter === "sources"} count={allSources.length} onClick={() => setFilter("sources")} />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -178,8 +206,10 @@ export function GitOps({ cluster }: { cluster: string }) {
         {visibleRows.length !== rows.length && <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleRows.length} of {rows.length}</span>}
       </div>
 
-      {gitops.loading && rows.length === 0 ? (
+      {gitops.loading && rows.length === 0 && allSources.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading reconciliation state…</div>
+      ) : filter === "sources" ? (
+        <SourcesPanel sources={orderedSources} />
       ) : rows.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux resources found.</div>
       ) : (
@@ -214,9 +244,13 @@ export function GitOps({ cluster }: { cluster: string }) {
           <div data-testid="flux-inspector-scroll" style={{ minHeight: 0, overflowY: "auto" }}>
             {selectedResource ? (
               <DetailPanel
+                key={keyOf(selectedResource)}
+                cluster={cluster}
                 resource={selectedResource}
                 detail={selectedDetail}
+                deps={byKey}
                 onReconcile={() => setPending({ verb: "reconcile", r: selectedResource })}
+                onReconcileWithSource={() => setPending({ verb: "reconcile-source", r: selectedResource })}
                 onToggleSuspend={(isSuspended) => setPending({ verb: isSuspended ? "resume" : "suspend", r: selectedResource })}
                 onViewGit={() => void resolveGitLink(cluster, selectedResource.kind, selectedResource.namespace, selectedResource.name)}
               />
@@ -229,17 +263,28 @@ export function GitOps({ cluster }: { cluster: string }) {
 
       {pending && (
         <ConfirmDialog
-          title={pending.verb === "reconcile" ? "Reconcile" : pending.verb === "suspend" ? "Suspend reconciliation" : "Resume reconciliation"}
+          title={
+            pending.verb === "reconcile" ? "Reconcile"
+              : pending.verb === "reconcile-source" ? "Reconcile with source"
+                : pending.verb === "suspend" ? "Suspend reconciliation"
+                  : "Resume reconciliation"
+          }
           cluster={cluster}
           detail={`${pending.r.kind} ${pending.r.namespace}/${pending.r.name}`}
           protected={isProtected}
           danger={pending.verb === "suspend"}
-          confirmLabel={pending.verb === "reconcile" ? "Reconcile" : pending.verb === "suspend" ? "Suspend" : "Resume"}
+          confirmLabel={
+            pending.verb === "reconcile" ? "Reconcile"
+              : pending.verb === "reconcile-source" ? "Reconcile + source"
+                : pending.verb === "suspend" ? "Suspend"
+                  : "Resume"
+          }
           onCancel={() => setPending(null)}
           onConfirm={() => {
             const { verb, r } = pending;
             setPending(null);
             if (verb === "reconcile") void reconcile(cluster, r.kind, r.namespace, r.name);
+            else if (verb === "reconcile-source") void reconcileWithSource(cluster, r.kind, r.namespace, r.name);
             else void setSuspend(cluster, r.kind, r.namespace, r.name, verb === "suspend");
           }}
         />
@@ -275,6 +320,7 @@ function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; o
       <div style={{ minWidth: 0 }}>
         <span style={{ fontFamily: "var(--font-mono)" }}>{r.namespace}/{r.name}</span>{" "}
         <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>{r.kind === "Kustomization" ? "ks" : "hr"}</span>
+        {needsAttention(r) && r.reason && <ReasonChip reason={r.reason} bad={isBad} />}
         {r.message && needsAttention(r) && (
           <div style={{ color: isBad ? "var(--color-text-danger)" : "var(--color-text-warning)", fontSize: 11, marginTop: 2, ...ellipsis }} title={r.message}>{r.message}</div>
         )}
@@ -287,10 +333,54 @@ function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; o
   );
 }
 
-function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit }: {
+function SourcesPanel({ sources }: { sources: FluxSourceDTO[] }) {
+  if (sources.length === 0) {
+    return <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux sources found.</div>;
+  }
+  return (
+    <div style={{ flex: 1, minHeight: 0, ...frame, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "3px minmax(180px,1.4fr) 90px minmax(120px,1fr) 92px", gap: 10, alignItems: "center", padding: "5px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", fontSize: 10, color: "var(--color-text-tertiary)", flexShrink: 0 }}>
+        <span />
+        <span>source</span>
+        <span>kind</span>
+        <span>revision</span>
+        <span>status</span>
+      </div>
+      <div data-testid="flux-sources-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {sources.map((s) => <SourceRow key={keyOf(s)} s={s} />)}
+      </div>
+    </div>
+  );
+}
+
+function SourceRow({ s }: { s: FluxSourceDTO }) {
+  const isBad = s.ready === "Failed";
+  const isReconciling = s.ready === "Reconciling";
+  const color = s.suspended ? "var(--color-text-warning)" : (readyColor[s.ready] ?? "var(--color-text-tertiary)");
+  const notReady = s.ready !== "Ready";
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "3px minmax(180px,1.4fr) 90px minmax(120px,1fr) 92px", gap: 10, alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 12 }}>
+      <span style={{ alignSelf: "stretch", background: isBad ? "var(--color-text-danger)" : isReconciling ? "var(--color-text-info)" : s.suspended ? "var(--color-text-warning)" : "transparent" }} />
+      <div style={{ minWidth: 0 }}>
+        <span style={{ fontFamily: "var(--font-mono)" }}>{s.namespace}/{s.name}</span>
+        {s.message && notReady && (
+          <div style={{ color: isBad ? "var(--color-text-danger)" : "var(--color-text-warning)", fontSize: 11, marginTop: 2, ...ellipsis }} title={s.message}>{s.message}</div>
+        )}
+      </div>
+      <div style={{ color: "var(--color-text-tertiary)", fontSize: 10, fontFamily: "var(--font-mono)" }}>{sourceKindLabel[s.kind] ?? s.kind}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", ...ellipsis }} title={s.revision}>{shortRev(s.revision) || "—"}</div>
+      <div style={{ ...ellipsis, color }}>{s.suspended ? "suspended" : s.ready.toLowerCase()}</div>
+    </div>
+  );
+}
+
+function DetailPanel({ cluster, resource, detail, deps, onReconcile, onReconcileWithSource, onToggleSuspend, onViewGit }: {
+  cluster: string;
   resource: FluxResourceDTO;
   detail: ResourceDetailDTO | null;
+  deps: Map<string, FluxResourceDTO>;
   onReconcile: () => void;
+  onReconcileWithSource: () => void;
   onToggleSuspend: (suspended: boolean) => void;
   onViewGit: () => void;
 }) {
@@ -304,11 +394,15 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
     );
   }
   const condColor = (c: { status: string }) => (c.status === "True" ? "var(--color-text-success)" : c.status === "False" ? "var(--color-text-danger)" : "var(--color-text-info)");
+  // M10-f: a real diff only helps when Flux isn't auto-healing (suspended) or is
+  // stuck (apply-failing); a healthy resource's diff is empty/misleading.
+  const canDiff = resource.kind === "Kustomization" && (detail.suspended || resource.ready === "Failed");
   return (
     <div style={{ ...frame, padding: "10px 12px", fontSize: 12 }}>
       <InspectorHeader resource={resource} color={headerColor} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, marginBottom: 8, flexWrap: "wrap" }}>
         <button onClick={onReconcile} style={actionBtn}>Reconcile</button>
+        <button onClick={onReconcileWithSource} style={actionBtn}>Reconcile with source</button>
         <button onClick={() => onToggleSuspend(detail.suspended ?? false)} style={actionBtn}>
           {detail.suspended ? "Resume" : "Suspend"}
         </button>
@@ -319,6 +413,11 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
           <span style={{ color: "var(--color-text-warning)", fontSize: 11, fontWeight: 500 }}>suspended</span>
         )}
       </div>
+      {detail.source && <SourceSection source={detail.source} />}
+      {detail.dependsOn && detail.dependsOn.length > 0 && (
+        <DependsOnSection deps={detail.dependsOn} kind={resource.kind} resolve={deps} blocked={detail.reason === "DependencyNotReady"} />
+      )}
+      {detail.events && <EventsSection events={detail.events} />}
       {detail.applyFailed && (
         <div style={{ color: "var(--color-text-danger)", marginBottom: 8 }}>apply failed at <span style={{ fontFamily: "var(--font-mono)" }}>{shortRev(detail.attemptedRevision)}</span></div>
       )}
@@ -342,7 +441,128 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
       ) : (
         <Section title="Inventory"><Muted>no inventory in the HelmRelease CR</Muted></Section>
       )}
+      {canDiff && <DiffSection cluster={cluster} namespace={resource.namespace} name={resource.name} />}
     </div>
+  );
+}
+
+function DiffSection({ cluster, namespace, name }: { cluster: string; namespace: string; name: string }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<FluxDiffDTO | null>(null);
+  const run = () => {
+    setRunning(true);
+    fluxDiff(cluster, namespace, name, "")
+      .then((r) => setResult(r))
+      .catch((e) => setResult({ available: true, hasChanges: false, output: "", error: String(e) }))
+      .finally(() => setRunning(false));
+  };
+  return (
+    <Section title="Live diff (flux diff)">
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={run} disabled={running} style={{ ...actionBtn, opacity: running ? 0.6 : 1 }}>
+          {running ? "Computing…" : "Compute diff"}
+        </button>
+        <span style={{ color: "var(--color-text-tertiary)", fontSize: 10 }}>shells out to <span style={{ fontFamily: "var(--font-mono)" }}>flux diff</span> with your local credentials</span>
+      </div>
+      {result && result.error && (
+        <div style={{ color: "var(--color-text-danger)", marginTop: 6, ...ellipsis }} title={result.error}>{result.error}</div>
+      )}
+      {result && !result.error && !result.hasChanges && (
+        <div style={{ color: "var(--color-text-success)", marginTop: 6 }}>no changes — live matches Git</div>
+      )}
+      {result && result.hasChanges && (
+        <pre style={{ marginTop: 6, padding: 8, maxHeight: 280, overflow: "auto", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "pre", lineHeight: 1.4 }}>{result.output}</pre>
+      )}
+    </Section>
+  );
+}
+
+function SourceSection({ source }: { source: FluxSourceDTO }) {
+  const ready = source.ready === "Ready";
+  const dot = source.suspended ? "var(--color-text-warning)" : (readyColor[source.ready] ?? "var(--color-text-tertiary)");
+  const label = sourceKindLabel[source.kind] ?? source.kind;
+  return (
+    <Section title="Source">
+      {!ready && (
+        <div style={{ color: "var(--color-text-danger)", fontWeight: 500, marginBottom: 4 }}>
+          source not ready{source.reason ? `: ${source.reason}` : ""}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr)", gap: 8, alignItems: "baseline" }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
+        <div style={{ minWidth: 0 }}>
+          <span style={{ fontFamily: "var(--font-mono)" }}>{label} · {source.namespace}/{source.name}</span>
+          {source.revision && (
+            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11, marginLeft: 6, fontFamily: "var(--font-mono)" }}>{shortRev(source.revision)}</span>
+          )}
+          {source.message && !ready && (
+            <div style={{ color: "var(--color-text-secondary)", fontSize: 11, marginTop: 2, ...ellipsis }} title={source.message}>{source.message}</div>
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function DependsOnSection({ deps, kind, resolve, blocked }: {
+  deps: DependencyRefDTO[];
+  kind: string;
+  resolve: Map<string, FluxResourceDTO>;
+  blocked: boolean;
+}) {
+  // Dependencies are implicitly the same kind as the resource.
+  const stateOf = (d: DependencyRefDTO): string | null => resolve.get(`${kind}/${d.namespace}/${d.name}`)?.ready ?? null;
+  const blocker = blocked ? deps.find((d) => stateOf(d) !== "Ready") : undefined;
+  return (
+    <Section title="Depends on">
+      {blocker && (
+        <div style={{ color: "var(--color-text-danger)", fontWeight: 500, marginBottom: 4 }}>
+          blocked by <span style={{ fontFamily: "var(--font-mono)" }}>{blocker.namespace}/{blocker.name}</span>
+        </div>
+      )}
+      {deps.map((d) => {
+        const state = stateOf(d);
+        const dot = state ? (readyColor[state] ?? "var(--color-text-tertiary)") : "var(--color-text-tertiary)";
+        return (
+          <div key={`${d.namespace}/${d.name}`} style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr) auto", gap: 8, alignItems: "baseline" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
+            <span style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{d.namespace}/{d.name}</span>
+            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>{state ? state.toLowerCase() : "not found"}</span>
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
+
+function isDriftEvent(e: EventRowDTO): boolean {
+  const s = `${e.reason} ${e.message}`.toLowerCase();
+  return s.includes("drift") || s.includes("configured");
+}
+
+function EventsSection({ events }: { events: EventRowDTO[] }) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  return (
+    <Section title="Drift / events">
+      {events.length === 0 ? <Muted>no recent events</Muted> : events.map((e, i) => {
+        const warn = e.type === "Warning";
+        const drift = isDriftEvent(e);
+        const dot = warn ? "var(--color-text-danger)" : drift ? "var(--color-text-info)" : "var(--color-text-tertiary)";
+        const sec = e.lastSeenUnix > 0 ? Math.max(0, nowSec - e.lastSeenUnix) : 0;
+        return (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr)", gap: 8, alignItems: "baseline" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
+            <div style={{ minWidth: 0 }}>
+              <span style={{ color: warn ? "var(--color-text-danger)" : "var(--color-text-primary)", fontWeight: 500 }}>{e.reason}</span>
+              <span style={{ color: "var(--color-text-tertiary)", fontSize: 11, marginLeft: 6 }}>· {ago(sec) || "just now"}</span>
+              {drift && <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 6, border: "0.5px solid var(--color-border-info)", color: "var(--color-text-info)", background: "var(--color-background-info)" }}>drift</span>}
+              {e.count > 1 && <span style={{ color: "var(--color-text-tertiary)", fontSize: 10, marginLeft: 6 }}>×{e.count}</span>}
+              {e.message && <div style={{ color: "var(--color-text-secondary)", fontSize: 11, marginTop: 1, ...ellipsis }} title={e.message}>{e.message}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </Section>
   );
 }
 
@@ -353,11 +573,35 @@ function InspectorHeader({ resource, color }: { resource: FluxResourceDTO; color
       <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, marginTop: 2 }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 600, ...ellipsis }}>{resource.name}</span>
         <span style={{ color, fontSize: 11 }}>{statusText(resource)}</span>
+        {needsAttention(resource) && resource.reason && <ReasonChip reason={resource.reason} bad={resource.ready === "Failed"} />}
       </div>
       {resource.message && needsAttention(resource) && (
         <div style={{ color: resource.ready === "Failed" ? "var(--color-text-danger)" : "var(--color-text-warning)", marginTop: 6, ...ellipsis }} title={resource.message}>{resource.message}</div>
       )}
     </div>
+  );
+}
+
+function ReasonChip({ reason, bad }: { reason: string; bad: boolean }) {
+  const tone = bad ? "danger" : "warning";
+  return (
+    <span
+      title={reason}
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 9,
+        padding: "1px 5px",
+        borderRadius: 3,
+        marginLeft: 6,
+        verticalAlign: "middle",
+        border: `0.5px solid var(--color-border-${tone})`,
+        color: `var(--color-text-${tone})`,
+        background: `var(--color-background-${tone})`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {reason}
+    </span>
   );
 }
 

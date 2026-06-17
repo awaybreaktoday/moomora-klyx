@@ -9,7 +9,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/gitops/flux"
+	"github.com/moomora/klyx/internal/workloads"
 )
 
 type fakeGitOpsConn struct {
@@ -18,12 +20,20 @@ type fakeGitOpsConn struct {
 	closed int
 	res    []flux.Resource
 	obj    *unstructured.Unstructured
+	srcObj *unstructured.Unstructured
+	srcs   []flux.Source
+	events []workloads.EventSummary
+
+	fluxAvailable bool
+	diff          fluxcli.DiffResult
+	diffErr       error
 
 	sourceURL string
 
 	reconcileErr error
 	suspendErr   error
 	lastSuspend  bool
+	withSource   bool
 }
 
 func (f *fakeGitOpsConn) OpenGitOps()  { f.mu.Lock(); f.opened++; f.mu.Unlock() }
@@ -41,7 +51,28 @@ func (f *fakeGitOpsConn) GitOpsObject(kind, namespace, name string) (*unstructur
 	return f.obj, true
 }
 
+func (f *fakeGitOpsConn) GitOpsSources() []flux.Source { return f.srcs }
+func (f *fakeGitOpsConn) GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	if f.srcObj == nil {
+		return nil, false
+	}
+	return f.srcObj, true
+}
+func (f *fakeGitOpsConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
+	return f.events, nil
+}
+func (f *fakeGitOpsConn) FluxAvailable() bool { return f.fluxAvailable }
+func (f *fakeGitOpsConn) FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error) {
+	return f.diff, f.diffErr
+}
+
 func (f *fakeGitOpsConn) Reconcile(ctx context.Context, kind, ns, name string) error {
+	return f.reconcileErr
+}
+func (f *fakeGitOpsConn) ReconcileWithSource(ctx context.Context, kind, ns, name string) error {
+	f.mu.Lock()
+	f.withSource = true
+	f.mu.Unlock()
 	return f.reconcileErr
 }
 func (f *fakeGitOpsConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
@@ -162,6 +193,44 @@ func TestReconcileActionSurfacesError(t *testing.T) {
 	r := svc.Reconcile("x", "Kustomization", "flux-system", "app")
 	if r.OK || r.Error == "" {
 		t.Fatalf("want failure surfaced, got %+v", r)
+	}
+}
+
+func TestReconcileWithSourceActionResult(t *testing.T) {
+	conn := &fakeGitOpsConn{}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.ReconcileWithSource("x", "Kustomization", "flux-system", "app"); !r.OK || r.Error != "" {
+		t.Fatalf("want OK, got %+v", r)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if !conn.withSource {
+		t.Fatal("expected ReconcileWithSource to reach the conn")
+	}
+}
+
+func TestFluxDiffUnavailableHidesAffordance(t *testing.T) {
+	conn := &fakeGitOpsConn{fluxAvailable: false}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	dto := svc.FluxDiff("x", "flux-system", "app", "")
+	if dto.Available {
+		t.Fatalf("want Available=false when flux missing, got %+v", dto)
+	}
+}
+
+func TestFluxDiffReturnsChanges(t *testing.T) {
+	conn := &fakeGitOpsConn{fluxAvailable: true, diff: fluxcli.DiffResult{HasChanges: true, Output: "± spec.replicas: 2 -> 3"}}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	dto := svc.FluxDiff("x", "flux-system", "app", "./apps")
+	if !dto.Available || !dto.HasChanges || dto.Output == "" || dto.Error != "" {
+		t.Fatalf("want available diff with changes, got %+v", dto)
+	}
+}
+
+func TestReconcileWithSourceUnknownClusterIsError(t *testing.T) {
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return nil, false }, &fakeEmitter{}, time.Now, time.Second)
+	if r := svc.ReconcileWithSource("ghost", "Kustomization", "n", "x"); r.OK || r.Error == "" {
+		t.Fatalf("want failure for unknown cluster, got %+v", r)
 	}
 }
 

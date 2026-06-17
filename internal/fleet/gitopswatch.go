@@ -17,6 +17,7 @@ type gitopsWatch struct {
 	cancel context.CancelFunc
 	ksInf  cache.SharedIndexInformer
 	hrInf  cache.SharedIndexInformer
+	srcInf map[flux.Kind]cache.SharedIndexInformer
 }
 
 // preferredVersion returns the served preferred version for a CRD group, or
@@ -63,11 +64,36 @@ func (c *ClusterConn) OpenGitOps() {
 	factory := dynamicinformer.NewDynamicSharedInformerFactory(dyn, defaultResync)
 	ksInf := factory.ForResource(ksGVR).Informer()
 	hrInf := factory.ForResource(hrGVR).Informer()
+
+	// Watch the source kinds alongside ks/hr so a stuck resource's root cause
+	// (a source that is not pulling) is visible without a separate API read.
+	srcInf := make(map[flux.Kind]cache.SharedIndexInformer, len(sourceKinds))
+	for _, s := range sourceKinds {
+		ver := preferredVersion(c.typed.Discovery(), s.group, s.fallback)
+		gvr := schema.GroupVersionResource{Group: s.group, Version: ver, Resource: s.resource}
+		srcInf[s.kind] = factory.ForResource(gvr).Informer()
+	}
+
 	factory.Start(gctx.Done())
 
 	c.mu.Lock()
-	c.gitops = &gitopsWatch{cancel: cancel, ksInf: ksInf, hrInf: hrInf}
+	c.gitops = &gitopsWatch{cancel: cancel, ksInf: ksInf, hrInf: hrInf, srcInf: srcInf}
 	c.mu.Unlock()
+}
+
+// sourceKinds is the set of Flux source CRDs Klyx watches, with the fallback
+// version used when discovery does not advertise the group (e.g. in tests).
+var sourceKinds = []struct {
+	kind     flux.Kind
+	group    string
+	resource string
+	fallback string
+}{
+	{flux.GitRepositoryKind, "source.toolkit.fluxcd.io", "gitrepositories", "v1"},
+	{flux.OCIRepositoryKind, "source.toolkit.fluxcd.io", "ocirepositories", "v1beta2"},
+	{flux.BucketKind, "source.toolkit.fluxcd.io", "buckets", "v1"},
+	{flux.HelmRepositoryKind, "source.toolkit.fluxcd.io", "helmrepositories", "v1"},
+	{flux.HelmChartKind, "source.toolkit.fluxcd.io", "helmcharts", "v1"},
 }
 
 // CloseGitOps stops the Flux informers.
@@ -100,6 +126,59 @@ func (c *ClusterConn) GitOpsObject(kind, namespace, name string) (*unstructured.
 		return nil, false
 	}
 	if inf == nil {
+		return nil, false
+	}
+	for _, obj := range inf.GetStore().List() {
+		if u, ok := obj.(*unstructured.Unstructured); ok {
+			if u.GetNamespace() == namespace && u.GetName() == name {
+				return u, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// GitOpsSources reads the source informer stores and parses them. nil when not
+// open. Sorted (kind then namespace/name) so the UI list does not reshuffle.
+func (c *ClusterConn) GitOpsSources() []flux.Source {
+	c.mu.RLock()
+	g := c.gitops
+	c.mu.RUnlock()
+	if g == nil {
+		return nil
+	}
+	var out []flux.Source
+	for _, inf := range g.srcInf {
+		for _, obj := range inf.GetStore().List() {
+			if u, ok := obj.(*unstructured.Unstructured); ok {
+				out = append(out, flux.ParseSource(u))
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
+	return out
+}
+
+// GitOpsSourceObject returns a watched source object by kind/namespace/name from
+// the live informer store. false if the watch is closed or not found.
+func (c *ClusterConn) GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool) {
+	c.mu.RLock()
+	g := c.gitops
+	c.mu.RUnlock()
+	if g == nil {
+		return nil, false
+	}
+	inf, ok := g.srcInf[flux.Kind(kind)]
+	if !ok || inf == nil {
 		return nil, false
 	}
 	for _, obj := range inf.GetStore().List() {

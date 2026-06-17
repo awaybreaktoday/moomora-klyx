@@ -1,4 +1,4 @@
-import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
+import { useFleet, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { Events, Browser, Clipboard } from "@wailsio/runtime";
 import { GitOpsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
@@ -7,10 +7,10 @@ const GITOPS_UPDATED = "gitops:updated";
 export async function openGitOps(cluster: string): Promise<() => void> {
   useFleet.getState().setGitOpsLoading(cluster);
   await GitOpsService.Open(cluster);
-  const off = Events.On(GITOPS_UPDATED, (ev: { data: { cluster: string; resources: FluxResourceDTO[] } }) => {
+  const off = Events.On(GITOPS_UPDATED, (ev: { data: { cluster: string; resources: FluxResourceDTO[]; sources: FluxSourceDTO[] } }) => {
     const d = ev.data;
     if (d && d.cluster === cluster) {
-      useFleet.getState().setGitOps(cluster, d.resources ?? []);
+      useFleet.getState().setGitOps(cluster, d.resources ?? [], d.sources ?? []);
     }
   });
   return typeof off === "function" ? off : () => {};
@@ -41,12 +41,26 @@ export async function reconcile(cluster: string, kind: string, namespace: string
   );
 }
 
+export async function reconcileWithSource(cluster: string, kind: string, namespace: string, name: string): Promise<void> {
+  const r = (await GitOpsService.ReconcileWithSource(cluster, kind, namespace, name)) as ActionResultDTO;
+  useFleet.getState().setActionStatus(
+    r.ok ? { kind: "success", message: `Reconcile (with source) requested for ${namespace}/${name}` }
+         : { kind: "error", message: r.error || "Reconcile failed" },
+  );
+}
+
 export async function setSuspend(cluster: string, kind: string, namespace: string, name: string, suspend: boolean): Promise<void> {
   const r = (await GitOpsService.SetSuspend(cluster, kind, namespace, name, suspend)) as ActionResultDTO;
   useFleet.getState().setActionStatus(
     r.ok ? { kind: "success", message: `${suspend ? "Suspended" : "Resumed"} ${namespace}/${name}` }
          : { kind: "error", message: r.error || "Action failed" },
   );
+}
+
+export type FluxDiffDTO = { available: boolean; hasChanges: boolean; output: string; error: string };
+
+export async function fluxDiff(cluster: string, namespace: string, name: string, path: string): Promise<FluxDiffDTO> {
+  return (await GitOpsService.FluxDiff(cluster, namespace, name, path)) as FluxDiffDTO;
 }
 
 type GitLinkDTO = { url: string; isDeepLink: boolean; copyText: string };

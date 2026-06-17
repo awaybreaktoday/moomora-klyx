@@ -30,6 +30,7 @@ export type FluxResourceDTO = {
   namespace: string;
   name: string;
   ready: string;
+  reason: string;
   message: string;
   revision: string;
   lastAppliedAgeSeconds: number;
@@ -91,21 +92,38 @@ export type ArgoResultDTO = { available: boolean; message?: string; apps: ArgoAp
 
 export type ConditionDTO = { type: string; status: string; reason: string; message: string };
 export type InventoryEntryDTO = { group: string; version: string; kind: string; namespace: string; name: string };
+export type FluxSourceDTO = {
+  kind: string;
+  namespace: string;
+  name: string;
+  ready: string;
+  reason: string;
+  message: string;
+  revision: string;
+  url: string;
+  suspended: boolean;
+};
+export type DependencyRefDTO = { namespace: string; name: string };
 export type ResourceDetailDTO = {
   kind: string;
   namespace: string;
   name: string;
   suspended?: boolean;
+  reason?: string;
   appliedRevision: string;
   attemptedRevision: string;
   applyFailed: boolean;
   conditions: ConditionDTO[];
   inventory: InventoryEntryDTO[];
+  source?: FluxSourceDTO | null;
+  dependsOn?: DependencyRefDTO[];
+  events?: EventRowDTO[];
 };
 
 export type GitOpsSlice = {
   cluster: string | null;
   resources: FluxResourceDTO[];
+  sources: FluxSourceDTO[];
   loading: boolean;
   expandedKey: string | null;
   detail: ResourceDetailDTO | null;
@@ -389,7 +407,7 @@ type FleetState = {
   setInstanceDetail: (d: InstanceDetailDTO) => void;
   clearInstanceDetail: () => void;
   gitops: GitOpsSlice;
-  setGitOps: (cluster: string, resources: FluxResourceDTO[]) => void;
+  setGitOps: (cluster: string, resources: FluxResourceDTO[], sources: FluxSourceDTO[]) => void;
   setGitOpsLoading: (cluster: string) => void;
   clearGitOps: () => void;
   expand: (key: string) => void;
@@ -546,10 +564,10 @@ export const useFleet = create<FleetState>((set) => ({
   setInstanceDetailLoading: (ref) => set({ instanceDetail: { ref, detail: null, loading: true } }),
   setInstanceDetail: (detail) => set((s) => ({ instanceDetail: { ...s.instanceDetail, detail, loading: false } })),
   clearInstanceDetail: () => set({ instanceDetail: { ref: null, detail: null, loading: false } }),
-  gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null },
-  setGitOps: (cluster, resources) => set((s) => ({ gitops: { ...s.gitops, cluster, resources, loading: false } })),
-  setGitOpsLoading: (cluster) => set((s) => ({ gitops: { ...s.gitops, cluster, resources: [], loading: true } })),
-  clearGitOps: () => set({ gitops: { cluster: null, resources: [], loading: false, expandedKey: null, detail: null } }),
+  gitops: { cluster: null, resources: [], sources: [], loading: false, expandedKey: null, detail: null },
+  setGitOps: (cluster, resources, sources) => set((s) => ({ gitops: { ...s.gitops, cluster, resources, sources, loading: false } })),
+  setGitOpsLoading: (cluster) => set((s) => ({ gitops: { ...s.gitops, cluster, resources: [], sources: [], loading: true } })),
+  clearGitOps: () => set({ gitops: { cluster: null, resources: [], sources: [], loading: false, expandedKey: null, detail: null } }),
   expand: (key) => set((s) => ({ gitops: { ...s.gitops, expandedKey: key, detail: null } })),
   collapse: () => set((s) => ({ gitops: { ...s.gitops, expandedKey: null, detail: null } })),
   setDetail: (d) => set((s) => ({ gitops: { ...s.gitops, detail: d } })),
