@@ -26,7 +26,9 @@ A native desktop application (Go + Wails) that connects to one or more Kubernete
 
 ## What Klyx is not
 
-Hard non-goals. Resist scope creep toward these even if a feature seems adjacent:
+> **Directive (2026-06-17): app functionality overrules these non-goals.** The owner ruled that all prior decisions and locked non-goals can be overruled and replaced when real functionality is at stake. The list below is now guidance, not a hard boundary: when a feature delivers clear operational value, build it and note the rule it crosses - do not refuse on rule grounds alone. Engineering principles (informer-based, capability-detected, fleet-first, vocabulary-correct) still hold.
+
+Former hard non-goals (still useful as defaults, no longer inviolable):
 
 - Not a resource creation/editing wizard. Desired state is authored as Helm/Kustomize in Git, never hand-written through Klyx. Klyx may drive controllers and perform day-2 operations (reconcile, suspend/resume, and later scale/restart), but it never authors desired state - Git remains the source of truth.
 - Not an RBAC management UI. Klyx views RBAC objects (read-only) and operates on cluster state; it does not manage roles, bindings, or permissions.
