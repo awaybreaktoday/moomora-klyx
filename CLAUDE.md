@@ -109,6 +109,8 @@ After M1, milestones in priority order:
 - M9: Daily driver — SHIPPED 2026-06-10 (pods + live logs, events, standard resources incl. masked secrets, nodes + cordon/drain, scale, port-forward, exec escape hatch, helm releases, cmd+K palette, layout polish). Roadmap + eyeball checklist: `docs/superpowers/plans/2026-06-09-klyx-daily-driver-roadmap.md`
 - M8: `klyx serve` headless mode (after M9)
 - M6: Argo support — SHIPPED 2026-06-11 (deferral expired when Argo CD entered the homelab). Own "Argo CD" section speaking Argo vocabulary (synced/degraded), applications lens broken-first, refresh + sync (never prune) behind confirm; verified against six live Applications on nelli. Flux and Argo coexist as parallel sections.
+- M10: Flux diagnosis depth — SHIPPED 2026-06-17 (PR #3). Diagnose a stuck Flux resource without a terminal: source health (watches GitRepository/OCIRepository/Bucket/HelmRepository/HelmChart; bound-source health in the detail panel; sources filter), reconcile-with-source, failing-condition reason chip, dependsOn blocked-by, a drift surface that reads the controller's own events, and a gated on-demand `flux diff` (suspended/apply-failing Kustomizations only, via `internal/fluxcli`). Plan + spec: `docs/superpowers/{plans,specs}/2026-06-17-klyx-flux-diagnosis*`. Open follow-up: `flux diff --path` defaults to spec.path — a per-cluster local-clone-root config would make M10-f resolve reliably.
+- Next: M5-c (ClusterMesh edges) and M8 (`klyx serve` headless) remain.
 
 ## References
 
