@@ -219,6 +219,21 @@ describe("GitOps view", () => {
     expect(getAllByText("flux-system/infra").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("renders the drift/events timeline in the detail panel", () => {
+    useFleet.setState({
+      clusters: [cluster("Healthy")],
+      gitops: expandedDetail({
+        events: [
+          { type: "Warning", reason: "DriftDetected", message: "Deployment/default/podinfo configured", count: 3, namespace: "flux-system", kind: "Kustomization", name: "flux-system", lastSeenUnix: 0, firstSeenUnix: 0 },
+        ],
+      }),
+    });
+    const { getByText } = render(<GitOps cluster="x" />);
+    expect(getByText("DriftDetected")).toBeTruthy();
+    expect(getByText("drift")).toBeTruthy();
+    expect(getByText(/podinfo configured/i)).toBeTruthy();
+  });
+
   it("lists sources under the sources filter", () => {
     useFleet.setState({
       clusters: [cluster("Healthy")],

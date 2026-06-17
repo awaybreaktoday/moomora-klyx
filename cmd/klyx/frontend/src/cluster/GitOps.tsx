@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useFleet } from "../store/fleet";
-import type { DependencyRefDTO, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
+import type { DependencyRefDTO, EventRowDTO, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { openGitOps, closeGitOps, getResourceDetail, reconcile, reconcileWithSource, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
@@ -410,6 +410,7 @@ function DetailPanel({ resource, detail, deps, onReconcile, onReconcileWithSourc
       {detail.dependsOn && detail.dependsOn.length > 0 && (
         <DependsOnSection deps={detail.dependsOn} kind={resource.kind} resolve={deps} blocked={detail.reason === "DependencyNotReady"} />
       )}
+      {detail.events && <EventsSection events={detail.events} />}
       {detail.applyFailed && (
         <div style={{ color: "var(--color-text-danger)", marginBottom: 8 }}>apply failed at <span style={{ fontFamily: "var(--font-mono)" }}>{shortRev(detail.attemptedRevision)}</span></div>
       )}
@@ -488,6 +489,37 @@ function DependsOnSection({ deps, kind, resolve, blocked }: {
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
             <span style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{d.namespace}/{d.name}</span>
             <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>{state ? state.toLowerCase() : "not found"}</span>
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
+
+function isDriftEvent(e: EventRowDTO): boolean {
+  const s = `${e.reason} ${e.message}`.toLowerCase();
+  return s.includes("drift") || s.includes("configured");
+}
+
+function EventsSection({ events }: { events: EventRowDTO[] }) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  return (
+    <Section title="Drift / events">
+      {events.length === 0 ? <Muted>no recent events</Muted> : events.map((e, i) => {
+        const warn = e.type === "Warning";
+        const drift = isDriftEvent(e);
+        const dot = warn ? "var(--color-text-danger)" : drift ? "var(--color-text-info)" : "var(--color-text-tertiary)";
+        const sec = e.lastSeenUnix > 0 ? Math.max(0, nowSec - e.lastSeenUnix) : 0;
+        return (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr)", gap: 8, alignItems: "baseline" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
+            <div style={{ minWidth: 0 }}>
+              <span style={{ color: warn ? "var(--color-text-danger)" : "var(--color-text-primary)", fontWeight: 500 }}>{e.reason}</span>
+              <span style={{ color: "var(--color-text-tertiary)", fontSize: 11, marginLeft: 6 }}>· {ago(sec) || "just now"}</span>
+              {drift && <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, padding: "1px 5px", borderRadius: 3, marginLeft: 6, border: "0.5px solid var(--color-border-info)", color: "var(--color-text-info)", background: "var(--color-background-info)" }}>drift</span>}
+              {e.count > 1 && <span style={{ color: "var(--color-text-tertiary)", fontSize: 10, marginLeft: 6 }}>×{e.count}</span>}
+              {e.message && <div style={{ color: "var(--color-text-secondary)", fontSize: 11, marginTop: 1, ...ellipsis }} title={e.message}>{e.message}</div>}
+            </div>
           </div>
         );
       })}

@@ -117,6 +117,7 @@ export type ResourceDetailDTO = {
   inventory: InventoryEntryDTO[];
   source?: FluxSourceDTO | null;
   dependsOn?: DependencyRefDTO[];
+  events?: EventRowDTO[];
 };
 
 export type GitOpsSlice = {
