@@ -9,6 +9,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/workloads"
 )
@@ -22,6 +23,10 @@ type fakeGitOpsConn struct {
 	srcObj *unstructured.Unstructured
 	srcs   []flux.Source
 	events []workloads.EventSummary
+
+	fluxAvailable bool
+	diff          fluxcli.DiffResult
+	diffErr       error
 
 	sourceURL string
 
@@ -55,6 +60,10 @@ func (f *fakeGitOpsConn) GitOpsSourceObject(kind, namespace, name string) (*unst
 }
 func (f *fakeGitOpsConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
 	return f.events, nil
+}
+func (f *fakeGitOpsConn) FluxAvailable() bool { return f.fluxAvailable }
+func (f *fakeGitOpsConn) FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error) {
+	return f.diff, f.diffErr
 }
 
 func (f *fakeGitOpsConn) Reconcile(ctx context.Context, kind, ns, name string) error {
@@ -197,6 +206,24 @@ func TestReconcileWithSourceActionResult(t *testing.T) {
 	defer conn.mu.Unlock()
 	if !conn.withSource {
 		t.Fatal("expected ReconcileWithSource to reach the conn")
+	}
+}
+
+func TestFluxDiffUnavailableHidesAffordance(t *testing.T) {
+	conn := &fakeGitOpsConn{fluxAvailable: false}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	dto := svc.FluxDiff("x", "flux-system", "app", "")
+	if dto.Available {
+		t.Fatalf("want Available=false when flux missing, got %+v", dto)
+	}
+}
+
+func TestFluxDiffReturnsChanges(t *testing.T) {
+	conn := &fakeGitOpsConn{fluxAvailable: true, diff: fluxcli.DiffResult{HasChanges: true, Output: "± spec.replicas: 2 -> 3"}}
+	svc := NewGitOpsService(func(string) (GitOpsConn, bool) { return conn, true }, &fakeEmitter{}, time.Now, time.Second)
+	dto := svc.FluxDiff("x", "flux-system", "app", "./apps")
+	if !dto.Available || !dto.HasChanges || dto.Output == "" || dto.Error != "" {
+		t.Fatalf("want available diff with changes, got %+v", dto)
 	}
 }
 

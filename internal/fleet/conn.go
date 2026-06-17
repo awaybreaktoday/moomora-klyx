@@ -27,6 +27,7 @@ import (
 	"github.com/moomora/klyx/internal/gitops/argo"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/gwapi"
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/helmcli"
 	"github.com/moomora/klyx/internal/metrics"
 	"github.com/moomora/klyx/internal/routemetrics"
@@ -45,6 +46,8 @@ type Conn interface {
 	GitOpsSources() []flux.Source
 	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error)
+	FluxAvailable() bool
+	FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error

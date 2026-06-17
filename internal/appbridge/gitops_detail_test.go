@@ -8,6 +8,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/workloads"
 )
@@ -81,6 +82,10 @@ func (f *fakeGitOpsSummaryConn) ReconcileWithSource(ctx context.Context, kind, n
 }
 func (f *fakeGitOpsSummaryConn) FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error) {
 	return nil, nil
+}
+func (f *fakeGitOpsSummaryConn) FluxAvailable() bool { return false }
+func (f *fakeGitOpsSummaryConn) FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error) {
+	return fluxcli.DiffResult{}, nil
 }
 func (f *fakeGitOpsSummaryConn) SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error {
 	return nil

@@ -7,6 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/moomora/klyx/internal/fluxcli"
 	"github.com/moomora/klyx/internal/gitops/flux"
 	"github.com/moomora/klyx/internal/workloads"
 )
@@ -20,6 +21,8 @@ type GitOpsConn interface {
 	GitOpsSources() []flux.Source
 	GitOpsSourceObject(kind, namespace, name string) (*unstructured.Unstructured, bool)
 	FluxEvents(ctx context.Context, kind, ns, name string) ([]workloads.EventSummary, error)
+	FluxAvailable() bool
+	FluxDiffKustomization(ctx context.Context, ns, name, path string) (fluxcli.DiffResult, error)
 	Reconcile(ctx context.Context, kind, ns, name string) error
 	ReconcileWithSource(ctx context.Context, kind, ns, name string) error
 	SetSuspend(ctx context.Context, kind, ns, name string, suspend bool) error
@@ -119,6 +122,10 @@ func (s *GitOpsService) pushLoop(ctx context.Context, cluster string, conn GitOp
 
 const actionTimeout = 30 * time.Second
 
+// diffTimeout is generous: `flux diff` builds the kustomization locally
+// (including SOPS decryption) and dry-runs it against the apiserver.
+const diffTimeout = 120 * time.Second
+
 func (s *GitOpsService) Reconcile(cluster, kind, namespace, name string) ActionResultDTO {
 	conn, ok := s.lookup(cluster)
 	if !ok {
@@ -143,6 +150,27 @@ func (s *GitOpsService) ReconcileWithSource(cluster, kind, namespace, name strin
 		return ActionResultDTO{Error: err.Error()}
 	}
 	return ActionResultDTO{OK: true}
+}
+
+// FluxDiff runs an on-demand `flux diff` for a Kustomization (M10-f). Bound to
+// JS, request/response, never auto-run. Available=false when the CLI is absent
+// (the UI hides the button); the gate (suspended/failing only) is enforced in
+// the conn and any refusal/CLI failure surfaces in Error.
+func (s *GitOpsService) FluxDiff(cluster, namespace, name, path string) FluxDiffDTO {
+	conn, ok := s.lookup(cluster)
+	if !ok {
+		return FluxDiffDTO{Error: "cluster not connected: " + cluster}
+	}
+	if !conn.FluxAvailable() {
+		return FluxDiffDTO{Available: false, Error: "the flux CLI was not found on PATH"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	res, err := conn.FluxDiffKustomization(ctx, namespace, name, path)
+	if err != nil {
+		return FluxDiffDTO{Available: true, Error: err.Error()}
+	}
+	return FluxDiffDTO{Available: true, HasChanges: res.HasChanges, Output: res.Output, Error: res.Err}
 }
 
 func (s *GitOpsService) SetSuspend(cluster, kind, namespace, name string, suspend bool) ActionResultDTO {

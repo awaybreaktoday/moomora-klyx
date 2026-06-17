@@ -105,6 +105,15 @@ type DependencyRefDTO struct {
 	Name      string `json:"name"`
 }
 
+// FluxDiffDTO is the result of an on-demand `flux diff` (M10-f). Available is
+// false when the flux CLI isn't installed (the UI hides the affordance).
+type FluxDiffDTO struct {
+	Available  bool   `json:"available"`
+	HasChanges bool   `json:"hasChanges"`
+	Output     string `json:"output"`
+	Error      string `json:"error"`
+}
+
 type ResourceDetailDTO struct {
 	Kind              string              `json:"kind"`
 	Namespace         string              `json:"namespace"`
