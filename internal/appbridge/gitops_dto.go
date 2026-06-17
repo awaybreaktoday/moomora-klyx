@@ -19,6 +19,7 @@ type FluxResourceDTO struct {
 	Namespace             string `json:"namespace"`
 	Name                  string `json:"name"`
 	Ready                 string `json:"ready"`
+	Reason                string `json:"reason"`
 	Message               string `json:"message"`
 	Revision              string `json:"revision"`
 	LastAppliedAgeSeconds int64  `json:"lastAppliedAgeSeconds"`
@@ -40,6 +41,7 @@ func ToFluxDTO(r flux.Resource, now time.Time) FluxResourceDTO {
 		Namespace:             r.Namespace,
 		Name:                  r.Name,
 		Ready:                 string(r.Ready),
+		Reason:                r.Reason,
 		Message:               r.Message,
 		Revision:              r.Revision,
 		LastAppliedAgeSeconds: age,

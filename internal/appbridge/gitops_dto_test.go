@@ -30,6 +30,14 @@ func TestToFluxDTO(t *testing.T) {
 	}
 }
 
+func TestToFluxDTOCarriesReason(t *testing.T) {
+	now := time.Now()
+	r := flux.Resource{Kind: flux.HelmReleaseKind, Namespace: "kube-system", Name: "cilium", Ready: flux.Failed, Reason: "UpgradeFailed"}
+	if d := ToFluxDTO(r, now); d.Reason != "UpgradeFailed" {
+		t.Fatalf("want reason carried, got %q", d.Reason)
+	}
+}
+
 func TestToFluxDTOZeroTimeAge(t *testing.T) {
 	now := time.Now()
 	d := ToFluxDTO(flux.Resource{Kind: flux.HelmReleaseKind, Name: "x", Ready: flux.Failed}, now)
