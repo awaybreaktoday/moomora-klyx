@@ -139,7 +139,12 @@ func toDetailDTO(d flux.Detail) ResourceDetailDTO {
 		Reason:            d.Reason,
 		AppliedRevision:   d.AppliedRevision,
 		AttemptedRevision: d.AttemptedRevision,
-		ApplyFailed:       d.AttemptedRevision != "" && d.AttemptedRevision != d.AppliedRevision,
+		// The attempted-vs-applied apply-failure signal is only valid for
+		// Kustomization: both fields exist and share the same revision format.
+		// HelmRelease v2 has no lastAppliedRevision (only lastAttemptedRevision),
+		// so this heuristic would always false-positive; its failure state is
+		// conveyed by the Ready/Released conditions instead.
+		ApplyFailed: d.Kind == flux.KustomizationKind && d.AttemptedRevision != "" && d.AttemptedRevision != d.AppliedRevision,
 	}
 	for _, c := range d.Conditions {
 		out.Conditions = append(out.Conditions, ConditionDTO{Type: c.Type, Status: c.Status, Reason: c.Reason, Message: c.Message})

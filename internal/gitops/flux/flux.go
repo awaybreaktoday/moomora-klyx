@@ -89,12 +89,8 @@ func ParseHelmRelease(u *unstructured.Unstructured) Resource {
 	r := common(u, HelmReleaseKind)
 	if rev, ok, _ := unstructured.NestedString(u.Object, "status", "lastAppliedRevision"); ok && rev != "" {
 		r.Revision = rev
-	} else if hist, ok, _ := unstructured.NestedSlice(u.Object, "status", "history"); ok && len(hist) > 0 {
-		if last, ok := hist[len(hist)-1].(map[string]interface{}); ok {
-			if cv, ok := last["chartVersion"].(string); ok {
-				r.Revision = cv
-			}
-		}
+	} else if cv := currentHelmChartVersion(u); cv != "" {
+		r.Revision = cv
 	}
 	if r.SourceName == "" {
 		if n, ok, _ := unstructured.NestedString(u.Object, "spec", "chart", "spec", "sourceRef", "name"); ok && n != "" {
@@ -106,6 +102,45 @@ func ParseHelmRelease(u *unstructured.Unstructured) Resource {
 		}
 	}
 	return r
+}
+
+// currentHelmChartVersion returns the chart version of a HelmRelease's current
+// release from status.history. Flux maintains history newest-first (Latest() ==
+// history[0]) and each Snapshot carries an integer `version` (the Helm release
+// revision). We pick the entry with the highest version so the result is correct
+// regardless of slice ordering; falling back to the first entry's chartVersion.
+func currentHelmChartVersion(u *unstructured.Unstructured) string {
+	hist, ok, _ := unstructured.NestedSlice(u.Object, "status", "history")
+	if !ok || len(hist) == 0 {
+		return ""
+	}
+	bestVer := int64(-1)
+	var bestChart, firstChart string
+	for i, h := range hist {
+		hm, ok := h.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cv, _ := hm["chartVersion"].(string)
+		if i == 0 {
+			firstChart = cv
+		}
+		var ver int64 = -1
+		switch v := hm["version"].(type) {
+		case int64:
+			ver = v
+		case float64:
+			ver = int64(v)
+		}
+		if cv != "" && ver > bestVer {
+			bestVer = ver
+			bestChart = cv
+		}
+	}
+	if bestChart != "" {
+		return bestChart
+	}
+	return firstChart
 }
 
 func common(u *unstructured.Unstructured, kind Kind) Resource {
