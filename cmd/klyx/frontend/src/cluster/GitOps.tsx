@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useFleet } from "../store/fleet";
-import type { FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
+import type { DependencyRefDTO, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { openGitOps, closeGitOps, getResourceDetail, reconcile, reconcileWithSource, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
@@ -136,6 +136,11 @@ export function GitOps({ cluster }: { cluster: string }) {
     () => orderedRows.filter((r) => matchesFilter(r, filter) && matchesQuery(r, query)),
     [orderedRows, filter, query],
   );
+  const byKey = useMemo(() => {
+    const m = new Map<string, FluxResourceDTO>();
+    for (const r of rows) m.set(keyOf(r), r);
+    return m;
+  }, [rows]);
   const allSources = gitops.cluster === cluster ? (gitops.sources ?? []) : [];
   const orderedSources = useMemo(
     () => [...allSources].sort((a, b) => srcRank(a) - srcRank(b) || a.kind.localeCompare(b.kind) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name)),
@@ -240,6 +245,7 @@ export function GitOps({ cluster }: { cluster: string }) {
               <DetailPanel
                 resource={selectedResource}
                 detail={selectedDetail}
+                deps={byKey}
                 onReconcile={() => setPending({ verb: "reconcile", r: selectedResource })}
                 onReconcileWithSource={() => setPending({ verb: "reconcile-source", r: selectedResource })}
                 onToggleSuspend={(isSuspended) => setPending({ verb: isSuspended ? "resume" : "suspend", r: selectedResource })}
@@ -365,9 +371,10 @@ function SourceRow({ s }: { s: FluxSourceDTO }) {
   );
 }
 
-function DetailPanel({ resource, detail, onReconcile, onReconcileWithSource, onToggleSuspend, onViewGit }: {
+function DetailPanel({ resource, detail, deps, onReconcile, onReconcileWithSource, onToggleSuspend, onViewGit }: {
   resource: FluxResourceDTO;
   detail: ResourceDetailDTO | null;
+  deps: Map<string, FluxResourceDTO>;
   onReconcile: () => void;
   onReconcileWithSource: () => void;
   onToggleSuspend: (suspended: boolean) => void;
@@ -400,6 +407,9 @@ function DetailPanel({ resource, detail, onReconcile, onReconcileWithSource, onT
         )}
       </div>
       {detail.source && <SourceSection source={detail.source} />}
+      {detail.dependsOn && detail.dependsOn.length > 0 && (
+        <DependsOnSection deps={detail.dependsOn} kind={resource.kind} resolve={deps} blocked={detail.reason === "DependencyNotReady"} />
+      )}
       {detail.applyFailed && (
         <div style={{ color: "var(--color-text-danger)", marginBottom: 8 }}>apply failed at <span style={{ fontFamily: "var(--font-mono)" }}>{shortRev(detail.attemptedRevision)}</span></div>
       )}
@@ -450,6 +460,37 @@ function SourceSection({ source }: { source: FluxSourceDTO }) {
           )}
         </div>
       </div>
+    </Section>
+  );
+}
+
+function DependsOnSection({ deps, kind, resolve, blocked }: {
+  deps: DependencyRefDTO[];
+  kind: string;
+  resolve: Map<string, FluxResourceDTO>;
+  blocked: boolean;
+}) {
+  // Dependencies are implicitly the same kind as the resource.
+  const stateOf = (d: DependencyRefDTO): string | null => resolve.get(`${kind}/${d.namespace}/${d.name}`)?.ready ?? null;
+  const blocker = blocked ? deps.find((d) => stateOf(d) !== "Ready") : undefined;
+  return (
+    <Section title="Depends on">
+      {blocker && (
+        <div style={{ color: "var(--color-text-danger)", fontWeight: 500, marginBottom: 4 }}>
+          blocked by <span style={{ fontFamily: "var(--font-mono)" }}>{blocker.namespace}/{blocker.name}</span>
+        </div>
+      )}
+      {deps.map((d) => {
+        const state = stateOf(d);
+        const dot = state ? (readyColor[state] ?? "var(--color-text-tertiary)") : "var(--color-text-tertiary)";
+        return (
+          <div key={`${d.namespace}/${d.name}`} style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr) auto", gap: 8, alignItems: "baseline" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
+            <span style={{ fontFamily: "var(--font-mono)", ...ellipsis }}>{d.namespace}/{d.name}</span>
+            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>{state ? state.toLowerCase() : "not found"}</span>
+          </div>
+        );
+      })}
     </Section>
   );
 }

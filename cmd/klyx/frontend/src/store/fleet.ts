@@ -103,17 +103,20 @@ export type FluxSourceDTO = {
   url: string;
   suspended: boolean;
 };
+export type DependencyRefDTO = { namespace: string; name: string };
 export type ResourceDetailDTO = {
   kind: string;
   namespace: string;
   name: string;
   suspended?: boolean;
+  reason?: string;
   appliedRevision: string;
   attemptedRevision: string;
   applyFailed: boolean;
   conditions: ConditionDTO[];
   inventory: InventoryEntryDTO[];
   source?: FluxSourceDTO | null;
+  dependsOn?: DependencyRefDTO[];
 };
 
 export type GitOpsSlice = {

@@ -193,6 +193,32 @@ describe("GitOps view", () => {
     expect(getByText(/auth required/i)).toBeTruthy();
   });
 
+  it("renders a blocked-by line and dependency states when DependencyNotReady", () => {
+    useFleet.setState({
+      clusters: [cluster("Healthy")],
+      gitops: {
+        cluster: "x",
+        resources: [
+          res({ kind: "Kustomization", namespace: "flux-system", name: "apps", ready: "Reconciling", reason: "DependencyNotReady" }),
+          res({ kind: "Kustomization", namespace: "flux-system", name: "infra", ready: "Failed" }),
+        ],
+        sources: [],
+        loading: false,
+        expandedKey: "Kustomization/flux-system/apps",
+        detail: {
+          kind: "Kustomization", namespace: "flux-system", name: "apps",
+          reason: "DependencyNotReady", appliedRevision: "main@a", attemptedRevision: "main@a", applyFailed: false,
+          conditions: [], inventory: [],
+          dependsOn: [{ namespace: "flux-system", name: "infra" }],
+        },
+      },
+    });
+    const { getByText, getAllByText } = render(<GitOps cluster="x" />);
+    expect(getByText(/blocked by/i)).toBeTruthy();
+    // "flux-system/infra" shows both in the resource list and the dependency row.
+    expect(getAllByText("flux-system/infra").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("lists sources under the sources filter", () => {
     useFleet.setState({
       clusters: [cluster("Healthy")],
