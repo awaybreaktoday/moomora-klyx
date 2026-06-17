@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import { useFleet, FluxResourceDTO, ClusterDTO } from "../store/fleet";
+import { useFleet, FluxResourceDTO, FluxSourceDTO, ClusterDTO } from "../store/fleet";
 import { reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { GitOps } from "./GitOps";
 
@@ -24,9 +24,15 @@ const res = (over: Partial<FluxResourceDTO>): FluxResourceDTO => ({
   sourceKind: "", sourceName: "", ...over,
 });
 
+const src = (over: Partial<FluxSourceDTO>): FluxSourceDTO => ({
+  kind: "GitRepository", namespace: "flux-system", name: "flux-system",
+  ready: "Ready", reason: "", message: "", revision: "main@def", url: "https://x/y", suspended: false, ...over,
+});
+
 const expandedDetail = (over: Partial<import("../store/fleet").ResourceDetailDTO> = {}) => ({
   cluster: "x",
   resources: [res({ kind: "Kustomization", namespace: "flux-system", name: "flux-system" })],
+  sources: [],
   loading: false,
   expandedKey: "Kustomization/flux-system/flux-system",
   detail: {
@@ -38,7 +44,7 @@ const expandedDetail = (over: Partial<import("../store/fleet").ResourceDetailDTO
 
 beforeEach(() => useFleet.setState({
   clusters: [cluster("Healthy")],
-  gitops: { cluster: "x", resources: [], loading: false, expandedKey: null, detail: null },
+  gitops: { cluster: "x", resources: [], sources: [], loading: false, expandedKey: null, detail: null },
 }));
 
 describe("GitOps view", () => {
@@ -46,7 +52,7 @@ describe("GitOps view", () => {
     useFleet.setState({ gitops: { cluster: "x", resources: [
       res({ name: "flux-system", ready: "Ready" }),
       res({ kind: "HelmRelease", name: "cilium", ready: "Failed", message: "install failed" }),
-    ], loading: false, expandedKey: null, detail: null } });
+    ], sources: [], loading: false, expandedKey: null, detail: null } });
     const { getByText } = render(<GitOps cluster="x" />);
     expect(getByText("flux-system/flux-system")).toBeTruthy();
     expect(getByText("flux-system/cilium")).toBeTruthy();
@@ -57,7 +63,7 @@ describe("GitOps view", () => {
     useFleet.setState({ gitops: { cluster: "x", resources: [
       res({ name: "flux-system", ready: "Ready" }),
       res({ kind: "HelmRelease", name: "cilium", ready: "Failed", message: "install failed" }),
-    ], loading: false, expandedKey: null, detail: null } });
+    ], sources: [], loading: false, expandedKey: null, detail: null } });
     const { getByTestId } = render(<GitOps cluster="x" />);
     expect(getByTestId("flux-resource-scroll").style.overflowY).toBe("auto");
     expect(getByTestId("flux-inspector-scroll").style.overflowY).toBe("auto");
@@ -75,6 +81,7 @@ describe("GitOps view", () => {
       gitops: {
         cluster: "x",
         resources: [res({ kind: "Kustomization", namespace: "flux-system", name: "flux-system" })],
+        sources: [],
         loading: false,
         expandedKey: "Kustomization/flux-system/flux-system",
         detail: {
@@ -99,6 +106,7 @@ describe("GitOps view", () => {
       gitops: {
         cluster: "x",
         resources: [res({ kind: "Kustomization", namespace: "flux-system", name: "x" })],
+        sources: [],
         loading: false,
         expandedKey: "Kustomization/flux-system/x",
         detail: {
@@ -145,6 +153,7 @@ describe("GitOps view", () => {
       gitops: {
         cluster: "x",
         resources: [res({ kind: "HelmRelease", namespace: "ns", name: "app" })],
+        sources: [],
         loading: false,
         expandedKey: "HelmRelease/ns/app",
         detail: { kind: "HelmRelease", namespace: "ns", name: "app", suspended: false, appliedRevision: "", attemptedRevision: "", applyFailed: false, conditions: [], inventory: [] },
@@ -152,6 +161,36 @@ describe("GitOps view", () => {
     });
     const { queryByText } = render(<GitOps cluster="x" />);
     expect(queryByText("View in Git")).toBeNull();
+  });
+
+  it("renders a failing bound source as the headline in the detail panel", () => {
+    useFleet.setState({
+      clusters: [cluster("Healthy")],
+      gitops: expandedDetail({
+        source: src({ ready: "Failed", reason: "GitOperationFailed", message: "auth required" }),
+      }),
+    });
+    const { getByText } = render(<GitOps cluster="x" />);
+    expect(getByText(/source not ready: GitOperationFailed/i)).toBeTruthy();
+    expect(getByText(/auth required/i)).toBeTruthy();
+  });
+
+  it("lists sources under the sources filter", () => {
+    useFleet.setState({
+      clusters: [cluster("Healthy")],
+      gitops: {
+        cluster: "x",
+        resources: [res({})],
+        sources: [src({ kind: "OCIRepository", name: "cilium", revision: "v1.15@sha256:abc" })],
+        loading: false,
+        expandedKey: null,
+        detail: null,
+      },
+    });
+    const { getByText, getByTestId } = render(<GitOps cluster="x" />);
+    fireEvent.click(getByText("sources"));
+    expect(getByTestId("flux-sources-scroll")).toBeTruthy();
+    expect(getByText("flux-system/cilium")).toBeTruthy();
   });
 
   it("sets the action-status in the store (global ActionToast renders it)", () => {

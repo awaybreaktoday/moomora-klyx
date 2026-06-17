@@ -1,4 +1,4 @@
-import { useFleet, FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
+import { useFleet, FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { Events, Browser, Clipboard } from "@wailsio/runtime";
 import { GitOpsService } from "../../bindings/github.com/moomora/klyx/internal/appbridge/index.js";
 
@@ -7,10 +7,10 @@ const GITOPS_UPDATED = "gitops:updated";
 export async function openGitOps(cluster: string): Promise<() => void> {
   useFleet.getState().setGitOpsLoading(cluster);
   await GitOpsService.Open(cluster);
-  const off = Events.On(GITOPS_UPDATED, (ev: { data: { cluster: string; resources: FluxResourceDTO[] } }) => {
+  const off = Events.On(GITOPS_UPDATED, (ev: { data: { cluster: string; resources: FluxResourceDTO[]; sources: FluxSourceDTO[] } }) => {
     const d = ev.data;
     if (d && d.cluster === cluster) {
-      useFleet.getState().setGitOps(cluster, d.resources ?? []);
+      useFleet.getState().setGitOps(cluster, d.resources ?? [], d.sources ?? []);
     }
   });
   return typeof off === "function" ? off : () => {};

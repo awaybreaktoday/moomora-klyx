@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useFleet } from "../store/fleet";
-import type { FluxResourceDTO, ResourceDetailDTO } from "../store/fleet";
+import type { FluxResourceDTO, FluxSourceDTO, ResourceDetailDTO } from "../store/fleet";
 import { openGitOps, closeGitOps, getResourceDetail, reconcile, setSuspend, resolveGitLink } from "../bridge/gitops";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 
@@ -27,9 +27,17 @@ const frame: CSSProperties = {
   background: "var(--color-background-primary)",
 };
 
-type FluxFilter = "all" | "attention" | "suspended" | "kustomizations" | "helmreleases";
+type FluxFilter = "all" | "attention" | "suspended" | "kustomizations" | "helmreleases" | "sources";
 
 const keyOf = (r: { kind: string; namespace: string; name: string }) => `${r.kind}/${r.namespace}/${r.name}`;
+
+const sourceKindLabel: Record<string, string> = {
+  GitRepository: "git",
+  OCIRepository: "oci",
+  Bucket: "bucket",
+  HelmRepository: "helmrepo",
+  HelmChart: "chart",
+};
 
 function shortRev(rev: string): string {
   if (!rev) return "";
@@ -57,6 +65,14 @@ function rank(r: FluxResourceDTO): number {
   if (r.ready === "Reconciling") return 1;
   if (r.suspended) return 2;
   if (r.ready !== "Ready") return 3;
+  return 4;
+}
+
+function srcRank(s: FluxSourceDTO): number {
+  if (s.ready === "Failed") return 0;
+  if (s.ready === "Reconciling") return 1;
+  if (s.suspended) return 2;
+  if (s.ready !== "Ready") return 3;
   return 4;
 }
 
@@ -120,6 +136,11 @@ export function GitOps({ cluster }: { cluster: string }) {
     () => orderedRows.filter((r) => matchesFilter(r, filter) && matchesQuery(r, query)),
     [orderedRows, filter, query],
   );
+  const allSources = gitops.cluster === cluster ? (gitops.sources ?? []) : [];
+  const orderedSources = useMemo(
+    () => [...allSources].sort((a, b) => srcRank(a) - srcRank(b) || a.kind.localeCompare(b.kind) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name)),
+    [allSources],
+  );
 
   useEffect(() => {
     if (!gitops.expandedKey) return;
@@ -168,6 +189,7 @@ export function GitOps({ cluster }: { cluster: string }) {
         <FilterButton label="suspended" active={filter === "suspended"} count={suspended} onClick={() => setFilter("suspended")} />
         <FilterButton label="ks" active={filter === "kustomizations"} count={ks} onClick={() => setFilter("kustomizations")} />
         <FilterButton label="hr" active={filter === "helmreleases"} count={hr} onClick={() => setFilter("helmreleases")} />
+        <FilterButton label="sources" active={filter === "sources"} count={allSources.length} onClick={() => setFilter("sources")} />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -178,8 +200,10 @@ export function GitOps({ cluster }: { cluster: string }) {
         {visibleRows.length !== rows.length && <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{visibleRows.length} of {rows.length}</span>}
       </div>
 
-      {gitops.loading && rows.length === 0 ? (
+      {gitops.loading && rows.length === 0 && allSources.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>Loading reconciliation state…</div>
+      ) : filter === "sources" ? (
+        <SourcesPanel sources={orderedSources} />
       ) : rows.length === 0 ? (
         <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux resources found.</div>
       ) : (
@@ -287,6 +311,47 @@ function RowSummary({ r, open, onClick }: { r: FluxResourceDTO; open: boolean; o
   );
 }
 
+function SourcesPanel({ sources }: { sources: FluxSourceDTO[] }) {
+  if (sources.length === 0) {
+    return <div style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No Flux sources found.</div>;
+  }
+  return (
+    <div style={{ flex: 1, minHeight: 0, ...frame, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "3px minmax(180px,1.4fr) 90px minmax(120px,1fr) 92px", gap: 10, alignItems: "center", padding: "5px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", fontSize: 10, color: "var(--color-text-tertiary)", flexShrink: 0 }}>
+        <span />
+        <span>source</span>
+        <span>kind</span>
+        <span>revision</span>
+        <span>status</span>
+      </div>
+      <div data-testid="flux-sources-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        {sources.map((s) => <SourceRow key={keyOf(s)} s={s} />)}
+      </div>
+    </div>
+  );
+}
+
+function SourceRow({ s }: { s: FluxSourceDTO }) {
+  const isBad = s.ready === "Failed";
+  const isReconciling = s.ready === "Reconciling";
+  const color = s.suspended ? "var(--color-text-warning)" : (readyColor[s.ready] ?? "var(--color-text-tertiary)");
+  const notReady = s.ready !== "Ready";
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "3px minmax(180px,1.4fr) 90px minmax(120px,1fr) 92px", gap: 10, alignItems: "center", padding: "8px 12px", borderTop: "0.5px solid var(--color-border-tertiary)", fontSize: 12 }}>
+      <span style={{ alignSelf: "stretch", background: isBad ? "var(--color-text-danger)" : isReconciling ? "var(--color-text-info)" : s.suspended ? "var(--color-text-warning)" : "transparent" }} />
+      <div style={{ minWidth: 0 }}>
+        <span style={{ fontFamily: "var(--font-mono)" }}>{s.namespace}/{s.name}</span>
+        {s.message && notReady && (
+          <div style={{ color: isBad ? "var(--color-text-danger)" : "var(--color-text-warning)", fontSize: 11, marginTop: 2, ...ellipsis }} title={s.message}>{s.message}</div>
+        )}
+      </div>
+      <div style={{ color: "var(--color-text-tertiary)", fontSize: 10, fontFamily: "var(--font-mono)" }}>{sourceKindLabel[s.kind] ?? s.kind}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-secondary)", ...ellipsis }} title={s.revision}>{shortRev(s.revision) || "—"}</div>
+      <div style={{ ...ellipsis, color }}>{s.suspended ? "suspended" : s.ready.toLowerCase()}</div>
+    </div>
+  );
+}
+
 function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit }: {
   resource: FluxResourceDTO;
   detail: ResourceDetailDTO | null;
@@ -319,6 +384,7 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
           <span style={{ color: "var(--color-text-warning)", fontSize: 11, fontWeight: 500 }}>suspended</span>
         )}
       </div>
+      {detail.source && <SourceSection source={detail.source} />}
       {detail.applyFailed && (
         <div style={{ color: "var(--color-text-danger)", marginBottom: 8 }}>apply failed at <span style={{ fontFamily: "var(--font-mono)" }}>{shortRev(detail.attemptedRevision)}</span></div>
       )}
@@ -343,6 +409,33 @@ function DetailPanel({ resource, detail, onReconcile, onToggleSuspend, onViewGit
         <Section title="Inventory"><Muted>no inventory in the HelmRelease CR</Muted></Section>
       )}
     </div>
+  );
+}
+
+function SourceSection({ source }: { source: FluxSourceDTO }) {
+  const ready = source.ready === "Ready";
+  const dot = source.suspended ? "var(--color-text-warning)" : (readyColor[source.ready] ?? "var(--color-text-tertiary)");
+  const label = sourceKindLabel[source.kind] ?? source.kind;
+  return (
+    <Section title="Source">
+      {!ready && (
+        <div style={{ color: "var(--color-text-danger)", fontWeight: 500, marginBottom: 4 }}>
+          source not ready{source.reason ? `: ${source.reason}` : ""}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr)", gap: 8, alignItems: "baseline" }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, display: "inline-block" }} />
+        <div style={{ minWidth: 0 }}>
+          <span style={{ fontFamily: "var(--font-mono)" }}>{label} · {source.namespace}/{source.name}</span>
+          {source.revision && (
+            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11, marginLeft: 6, fontFamily: "var(--font-mono)" }}>{shortRev(source.revision)}</span>
+          )}
+          {source.message && !ready && (
+            <div style={{ color: "var(--color-text-secondary)", fontSize: 11, marginTop: 2, ...ellipsis }} title={source.message}>{source.message}</div>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 }
 
